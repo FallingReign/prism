@@ -25,3 +25,8 @@ If Postgres is unavailable, the same path returns HTTP 503 with:
 ```
 
 No Supabase, Auth, PostgREST, ORM, or migration framework is required for this substrate slice.
+
+## Slack app setup
+
+Slack app manifest and admin scope review artefacts live in [`docs/slack/`](docs/slack/).
+

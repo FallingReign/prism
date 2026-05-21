@@ -1,0 +1,66 @@
+# Prism Slack app manifest template.
+# Replace bracketed placeholders only inside Slack App Management; do not commit exported app IDs or secrets.
+_metadata:
+  major_version: 2
+  minor_version: 1
+
+display_information:
+  name: Prism
+  description: Internal Slack-compatible bridge for developer-owned local tools.
+  background_color: "#111111"
+
+features:
+  bot_user:
+    display_name: Prism
+    always_online: false
+
+oauth_config:
+  redirect_urls:
+    # Local Next.js development callback expected by the future issue #4 OAuth route.
+    - http://localhost:3000/v1/slack/oauth/callback
+    # HTTPS development tunnel placeholder if Slack/admin policy rejects localhost HTTP.
+    - https://<dev-tunnel-host>/v1/slack/oauth/callback
+    # Hosted environment placeholder. Replace with the approved internal Prism hostname.
+    - https://<prism-hostname>/v1/slack/oauth/callback
+    # Alternative hosted placeholder if the organization reserves an internal domain pattern.
+    - https://prism.<internal-domain>/v1/slack/oauth/callback
+  scopes:
+    bot:
+      # Candidate non-admin bot scopes for v1 bot-backed execution.
+      - channels:read
+      - channels:history
+      - groups:read
+      - groups:history
+      - im:read
+      - im:history
+      - mpim:read
+      - mpim:history
+      - chat:write
+      - reactions:read
+      - reactions:write
+      - files:read
+      - users:read
+    user:
+      # Candidate non-admin user scopes for v1 user-backed execution and search.
+      - channels:read
+      - channels:history
+      - groups:read
+      - groups:history
+      - im:read
+      - im:history
+      - mpim:read
+      - mpim:history
+      - chat:write
+      - reactions:read
+      - reactions:write
+      - search:read
+      - files:read
+      - users:read
+
+settings:
+  # Baseline v1 is workspace/dev install unless Slack admins explicitly approve org deploy.
+  org_deploy_enabled: false
+  # Socket Mode and event delivery are deferred. Do not enable for v1.
+  socket_mode_enabled: false
+  # Security recommendation for issue #4 OAuth custody; confirm in Slack admin review.
+  token_rotation_enabled: true
