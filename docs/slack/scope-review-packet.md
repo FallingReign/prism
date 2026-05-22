@@ -8,7 +8,8 @@ Prism v1 will use Slack OAuth for install/user authorization. Existing enterpris
 
 Candidate redirect URLs for Slack App Management:
 
-- Local Next.js development: `http://localhost:3000/v1/slack/oauth/callback`
+- Local Next.js development: `http://localhost:3732/v1/slack/oauth/callback`
+- Pilot host VM: `http://10.62.240.10:3732/v1/slack/oauth/callback`
 - HTTPS development tunnel placeholder: `https://<dev-tunnel-host>/v1/slack/oauth/callback`
 - Hosted placeholder: `https://<prism-hostname>/v1/slack/oauth/callback`
 - Alternative hosted placeholder: `https://prism.<internal-domain>/v1/slack/oauth/callback`

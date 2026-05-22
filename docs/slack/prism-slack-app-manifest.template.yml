@@ -17,7 +17,9 @@ features:
 oauth_config:
   redirect_urls:
     # Local Next.js development callback expected by the future issue #4 OAuth route.
-    - http://localhost:3000/v1/slack/oauth/callback
+    - http://localhost:3732/v1/slack/oauth/callback
+    # Pilot host VM callback for browser-based Slack OAuth testing.
+    - http://10.62.240.10:3732/v1/slack/oauth/callback
     # HTTPS development tunnel placeholder if Slack/admin policy rejects localhost HTTP.
     - https://<dev-tunnel-host>/v1/slack/oauth/callback
     # Hosted environment placeholder. Replace with the approved internal Prism hostname.

@@ -13,7 +13,8 @@ This plan documents the required human Slack admin/security steps before any rea
 1. Review `docs/slack/scope-review-packet.md` and remove any scope not needed for the first approved Method registry slice.
 2. Create or update the Slack app from `docs/slack/prism-slack-app-manifest.template.yml` in Slack App Management, replacing only placeholders in the Slack UI.
 3. Configure redirect URLs for the selected environments:
-   - local: `http://localhost:3000/v1/slack/oauth/callback`
+   - local: `http://localhost:3732/v1/slack/oauth/callback`
+   - pilot host VM: `http://10.62.240.10:3732/v1/slack/oauth/callback`
    - dev tunnel: `https://<dev-tunnel-host>/v1/slack/oauth/callback`
    - hosted: `https://<prism-hostname>/v1/slack/oauth/callback` or `https://prism.<internal-domain>/v1/slack/oauth/callback`
 4. Decide workspace installation versus Enterprise Grid org-wide deployment. Baseline v1 assumes workspace/dev install; org-wide deployment requires explicit Slack admin approval.

@@ -9,8 +9,10 @@ npm install
 cp .env.example .env.local
 npm run db:up
 npm run dev
-curl -i http://localhost:3000/v1/prism/health
+curl -i http://localhost:3732/v1/prism/health
 ```
+
+The local development server uses port `3732` to avoid common default-port conflicts and binds to `0.0.0.0` so the pilot host VM can receive Slack OAuth redirects.
 
 The health endpoint returns only fixed service/database status values, for example:
 
@@ -29,4 +31,3 @@ No Supabase, Auth, PostgREST, ORM, or migration framework is required for this s
 ## Slack app setup
 
 Slack app manifest and admin scope review artefacts live in [`docs/slack/`](docs/slack/).
-

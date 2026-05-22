@@ -14,7 +14,7 @@
   - `CONTEXT.md`: internal Slack-compatible bridge, not Slack administration product; Slack credentials held only by Prism hosted service; `/v1/slack/*` preserves Slack method shapes later; admin/org/event/slash/interactivity/canvases/lists/file transfer are out of v1.
   - `docs/adr/0001-nextjs-postgres-substrate.md`: Next.js route handlers own website and `/v1/*` APIs; plain Postgres substrate.
   - `docs/implementation-reviews/issue-2-substrate-architecture-integration.md`: preserve `/v1/*`; future Slack-compatible endpoints under `/v1/slack/*`; do not expose Slack credentials; `.env.example` separates future Slack credential placeholders.
-  - `README.md`: local Next dev server runs on `localhost:3000` and exposes `/v1/prism/health`.
+  - `README.md`: local Next dev server runs on `localhost:3732` and exposes `/v1/prism/health`; the pilot host VM uses `10.62.240.10:3732`.
   - GitHub issue #3: requires OAuth redirect expectations, Enterprise Grid/workspace installation notes, candidate non-admin scope families, explicit exclusions, final scope cross-check against Method registry and Slack admin/security review, and no committed Slack secrets/tokens.
   - Slack docs: OAuth uses `https://slack.com/oauth/v2/authorize`; bot scopes are passed as `scope`, user scopes as `user_scope`; multiple redirect URLs require the same `redirect_uri` in authorize and access steps; `oauth.v2.access` should keep client secrets secure and preferably use HTTP Basic auth; `redirect_uri` must match the authorize value when supplied.
   - Slack manifest docs/schema: manifests can be YAML or JSON; `oauth_config.redirect_urls`, `oauth_config.scopes.bot`, `oauth_config.scopes.user`, `user_optional`, `bot_optional`, `settings.socket_mode_enabled`, `settings.org_deploy_enabled`, and `settings.token_rotation_enabled` are valid manifest fields.
@@ -22,7 +22,7 @@
 ## Existing interaction model
 
 - User/system behaviors that already exist:
-  - Local development starts with `npm run dev` on Next's default port `3000`; health proof is `curl -i http://localhost:3000/v1/prism/health`.
+  - Local development starts with `npm run dev` on Prism's configured port `3732`; health proof is `curl -i http://localhost:3732/v1/prism/health`.
   - `.env.example` has placeholder-only `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, and `SLACK_SIGNING_SECRET` grouped as future Slack credentials held only by the Prism hosted service.
   - The Prism website copy already states Slack credentials stay with the Prism hosted service and Local tools call Prism with Prism developer tokens.
 - Behaviors that must remain unchanged:
@@ -47,7 +47,7 @@
     - `docs/slack/admin-installation-plan.md` for Slack admin/human approval steps, Enterprise Grid vs workspace installation notes, Okta-backed Slack login acknowledgement, and final checklist.
     - Optional `docs/slack/README.md` only if implementer wants an index; avoid duplicating long scope content across files.
   - Recommended README touchpoint: add a short link from `README.md` to the Slack app setup packet, without expanding README into the packet.
-  - Recommended `.env.example` touchpoint: only add non-secret URL placeholders if issue #3 docs need them for issue #4 continuity, e.g. `PRISM_PUBLIC_BASE_URL=http://localhost:3000` and/or `SLACK_OAUTH_REDIRECT_URI=http://localhost:3000/v1/slack/oauth/callback`. Do not add any token values or real IDs.
+  - Recommended `.env.example` touchpoint: only add non-secret URL placeholders if issue #3 docs need them for issue #4 continuity, e.g. `PRISM_PUBLIC_BASE_URL=http://localhost:3732` and/or `SLACK_OAUTH_REDIRECT_URI=http://localhost:3732/v1/slack/oauth/callback`. Do not add any token values or real IDs.
 - Relevant docs or library capabilities:
   - Slack App Manifests support `display_information`, `features.bot_user`, `oauth_config.redirect_urls`, `oauth_config.scopes.bot`, `oauth_config.scopes.user`, `settings.org_deploy_enabled`, `settings.socket_mode_enabled`, and `settings.token_rotation_enabled`.
   - Slack OAuth v2 uses separate bot and user scope parameters. Slack warns that Sign in with Slack identity scopes conflict with non-SIWS scopes in the same OAuth flow; the packet should avoid promising a single combined SIWS + Web API flow unless later OAuth design verifies it.
@@ -85,7 +85,8 @@
     - Use `_metadata.major_version: 2`/`minor_version: 1` or omit metadata if Slack validation rejects the version; keep the template schema-compatible with Slack's current manifest reference.
     - Include `display_information` and, if bot-backed calls are part of v1, `features.bot_user` with neutral internal naming such as `Prism`/`Prism Bridge`.
     - Include `oauth_config.redirect_urls` with placeholders:
-      - recommended local: `http://localhost:3000/v1/slack/oauth/callback` matching current Next dev port and future App Router route `app/v1/slack/oauth/callback/route.ts`.
+      - recommended local: `http://localhost:3732/v1/slack/oauth/callback` matching current Next dev port and future App Router route `app/v1/slack/oauth/callback/route.ts`.
+      - recommended pilot host VM: `http://10.62.240.10:3732/v1/slack/oauth/callback` for browser-based Slack OAuth testing against the pilot VM.
       - recommended local HTTPS tunnel if Slack/admin policy rejects localhost HTTP: `https://<dev-tunnel-host>/v1/slack/oauth/callback`.
       - recommended hosted placeholder: `https://<prism-hostname>/v1/slack/oauth/callback` or `https://prism.<internal-domain>/v1/slack/oauth/callback`; do not commit a real production domain unless one is already approved.
     - Include `oauth_config.scopes` with candidate v1 scopes only; put risky/optional/future scopes in comments or the review packet rather than active YAML if Slack parser rejects comments near arrays.
@@ -152,7 +153,7 @@
   - Mitigation: Include it only with an explicit risk note; future Method registry/policy must allow metadata methods and block file transfer/download behavior unless separately approved.
 - Risk: `search:read` exposes broad search over content visible to a user token.
   - Mitigation: Keep search capability controlled by future Token profiles/Capability maps, include admin review warning, and avoid bot default if unsupported/unnecessary.
-- Risk: Local `http://localhost:3000` redirect may conflict with Slack/admin HTTPS policy.
+- Risk: Local `http://localhost:3732` or pilot VM `http://10.62.240.10:3732` redirects may conflict with Slack/admin HTTPS policy.
   - Mitigation: Include an HTTPS tunnel/reserved dev-host option and hosted HTTPS placeholder; document that Slack/admin validation is source of truth.
 - Risk: Enabling Socket Mode now could accidentally imply v1 event delivery.
   - Mitigation: Keep `socket_mode_enabled: false`; document `connections:write` only as future optional v1.5/admin-approved.
