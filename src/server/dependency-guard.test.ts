@@ -35,7 +35,9 @@ describe("Prism substrate dependencies", () => {
     const { readFile } = await import("node:fs/promises");
     const files = [
       "src/server/slack/method-registry.ts",
+      "src/server/slack/response-adapter.ts",
       "src/server/token-profiles/developer-token.ts",
+      "src/server/token-profiles/execution-identity.ts",
       "src/server/token-profiles/local-tool-status.ts",
       "src/server/token-profiles/method-policy.ts",
       "src/server/token-profiles/presets.ts",

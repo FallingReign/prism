@@ -4,6 +4,8 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { getDeveloperTokenConfig, isSetupRequiredError } from "../../../../../src/server/config";
 import { database } from "../../../../../src/server/db";
+import { applyPrismDiagnosticsHeaders, type PrismSlackResponseDiagnostics } from "../../../../../src/server/slack/response-adapter";
+import { resolveSlackExecutionIdentity } from "../../../../../src/server/token-profiles/execution-identity";
 import { evaluateSlackMethodPolicy, type SlackSurface } from "../../../../../src/server/token-profiles/method-policy";
 import { createPostgresTokenProfileStore } from "../../../../../src/server/token-profiles/store";
 
@@ -36,7 +38,14 @@ async function handleSlackMethod(request: NextRequest, context: RouteContext): P
         surface: readSurface(request.headers.get("x-prism-surface"))
       }
     });
-    if (decision.kind !== "allowed") return noStoreJson(decision.body, decision.httpStatus, requestId);
+    if (decision.kind !== "allowed") return noStoreJson(decision.body, decision.httpStatus, requestId, { policyDecision: decision.kind, upstreamCalled: false });
+
+    const identity = resolveSlackExecutionIdentity({
+      decision,
+      executionModeHeader: request.headers.get("x-prism-execution-mode"),
+      requestId
+    });
+    if (identity.kind === "denied") return noStoreJson(identity.body, identity.httpStatus, requestId, { policyDecision: "denied", upstreamCalled: false });
 
     return noStoreJson(
       {
@@ -51,10 +60,16 @@ async function handleSlackMethod(request: NextRequest, context: RouteContext): P
         }
       },
       501,
-      requestId
+      requestId,
+      { policyDecision: "allowed", executionMode: identity.executionMode, upstreamCalled: false }
     );
   } catch (error) {
-    if (isSetupRequiredError(error)) return noStoreJson({ ok: false, error: "setup_required", prism: { requestId, method } }, 503, requestId);
+    if (isSetupRequiredError(error)) {
+      return noStoreJson({ ok: false, error: "setup_required", prism: { requestId, method } }, 503, requestId, {
+        policyDecision: "auth_failed",
+        upstreamCalled: false
+      });
+    }
     throw error;
   }
 }
@@ -68,9 +83,12 @@ function readSurface(surface: string | null): SlackSurface | undefined {
   return surface && slackSurfaces.has(surface as SlackSurface) ? (surface as SlackSurface) : undefined;
 }
 
-function noStoreJson(body: unknown, status: number, requestId: string): NextResponse {
+function noStoreJson(
+  body: unknown,
+  status: number,
+  requestId: string,
+  diagnostics: Omit<PrismSlackResponseDiagnostics, "requestId"> = { policyDecision: "auth_failed", upstreamCalled: false }
+): NextResponse {
   const response = NextResponse.json(body, { status });
-  response.headers.set("Cache-Control", "no-store");
-  response.headers.set("X-Prism-Request-ID", requestId);
-  return response;
+  return applyPrismDiagnosticsHeaders(response, { requestId, ...diagnostics });
 }

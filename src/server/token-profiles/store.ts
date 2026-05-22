@@ -84,6 +84,7 @@ export function createPostgresTokenProfileStore(database: Database): TokenProfil
       const result = await database.query<DeveloperTokenResolutionRow>(
         `select
            p.id as token_profile_id,
+           p.slack_connection_id,
            t.expires_at as token_expires_at,
            t.revoked_at as token_revoked_at,
            p.status as profile_status,
@@ -125,6 +126,7 @@ type TokenProfileRow = {
 
 type DeveloperTokenResolutionRow = {
   token_profile_id: string;
+  slack_connection_id: string;
   token_expires_at: Date | null;
   token_revoked_at: Date | null;
   profile_status: "active" | "bootstrap" | "revoked";
@@ -158,6 +160,7 @@ function toTokenProfileMetadata(row: TokenProfileRow): TokenProfileMetadata {
 function toResolvedDeveloperToken(row: DeveloperTokenResolutionRow): ResolvedDeveloperToken {
   return {
     tokenProfileId: row.token_profile_id,
+    slackConnectionId: row.slack_connection_id,
     tokenExpiresAt: row.token_expires_at,
     tokenRevokedAt: row.token_revoked_at,
     profileStatus: row.profile_status,

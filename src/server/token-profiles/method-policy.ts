@@ -40,6 +40,7 @@ export type SlackMethodPolicyDecision =
       method: string;
       category: MethodCategory;
       tokenProfileId: string;
+      slackConnectionId?: string | null;
       capabilityMap: CapabilityMap;
       mutation: CapabilityMap["mutation"];
       executionIdentity: ReturnType<typeof executionIdentityStatus>;
@@ -91,6 +92,7 @@ export async function evaluateSlackMethodPolicy({
     method,
     category: classification.category,
     tokenProfileId: resolved.tokenProfileId,
+    slackConnectionId: resolved.slackConnectionId,
     capabilityMap: resolved.capabilityMap,
     mutation: resolved.capabilityMap.mutation,
     executionIdentity

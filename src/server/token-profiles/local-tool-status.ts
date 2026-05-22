@@ -6,6 +6,7 @@ import type { CapabilityMap, TokenProfilePreset } from "./presets";
 
 export type ResolvedDeveloperToken = {
   tokenProfileId: string;
+  slackConnectionId?: string | null;
   tokenExpiresAt: Date | null;
   tokenRevokedAt: Date | null;
   profileStatus: "active" | "bootstrap" | "revoked";

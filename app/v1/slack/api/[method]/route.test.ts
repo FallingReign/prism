@@ -75,6 +75,7 @@ describe("/v1/slack/api/[method] policy tracer", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.headers.get("x-prism-request-id")).toBe(body.prism.requestId);
+    expect(response.headers.get("x-prism-upstream-called")).toBe("false");
     expect(body).toMatchObject({
       ok: false,
       error: "not_allowed",
@@ -104,11 +105,66 @@ describe("/v1/slack/api/[method] policy tracer", () => {
     );
 
     expect(await admin.json()).toMatchObject({ ok: false, error: "method_not_supported", prism: { errorClass: "unsupported_method", category: "admin" } });
+    expect(admin.headers.get("x-prism-upstream-called")).toBe("false");
+    expect(allowed.headers.get("x-prism-policy-decision")).toBe("allowed");
+    expect(allowed.headers.get("x-prism-execution-mode")).toBe("user");
+    expect(allowed.headers.get("x-prism-upstream-called")).toBe("false");
     expect(await allowed.json()).toMatchObject({
       ok: false,
       error: "slack_forwarding_not_implemented",
       prism: { method: "conversations.history", category: "conversations.read", policy: "allowed" }
     });
+  });
+
+  it("honors selectable execution-mode headers after policy and denies invalid or non-selectable overrides before forwarding", async () => {
+    const { GET } = await import("./route");
+    mockDb.query.mockResolvedValueOnce({ rows: [row({ ...capabilityMap({ writeMessages: true }), executionIdentity: "selectable" })], rowCount: 1 });
+    const selectableBot = await GET(
+      new NextRequest("http://localhost:3732/v1/slack/api/chat.postMessage", {
+        headers: {
+          authorization: "Bearer prism_dev_selectableroutecanaryselectableok",
+          "x-prism-workspace-id": "T123",
+          "x-prism-surface": "public_channel",
+          "x-prism-execution-mode": "bot"
+        }
+      }),
+      { params: Promise.resolve({ method: "chat.postMessage" }) }
+    );
+    const selectableBody = await selectableBot.json();
+
+    mockDb.query.mockResolvedValueOnce({ rows: [row({ ...capabilityMap(), executionIdentity: "selectable" })], rowCount: 1 });
+    const invalidMode = await GET(
+      new NextRequest("http://localhost:3732/v1/slack/api/conversations.history", {
+        headers: {
+          authorization: "Bearer prism_dev_invalidmodecanaryinvalidmodeokxx",
+          "x-prism-workspace-id": "T123",
+          "x-prism-surface": "public_channel",
+          "x-prism-execution-mode": "admin"
+        }
+      }),
+      { params: Promise.resolve({ method: "conversations.history" }) }
+    );
+
+    const nonSelectable = await GET(
+      new NextRequest("http://localhost:3732/v1/slack/api/conversations.history", {
+        headers: {
+          authorization: "Bearer prism_dev_nonselectableroutecanarynonselectok",
+          "x-prism-workspace-id": "T123",
+          "x-prism-surface": "public_channel",
+          "x-prism-execution-mode": "bot"
+        }
+      }),
+      { params: Promise.resolve({ method: "conversations.history" }) }
+    );
+
+    expect(selectableBot.status).toBe(501);
+    expect(selectableBot.headers.get("x-prism-policy-decision")).toBe("allowed");
+    expect(selectableBot.headers.get("x-prism-execution-mode")).toBe("bot");
+    expect(selectableBot.headers.get("x-prism-upstream-called")).toBe("false");
+    expect(selectableBody).toMatchObject({ ok: false, error: "slack_forwarding_not_implemented" });
+    expect(await invalidMode.json()).toMatchObject({ ok: false, error: "not_allowed", prism: { errorClass: "invalid_execution_mode" } });
+    expect(await nonSelectable.json()).toMatchObject({ ok: false, error: "not_allowed", prism: { errorClass: "execution_mode_not_selectable" } });
+    expect(JSON.stringify(mockDb.query.mock.calls)).not.toMatch(/access_token_envelope|refresh_token_envelope|xox[bp]-|client_secret/i);
   });
 
   it("rejects malformed bearer tokens before querying token or Slack credential metadata", async () => {
