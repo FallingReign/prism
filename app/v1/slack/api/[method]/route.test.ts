@@ -34,14 +34,18 @@ function capabilityMap(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function row(map = capabilityMap()) {
+function row(map = capabilityMap(), overrides: Record<string, unknown> = {}) {
   return {
+    developer_token_id: "devtoken_1",
     prism_user_id: "user_1",
     token_profile_id: "profile_1",
     token_profile_name: "Local MCP",
     slack_connection_id: "conn_1",
     token_expires_at: null,
     token_revoked_at: null,
+    token_last_used_at: null,
+    token_overlap_expires_at: null,
+    token_is_current: true,
     profile_status: "active",
     profile_expires_at: null,
     preset: map.preset,
@@ -52,7 +56,8 @@ function row(map = capabilityMap()) {
     slack_user_id: "U123",
     slack_last_error_class: null,
     has_user_credential: true,
-    has_bot_credential: true
+    has_bot_credential: true,
+    ...overrides
   };
 }
 
@@ -288,6 +293,63 @@ describe("/v1/slack/api/[method] policy tracer", () => {
     expect(response.status).toBe(401);
     expect(body).toMatchObject({ ok: false, error: "invalid_auth", prism: { errorClass: "invalid_auth", method: "conversations.history" } });
     expect(mockDb.query).not.toHaveBeenCalled();
+  });
+
+  it("rejects revoked, expired overlap, and Slack reauth-gated tokens before upstream forwarding", async () => {
+    const { GET } = await import("./route");
+    queueTokenRows([row(capabilityMap({ writeMessages: true }), { token_revoked_at: new Date("2026-01-01T00:00:00.000Z") })]);
+    const revoked = await GET(
+      new NextRequest("http://localhost:3732/v1/slack/api/chat.postMessage", {
+        headers: {
+          authorization: "Bearer prism_dev_revokedslackroutecanaryrevokedok",
+          "x-prism-workspace-id": "T123",
+          "x-prism-surface": "public_channel"
+        }
+      }),
+      { params: Promise.resolve({ method: "chat.postMessage" }) }
+    );
+
+    queueTokenRows([
+      row(capabilityMap({ writeMessages: true }), {
+        token_expires_at: new Date("2025-12-31T23:45:00.000Z"),
+        token_overlap_expires_at: new Date("2025-12-31T23:45:00.000Z"),
+        token_is_current: false
+      })
+    ]);
+    const expiredOverlap = await GET(
+      new NextRequest("http://localhost:3732/v1/slack/api/chat.postMessage", {
+        headers: {
+          authorization: "Bearer prism_dev_expiredslackroutecanaryexpiredok",
+          "x-prism-workspace-id": "T123",
+          "x-prism-surface": "public_channel"
+        }
+      }),
+      { params: Promise.resolve({ method: "chat.postMessage" }) }
+    );
+
+    queueTokenRows([row(capabilityMap({ writeMessages: true }), { slack_status: "reauth_required", slack_last_error_class: "invalid_refresh_token" })]);
+    const reauth = await GET(
+      new NextRequest("http://localhost:3732/v1/slack/api/chat.postMessage", {
+        headers: {
+          authorization: "Bearer prism_dev_reauthslackroutecanaryreauthokxx",
+          "x-prism-workspace-id": "T123",
+          "x-prism-surface": "public_channel"
+        }
+      }),
+      { params: Promise.resolve({ method: "chat.postMessage" }) }
+    );
+
+    expect(revoked.headers.get("x-prism-upstream-called")).toBe("false");
+    expect(await revoked.json()).toMatchObject({ ok: false, error: "token_revoked", prism: { errorClass: "token_revoked" } });
+    expect(expiredOverlap.headers.get("x-prism-upstream-called")).toBe("false");
+    expect(await expiredOverlap.json()).toMatchObject({ ok: false, error: "token_expired", prism: { errorClass: "token_expired" } });
+    expect(reauth.headers.get("x-prism-upstream-called")).toBe("false");
+    expect(await reauth.json()).toMatchObject({
+      ok: false,
+      error: "not_allowed",
+      prism: { errorClass: "execution_identity_unavailable", unavailableReason: "slack_reauth_required" }
+    });
+    expect(JSON.stringify(mockDb.query.mock.calls)).not.toMatch(/access_token_envelope|refresh_token_envelope|xox[bp]-|client_secret/i);
   });
 
   it("records Slack method audit rows with metadata only", async () => {

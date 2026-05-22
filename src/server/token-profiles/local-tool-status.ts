@@ -6,11 +6,15 @@ import type { CapabilityMap, TokenProfilePreset } from "./presets";
 
 export type ResolvedDeveloperToken = {
   prismUserId?: string | null;
+  developerTokenId?: string | null;
   tokenProfileId: string;
   tokenProfileName?: string | null;
   slackConnectionId?: string | null;
   tokenExpiresAt: Date | null;
   tokenRevokedAt: Date | null;
+  tokenLastUsedAt?: Date | null;
+  tokenOverlapExpiresAt?: Date | null;
+  tokenIsCurrent?: boolean | null;
   profileStatus: "active" | "bootstrap" | "revoked";
   profileExpiresAt: Date | null;
   preset: TokenProfilePreset;
@@ -36,7 +40,7 @@ export type LocalToolResult = {
 export type PrismStatusBody = {
   requestId: string;
   token:
-    | { valid: true; status: "active"; tokenProfileId: string; expiresAt: string | null }
+    | { valid: true; status: "active"; tokenProfileId: string; expiresAt: string | null; lastUsedAt?: string | null; overlapExpiresAt?: string | null }
     | { valid: false; status: "invalid" | "expired" | "revoked"; tokenProfileId?: string; expiresAt?: string | null };
   slack?: {
     connected: boolean;
@@ -55,7 +59,7 @@ export type PrismStatusBody = {
 export type PrismCapabilitiesBody = {
   requestId: string;
   token:
-    | { status: "active"; tokenProfileId: string; expiresAt: string | null }
+    | { status: "active"; tokenProfileId: string; expiresAt: string | null; lastUsedAt?: string | null; overlapExpiresAt?: string | null }
     | { valid: false; status: "invalid" | "expired" | "revoked"; tokenProfileId?: string; expiresAt?: string | null };
   slack?: PrismStatusBody["slack"];
   executionIdentity?: PrismStatusBody["executionIdentity"];
@@ -121,7 +125,9 @@ export async function getPrismCapabilities({
       token: {
         status: "active",
         tokenProfileId: resolution.resolved.tokenProfileId,
-        expiresAt: earliestExpiry(resolution.resolved)?.toISOString() ?? null
+        expiresAt: earliestExpiry(resolution.resolved)?.toISOString() ?? null,
+        lastUsedAt: resolution.resolved.tokenLastUsedAt?.toISOString() ?? null,
+        overlapExpiresAt: resolution.resolved.tokenOverlapExpiresAt?.toISOString() ?? null
       },
       slack: slackStatus(resolution.resolved),
       executionIdentity: executionIdentityStatus(resolution.resolved),
@@ -204,7 +210,9 @@ function activeTokenStatus(resolved: ResolvedDeveloperToken): Extract<PrismStatu
     valid: true,
     status: "active",
     tokenProfileId: resolved.tokenProfileId,
-    expiresAt: earliestExpiry(resolved)?.toISOString() ?? null
+    expiresAt: earliestExpiry(resolved)?.toISOString() ?? null,
+    lastUsedAt: resolved.tokenLastUsedAt?.toISOString() ?? null,
+    overlapExpiresAt: resolved.tokenOverlapExpiresAt?.toISOString() ?? null
   };
 }
 

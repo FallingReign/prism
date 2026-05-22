@@ -2,7 +2,13 @@ import { randomUUID } from "node:crypto";
 
 export const ACTIVITY_AUDIT_DEFAULT_RETENTION_DAYS = 90;
 
-export type ActivityType = "slack_method" | "token_profile_created" | "token_profiles_listed";
+export type ActivityType =
+  | "slack_method"
+  | "token_profile_created"
+  | "token_profiles_listed"
+  | "token_profile_revoked"
+  | "token_profile_rotated"
+  | "token_profile_policy_updated";
 
 export type ActivityStatus =
   | "attempted"
@@ -15,7 +21,10 @@ export type ActivityStatus =
   | "parse_error"
   | "rate_limited"
   | "created"
-  | "listed";
+  | "listed"
+  | "revoked"
+  | "rotated"
+  | "updated";
 
 export type ActivityAuditInput = {
   prismUserId?: string | null;

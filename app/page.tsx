@@ -73,8 +73,19 @@ async function readTokenProfileSummaries(sessionToken: string | undefined): Prom
     name: profile.name,
     intendedUse: profile.intendedUse,
     preset: profile.preset,
+    executionIdentity: profile.capabilityMap.executionIdentity,
     expiresAt: profile.expiresAt?.toISOString() ?? null,
-    createdAt: profile.createdAt.toISOString()
+    createdAt: profile.createdAt.toISOString(),
+    developerToken: profile.developerToken
+      ? {
+          status: profile.developerToken.status,
+          createdAt: profile.developerToken.createdAt?.toISOString() ?? null,
+          expiresAt: profile.developerToken.expiresAt?.toISOString() ?? null,
+          lastUsedAt: profile.developerToken.lastUsedAt?.toISOString() ?? null,
+          revokedAt: profile.developerToken.revokedAt?.toISOString() ?? null,
+          overlapExpiresAt: profile.developerToken.overlapExpiresAt?.toISOString() ?? null
+        }
+      : undefined
   }));
 }
 

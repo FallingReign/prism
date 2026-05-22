@@ -48,7 +48,10 @@ describe("GET /v1/prism/capabilities", () => {
           slack_status: "healthy",
           slack_last_error_class: null,
           has_user_credential: true,
-          has_bot_credential: true
+          has_bot_credential: true,
+          token_last_used_at: null,
+          token_overlap_expires_at: null,
+          token_is_current: true
         }
       ],
       rowCount: 1
@@ -93,4 +96,65 @@ describe("GET /v1/prism/capabilities", () => {
     expect(body.methods).toBeUndefined();
     expect(mockDb.query).not.toHaveBeenCalled();
   });
+
+  it("does not return capability maps for expired or revoked developer tokens", async () => {
+    const { GET } = await import("./route");
+    mockDb.query.mockResolvedValueOnce({
+      rows: [
+        {
+          ...activeRow(),
+          token_expires_at: new Date("2025-12-31T23:45:00.000Z"),
+          token_overlap_expires_at: new Date("2025-12-31T23:45:00.000Z"),
+          token_is_current: false
+        }
+      ],
+      rowCount: 1
+    });
+    const expired = await GET(
+      new NextRequest("http://localhost:3732/v1/prism/capabilities", {
+        headers: { authorization: "Bearer prism_dev_expiredcapabilityroutecanaryxxxx" }
+      })
+    );
+
+    mockDb.query.mockResolvedValueOnce({
+      rows: [{ ...activeRow(), token_revoked_at: new Date("2026-01-01T00:00:00.000Z") }],
+      rowCount: 1
+    });
+    const revoked = await GET(
+      new NextRequest("http://localhost:3732/v1/prism/capabilities", {
+        headers: { authorization: "Bearer prism_dev_revokedcapabilityroutecanaryxxxx" }
+      })
+    );
+    const expiredBody = await expired.json();
+    const revokedBody = await revoked.json();
+
+    expect(expired.status).toBe(401);
+    expect(expiredBody).toMatchObject({ token: { valid: false, status: "expired", tokenProfileId: "profile_read" } });
+    expect(expiredBody.capabilityMap).toBeUndefined();
+    expect(expiredBody.methods).toBeUndefined();
+    expect(revoked.status).toBe(403);
+    expect(revokedBody).toMatchObject({ token: { valid: false, status: "revoked", tokenProfileId: "profile_read" } });
+    expect(revokedBody.capabilityMap).toBeUndefined();
+    expect(revokedBody.methods).toBeUndefined();
+    expect(JSON.stringify({ expiredBody, revokedBody })).not.toMatch(/prism_dev_|tokenHash|pepper-secret-canary|xox[bp]-|refresh|access_token|client_secret/i);
+  });
 });
+
+function activeRow() {
+  return {
+    token_profile_id: "profile_read",
+    token_expires_at: null,
+    token_revoked_at: null,
+    token_last_used_at: null,
+    token_overlap_expires_at: null,
+    token_is_current: true,
+    profile_status: "active",
+    profile_expires_at: null,
+    preset: "read_only",
+    capability_map: capabilityMap,
+    slack_status: "healthy",
+    slack_last_error_class: null,
+    has_user_credential: true,
+    has_bot_credential: true
+  };
+}

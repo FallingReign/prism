@@ -14,8 +14,16 @@ describe("Prism website Token profiles", () => {
             name: "Local MCP read",
             intendedUse: "Read Slack context locally",
             preset: "read_only",
+            executionIdentity: "automatic",
             expiresAt: null,
-            createdAt: "2026-01-01T00:00:00.000Z"
+            createdAt: "2026-01-01T00:00:00.000Z",
+            developerToken: {
+              status: "active",
+              createdAt: "2026-01-01T00:00:00.000Z",
+              expiresAt: null,
+              lastUsedAt: "2026-01-01T00:15:00.000Z",
+              overlapExpiresAt: "2026-01-01T01:00:00.000Z"
+            }
           }
         ]}
       />
@@ -27,6 +35,13 @@ describe("Prism website Token profiles", () => {
     expect(html).toContain("Copy the Prism developer token when it is shown");
     expect(html).toContain("Local MCP read");
     expect(html).toContain("Read-only");
+    expect(html).toContain("Token status");
+    expect(html).toContain("Active");
+    expect(html).toContain("Last used");
+    expect(html).toContain("Overlap until");
+    expect(html).toContain("Rotate token");
+    expect(html).toContain("Revoke token");
+    expect(html).toContain("Update policy");
     expect(html).not.toMatch(/prism_dev_|tokenHash|xox[bp]-|refresh-secret|client_secret|access_token/i);
   });
 });

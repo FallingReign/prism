@@ -33,8 +33,10 @@ function store(resolved: ResolvedDeveloperToken | null): LocalToolTokenStore {
 
 describe("Local-tool Prism token status", () => {
   it("reports healthy active status without exposing bearer token or verifier material", async () => {
+    const lastUsedAt = new Date("2025-12-31T23:59:00.000Z");
+    const overlapExpiresAt = new Date("2026-01-01T00:15:00.000Z");
     const result = await getPrismTokenStatus({
-      store: store(record()),
+      store: store(record({ tokenLastUsedAt: lastUsedAt, tokenOverlapExpiresAt: overlapExpiresAt, tokenIsCurrent: false })),
       bearerToken: "prism_dev_canarycanarycanarycanarycanarycanarycanary",
       developerTokenConfig: { pepper: "pepper-secret-canary", pepperId: "local-pepper" },
       requestId: "req_123",
@@ -44,7 +46,13 @@ describe("Local-tool Prism token status", () => {
     expect(result.httpStatus).toBe(200);
     expect(result.body).toMatchObject({
       requestId: "req_123",
-      token: { valid: true, status: "active", tokenProfileId: "profile_1" },
+      token: {
+        valid: true,
+        status: "active",
+        tokenProfileId: "profile_1",
+        lastUsedAt: "2025-12-31T23:59:00.000Z",
+        overlapExpiresAt: "2026-01-01T00:15:00.000Z"
+      },
       slack: { connected: true, status: "healthy", reauthRequired: false },
       executionIdentity: {
         configured: "user",
@@ -78,6 +86,19 @@ describe("Local-tool Prism token status", () => {
       requestId: "req_revoked",
       now
     });
+    const overlapExpired = await getPrismTokenStatus({
+      store: store(
+        record({
+          tokenExpiresAt: new Date("2025-12-31T23:45:00.000Z"),
+          tokenOverlapExpiresAt: new Date("2025-12-31T23:45:00.000Z"),
+          tokenIsCurrent: false
+        })
+      ),
+      bearerToken: "prism_dev_overlapexpiredcanaryoverlapexpired",
+      developerTokenConfig: { pepper: "pepper-secret-canary", pepperId: "local-pepper" },
+      requestId: "req_overlap_expired",
+      now
+    });
     const reauth = await getPrismTokenStatus({
       store: store(record({ slackStatus: "reauth_required", slackLastErrorClass: "invalid_refresh_token" })),
       bearerToken: "prism_dev_reauthcanaryreauthcanaryreauthcanary",
@@ -96,6 +117,10 @@ describe("Local-tool Prism token status", () => {
 
     expect(malformed).toMatchObject({ httpStatus: 401, body: { token: { valid: false, status: "invalid" }, requestId: "req_invalid" } });
     expect(expired).toMatchObject({ httpStatus: 401, body: { token: { valid: false, status: "expired" }, requestId: "req_expired" } });
+    expect(overlapExpired).toMatchObject({
+      httpStatus: 401,
+      body: { token: { valid: false, status: "expired", expiresAt: "2025-12-31T23:45:00.000Z" }, requestId: "req_overlap_expired" }
+    });
     expect(revoked).toMatchObject({ httpStatus: 403, body: { token: { valid: false, status: "revoked" }, requestId: "req_revoked" } });
     expect(reauth).toMatchObject({
       httpStatus: 200,

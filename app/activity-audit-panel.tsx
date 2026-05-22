@@ -65,5 +65,8 @@ export function ActivityAuditPanel({ activity }: { activity: ActivityAuditSummar
 function activityLabel(activityType: ActivityAuditSummary["activityType"]): string {
   if (activityType === "token_profile_created") return "Token profile created";
   if (activityType === "token_profiles_listed") return "Token profiles listed";
+  if (activityType === "token_profile_revoked") return "Token profile revoked";
+  if (activityType === "token_profile_rotated") return "Token profile rotated";
+  if (activityType === "token_profile_policy_updated") return "Token profile policy updated";
   return "Slack method";
 }
