@@ -2,6 +2,8 @@
 
 This example is a **Local tool** MCP stdio server for Prism. It calls the Prism hosted service with a Prism base URL and a Prism developer token only; it never handles Slack app credentials, bot tokens, user tokens, refresh tokens, app-level tokens, or Slack client secrets.
 
+For the broader Prism Local tool setup guide, see [`../../docs/setup.md`](../../docs/setup.md). For security review notes and token-risk guidance, see [`../../docs/security.md`](../../docs/security.md).
+
 ## Setup
 
 ```bash

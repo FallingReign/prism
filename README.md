@@ -1,6 +1,6 @@
 # Prism
 
-Prism is a Next.js Prism hosted service with a Prism website and server-side `/v1/*` API routes for local tools.
+Prism is an internal Slack-compatible bridge for developer-owned **Local tools**. The **Prism hosted service** owns Slack credential custody, Token profile policy, Slack-compatible endpoint forwarding, rate limits, and Metadata-only audit. Local tools receive only opaque **Prism developer tokens**, never **Slack credentials**.
 
 ## Local development
 
@@ -28,6 +28,15 @@ If Postgres is unavailable, the same path returns HTTP 503 with:
 ```
 
 No Supabase, Auth, PostgREST, ORM, or migration framework is required for this substrate slice.
+
+## Self-serve setup
+
+- Local tool and API setup: [`docs/setup.md`](docs/setup.md)
+- Security review notes and token-risk guidance: [`docs/security.md`](docs/security.md)
+- Slack app review artefacts: [`docs/slack/`](docs/slack/)
+- Reference MCP adapter: [`examples/prism-mcp-adapter`](examples/prism-mcp-adapter/)
+
+The current self-serve docs are repository Markdown. The Prism website is the product surface for Slack linking, Token profile management, and Metadata-only audit review; it does not yet host a separate docs route.
 
 ## Slack app setup
 
