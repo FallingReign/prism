@@ -91,6 +91,7 @@ export function createPostgresTokenProfileStore(database: Database): TokenProfil
            p.preset,
            p.capability_map,
            c.status as slack_status,
+           c.team_id as slack_team_id,
            c.last_error_class as slack_last_error_class,
            exists(select 1 from slack_credentials sc where sc.connection_id = c.id and sc.kind = 'user') as has_user_credential,
            exists(select 1 from slack_credentials sc where sc.connection_id = c.id and sc.kind = 'bot') as has_bot_credential
@@ -131,6 +132,7 @@ type DeveloperTokenResolutionRow = {
   preset: TokenProfilePreset;
   capability_map: CapabilityMap;
   slack_status: "healthy" | "reauth_required";
+  slack_team_id: string | null;
   slack_last_error_class: string | null;
   has_user_credential: boolean;
   has_bot_credential: boolean;
@@ -163,6 +165,7 @@ function toResolvedDeveloperToken(row: DeveloperTokenResolutionRow): ResolvedDev
     preset: row.preset,
     capabilityMap: row.capability_map,
     slackStatus: row.slack_status,
+    slackTeamId: row.slack_team_id,
     slackLastErrorClass: row.slack_last_error_class,
     hasUserCredential: row.has_user_credential,
     hasBotCredential: row.has_bot_credential

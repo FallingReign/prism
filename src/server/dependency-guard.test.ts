@@ -37,6 +37,7 @@ describe("Prism substrate dependencies", () => {
       "src/server/slack/method-registry.ts",
       "src/server/token-profiles/developer-token.ts",
       "src/server/token-profiles/local-tool-status.ts",
+      "src/server/token-profiles/method-policy.ts",
       "src/server/token-profiles/presets.ts",
       "src/server/token-profiles/service.ts",
       "src/server/token-profiles/store.ts"

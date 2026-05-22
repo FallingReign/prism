@@ -16,6 +16,7 @@ export type ResolvedDeveloperToken = {
   slackLastErrorClass: string | null;
   hasUserCredential: boolean;
   hasBotCredential: boolean;
+  slackTeamId?: string | null;
 };
 
 export type LocalToolTokenStore = {
@@ -145,7 +146,7 @@ export function executionIdentityStatus(resolved: ResolvedDeveloperToken): NonNu
   };
 }
 
-async function resolvePresentedDeveloperToken({
+export async function resolvePresentedDeveloperToken({
   store,
   bearerToken,
   developerTokenConfig,
