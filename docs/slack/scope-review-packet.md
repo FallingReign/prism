@@ -73,6 +73,7 @@ Exclude these families from the v1 app review and manifest:
 ## Review checkpoints
 
 - Slack admin/security confirms candidate scopes remain non-admin and appropriate for the intended workspace or Enterprise Grid target.
+- Slack admin/security confirms the dev pilot's org-ready installation target and understands production org rollout remains a separate approval.
 - Prism engineering confirms final scopes map to approved Method registry categories before OAuth is implemented.
 - Security confirms Slack credentials remain server-held by the Prism hosted service and are never issued to Local tools.
 - If Sign in with Slack identity scopes are needed, issue #4 must design them separately because Slack distinguishes SIWS identity scopes from regular Web API OAuth scopes.

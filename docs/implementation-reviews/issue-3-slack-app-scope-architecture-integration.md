@@ -90,7 +90,7 @@
       - recommended local HTTPS tunnel if Slack/admin policy rejects localhost HTTP: `https://<dev-tunnel-host>/v1/slack/oauth/callback`.
       - recommended hosted placeholder: `https://<prism-hostname>/v1/slack/oauth/callback` or `https://prism.<internal-domain>/v1/slack/oauth/callback`; do not commit a real production domain unless one is already approved.
     - Include `oauth_config.scopes` with candidate v1 scopes only; put risky/optional/future scopes in comments or the review packet rather than active YAML if Slack parser rejects comments near arrays.
-    - Set `settings.org_deploy_enabled: false` in the baseline unless Slack admins explicitly approve org-wide deployment; document Enterprise Grid org-wide deploy as an admin decision.
+     - Set `settings.org_deploy_enabled: true` for the dev pilot because the user explicitly wants org-ready issues surfaced during development; document that production org-wide deployment remains an admin/security decision.
     - Set `settings.socket_mode_enabled: false` for v1. Do not configure event subscriptions or interactivity.
     - Set `settings.token_rotation_enabled: true` if the admin review accepts token rotation for OAuth credentials; otherwise flag as a security recommendation requiring Slack admin confirmation. Issue #4 will implement custody/refresh behavior.
   - Create `docs/slack/scope-review-packet.md` with:
@@ -172,6 +172,6 @@
   - The recommended `/v1/slack/oauth/callback` path aligns with ADR 0001 and future Slack namespace expectations while avoiding implementation.
 - Open questions:
   - Whether the organization has an approved hosted Prism domain. Until known, use `https://<prism-hostname>/v1/slack/oauth/callback` or `https://prism.<internal-domain>/v1/slack/oauth/callback` as a placeholder.
-  - Whether Slack admins prefer workspace install first or Enterprise Grid org-wide deploy. Baseline should default to workspace/dev install and `org_deploy_enabled: false` unless admin approval says otherwise.
+   - Whether Slack admins prefer workspace install first or Enterprise Grid org-wide deploy. Resolved for the dev pilot: use org-ready deployment with `org_deploy_enabled: true`; production rollout still requires explicit admin/security approval.
   - Whether issue #4 will use a single Slack OAuth install/user authorization flow or separate Sign in with Slack identity flow. Slack warns SIWS scopes conflict with non-SIWS scopes in the same OAuth flow, so issue #3 should document the nuance without resolving implementation.
   - Whether `users:read.email`, `team:read`, `users.profile:read`, and any destructive write methods are truly needed for v1. Treat them as optional/admin-reviewed, not automatic defaults.

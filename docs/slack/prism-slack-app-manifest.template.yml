@@ -60,8 +60,8 @@ oauth_config:
       - users:read
 
 settings:
-  # Baseline v1 is workspace/dev install unless Slack admins explicitly approve org deploy.
-  org_deploy_enabled: false
+  # Dev pilot targets org-ready behavior so Enterprise Grid issues surface early.
+  org_deploy_enabled: true
   # Socket Mode and event delivery are deferred. Do not enable for v1.
   socket_mode_enabled: false
   # Security recommendation for issue #4 OAuth custody; confirm in Slack admin review.

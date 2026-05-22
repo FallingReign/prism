@@ -17,7 +17,7 @@ This plan documents the required human Slack admin/security steps before any rea
    - pilot host VM: `http://10.62.240.10:3732/v1/slack/oauth/callback`
    - dev tunnel: `https://<dev-tunnel-host>/v1/slack/oauth/callback`
    - hosted: `https://<prism-hostname>/v1/slack/oauth/callback` or `https://prism.<internal-domain>/v1/slack/oauth/callback`
-4. Decide workspace installation versus Enterprise Grid org-wide deployment. Baseline v1 assumes workspace/dev install; org-wide deployment requires explicit Slack admin approval.
+4. Confirm Enterprise Grid org-ready deployment for the dev pilot. The committed manifest enables org deploy so org-level issues surface during development; production org rollout still requires explicit Slack admin/security approval.
 5. Keep Socket Mode disabled for v1. Do not configure event subscriptions, slash commands, interactivity, workflows, incoming webhooks, canvases, lists, or file transfer.
 6. Approve and install only after final scope review.
 7. Record approved scopes, workspace/org target, and admin decision notes outside source control.
@@ -25,7 +25,7 @@ This plan documents the required human Slack admin/security steps before any rea
 
 ## Enterprise Grid notes
 
-Enterprise Grid governance remains Slack-admin controlled. Prism must not imply it can override Slack workspace, org, Okta, or security policy. Workspace installation is acceptable for initial development if security chooses it; org-wide deployment remains a separate admin decision.
+Enterprise Grid governance remains Slack-admin controlled. Prism must not imply it can override Slack workspace, org, Okta, or security policy. The dev pilot enables org deploy to expose org-readiness issues early; production org-wide deployment remains a separate admin/security decision.
 
 ## Handoff to issue #4
 
