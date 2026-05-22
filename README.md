@@ -39,3 +39,7 @@ envelopes in Postgres; Local tools and browser responses never receive Slack cre
 
 For local mock QA without contacting Slack, set `PRISM_SLACK_OAUTH_MOCK=1` in ignored `.env.local`, request the start
 route to create the one-time state cookie, then request the callback with a synthetic `code` and the returned `state`.
+
+## Reference MCP adapter
+
+A Prism-only Local tool example lives in [`examples/prism-mcp-adapter`](examples/prism-mcp-adapter/). It runs as an MCP stdio server configured with `PRISM_BASE_URL` and `PRISM_DEVELOPER_TOKEN`, validates Prism status/capabilities, and maps representative MCP tools to Prism Slack-compatible endpoints without handling Slack credentials.

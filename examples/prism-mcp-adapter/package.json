@@ -1,0 +1,20 @@
+{
+  "name": "@prism/reference-mcp-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "prism-mcp-adapter": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "npm run build && node dist/index.js",
+    "start": "node dist/index.js",
+    "test": "vitest run",
+    "verify:live": "npm run build && node dist/verify-live.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
+  }
+}
