@@ -1,4 +1,20 @@
+import { cookies } from "next/headers";
+
+import { database } from "../src/server/db";
+import { prismSessionCookieName } from "../src/server/slack/oauth-flow";
+import { getSlackLinkStatus } from "../src/server/slack/postgres-store";
+import { SlackStatusPanel, type SlackWebsiteStatus } from "./slack-status-panel";
+
+export const dynamic = "force-dynamic";
+
 export default function Home() {
+  return <HomeContent />;
+}
+
+async function HomeContent() {
+  const cookieStore = await cookies();
+  const status = await readSlackWebsiteStatus(cookieStore.get(prismSessionCookieName)?.value);
+
   return (
     <main className="shell">
       <section className="hero" aria-labelledby="prism-title">
@@ -22,6 +38,15 @@ export default function Home() {
           <p>Developer-owned CLIs, MCP servers, coding agents, and apps will call Prism with Prism developer tokens.</p>
         </article>
       </section>
+      <SlackStatusPanel status={status} />
     </main>
   );
+}
+
+async function readSlackWebsiteStatus(sessionToken: string | undefined): Promise<SlackWebsiteStatus> {
+  try {
+    return await getSlackLinkStatus(database, sessionToken);
+  } catch {
+    return { kind: "not_linked" };
+  }
 }

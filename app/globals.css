@@ -61,3 +61,30 @@ article {
 h2 {
   margin-top: 0;
 }
+
+.status-card {
+  margin-top: 24px;
+  border: 1px solid rgba(96, 165, 250, 0.36);
+  border-radius: 18px;
+  padding: 24px;
+  background: rgba(15, 23, 42, 0.86);
+}
+
+.status-card.healthy {
+  border-color: rgba(52, 211, 153, 0.5);
+}
+
+.status-card.warning {
+  border-color: rgba(251, 191, 36, 0.6);
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 10px 16px;
+  color: #020617;
+  background: #93c5fd;
+  font-weight: 700;
+  text-decoration: none;
+}

@@ -1,10 +1,19 @@
 import "server-only";
 
-import { Pool } from "pg";
+import { Pool, type QueryResultRow } from "pg";
 
 import { getServerConfig } from "./config";
 
 let pool: Pool | undefined;
+
+export type QueryResult<Row = unknown> = {
+  rows: Row[];
+  rowCount: number | null;
+};
+
+export type Database = {
+  query: <Row extends QueryResultRow = QueryResultRow>(sql: string, params?: unknown[]) => Promise<QueryResult<Row>>;
+};
 
 function getPool(): Pool {
   const { databaseUrl } = getServerConfig();
@@ -23,8 +32,8 @@ function getPool(): Pool {
   return pool;
 }
 
-export const database = {
-  async query(sql: string): Promise<unknown> {
-    return getPool().query(sql);
+export const database: Database = {
+  async query<Row extends QueryResultRow = QueryResultRow>(sql: string, params: unknown[] = []): Promise<QueryResult<Row>> {
+    return getPool().query<Row>(sql, params);
   }
 };

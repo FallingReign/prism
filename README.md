@@ -8,6 +8,7 @@ Prism is a Next.js Prism hosted service with a Prism website and server-side `/v
 npm install
 cp .env.example .env.local
 npm run db:up
+npm run db:migrate
 npm run dev
 curl -i http://localhost:3732/v1/prism/health
 ```
@@ -31,3 +32,10 @@ No Supabase, Auth, PostgREST, ORM, or migration framework is required for this s
 ## Slack app setup
 
 Slack app manifest and admin scope review artefacts live in [`docs/slack/`](docs/slack/).
+
+The Prism website exposes Slack linking at `GET /v1/slack/oauth/start` and receives Slack OAuth callbacks at
+`GET /v1/slack/oauth/callback`. The callback stores Slack access and refresh credentials only as encrypted server-side
+envelopes in Postgres; Local tools and browser responses never receive Slack credentials.
+
+For local mock QA without contacting Slack, set `PRISM_SLACK_OAUTH_MOCK=1` in ignored `.env.local`, request the start
+route to create the one-time state cookie, then request the callback with a synthetic `code` and the returned `state`.
