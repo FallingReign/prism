@@ -85,7 +85,7 @@ describe("/v1/slack/api/[method] policy tracer", () => {
     expect(JSON.stringify(body)).not.toMatch(/prism_dev_|tokenHash|pepper-secret-canary|xox[bp]-|refresh|access_token|client_secret/i);
   });
 
-  it("returns unsupported errors for admin/deferred methods and an explicit not-forwarding response for allowed methods", async () => {
+  it("returns unsupported errors without upstream calls and forwards allowed methods through the default mock upstream", async () => {
     const { GET } = await import("./route");
     const admin = await GET(
       new NextRequest("http://localhost:3732/v1/slack/api/admin.users.list", {
@@ -108,11 +108,12 @@ describe("/v1/slack/api/[method] policy tracer", () => {
     expect(admin.headers.get("x-prism-upstream-called")).toBe("false");
     expect(allowed.headers.get("x-prism-policy-decision")).toBe("allowed");
     expect(allowed.headers.get("x-prism-execution-mode")).toBe("user");
-    expect(allowed.headers.get("x-prism-upstream-called")).toBe("false");
+    expect(allowed.status).toBe(200);
+    expect(allowed.headers.get("x-prism-upstream-called")).toBe("true");
     expect(await allowed.json()).toMatchObject({
-      ok: false,
-      error: "slack_forwarding_not_implemented",
-      prism: { method: "conversations.history", category: "conversations.read", policy: "allowed" }
+      ok: true,
+      messages: [{ type: "message", channel: "C-MOCK-GENERAL" }],
+      response_metadata: { next_cursor: "mock-next-cursor" }
     });
   });
 
@@ -157,14 +158,101 @@ describe("/v1/slack/api/[method] policy tracer", () => {
       { params: Promise.resolve({ method: "conversations.history" }) }
     );
 
-    expect(selectableBot.status).toBe(501);
+    expect(selectableBot.status).toBe(200);
     expect(selectableBot.headers.get("x-prism-policy-decision")).toBe("allowed");
     expect(selectableBot.headers.get("x-prism-execution-mode")).toBe("bot");
-    expect(selectableBot.headers.get("x-prism-upstream-called")).toBe("false");
-    expect(selectableBody).toMatchObject({ ok: false, error: "slack_forwarding_not_implemented" });
+    expect(selectableBot.headers.get("x-prism-upstream-called")).toBe("true");
+    expect(selectableBody).toMatchObject({ ok: true, channel: "C-MOCK-GENERAL", message: { user: "B-MOCK" } });
     expect(await invalidMode.json()).toMatchObject({ ok: false, error: "not_allowed", prism: { errorClass: "invalid_execution_mode" } });
     expect(await nonSelectable.json()).toMatchObject({ ok: false, error: "not_allowed", prism: { errorClass: "execution_mode_not_selectable" } });
     expect(JSON.stringify(mockDb.query.mock.calls)).not.toMatch(/access_token_envelope|refresh_token_envelope|xox[bp]-|client_secret/i);
+  });
+
+  it("forwards representative conversations, messages, reactions, search, and file metadata methods with Slack-shaped bodies", async () => {
+    const { GET, POST } = await import("./route");
+    const fullBridge = capabilityMap({ writeMessages: true, reactions: true, filesMetadata: true });
+    mockDb.query.mockResolvedValue({ rows: [row(fullBridge)], rowCount: 1 });
+
+    const conversations = await GET(
+      new NextRequest("http://localhost:3732/v1/slack/api/conversations.list?cursor=abc&limit=2", {
+        headers: {
+          authorization: "Bearer prism_dev_conversationsforwardingcanaryokxx",
+          "x-prism-workspace-id": "T123",
+          "x-prism-surface": "public_channel"
+        }
+      }),
+      { params: Promise.resolve({ method: "conversations.list" }) }
+    );
+    const message = await POST(
+      new NextRequest("http://localhost:3732/v1/slack/api/chat.postMessage", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer prism_dev_messageforwardingcanarymessageokxx",
+          "content-type": "application/json",
+          "x-prism-workspace-id": "T123",
+          "x-prism-surface": "public_channel"
+        },
+        body: JSON.stringify({ channel: "C-MOCK-GENERAL", text: "hello from local tool", token: "local-tool-token-must-not-forward" })
+      }),
+      { params: Promise.resolve({ method: "chat.postMessage" }) }
+    );
+    const reaction = await POST(
+      new NextRequest("http://localhost:3732/v1/slack/api/reactions.add", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer prism_dev_reactionforwardingcanaryreactionokxx",
+          "content-type": "application/x-www-form-urlencoded",
+          "x-prism-workspace-id": "T123",
+          "x-prism-surface": "public_channel"
+        },
+        body: new URLSearchParams({ channel: "C-MOCK-GENERAL", timestamp: "1700000001.000200", name: "thumbsup" })
+      }),
+      { params: Promise.resolve({ method: "reactions.add" }) }
+    );
+    const search = await GET(
+      new NextRequest("http://localhost:3732/v1/slack/api/search.messages?query=mock", {
+        headers: { authorization: "Bearer prism_dev_searchforwardingcanarysearchokxx", "x-prism-workspace-id": "T123" }
+      }),
+      { params: Promise.resolve({ method: "search.messages" }) }
+    );
+    const fileInfo = await GET(
+      new NextRequest("http://localhost:3732/v1/slack/api/files.info?file=F123", {
+        headers: { authorization: "Bearer prism_dev_fileforwardingcanaryfilecanaryokxx", "x-prism-workspace-id": "T123" }
+      }),
+      { params: Promise.resolve({ method: "files.info" }) }
+    );
+
+    expect(conversations.headers.get("x-prism-upstream-called")).toBe("true");
+    expect(await conversations.json()).toMatchObject({ ok: true, channels: [{ id: "C-MOCK-GENERAL" }], response_metadata: { next_cursor: "mock-next-cursor" } });
+    expect(await message.json()).toMatchObject({ ok: true, channel: "C-MOCK-GENERAL", message: { text: "hello from local tool" } });
+    expect(await reaction.json()).toEqual({ ok: true });
+    expect(await search.json()).toMatchObject({ ok: true, query: "mock", messages: { matches: [{ channel: { id: "C-MOCK-GENERAL" } }] } });
+    expect(await fileInfo.json()).toMatchObject({ ok: true, file: { id: "F123", name: "mock.txt" } });
+    expect(JSON.stringify(mockDb.query.mock.calls)).not.toMatch(/access_token_envelope|refresh_token_envelope|xox[bp]-|client_secret/i);
+  });
+
+  it("passes ordinary upstream Slack errors through without Prism body wrapping", async () => {
+    const { POST } = await import("./route");
+    mockDb.query.mockResolvedValue({ rows: [row(capabilityMap({ writeMessages: true }))], rowCount: 1 });
+
+    const response = await POST(
+      new NextRequest("http://localhost:3732/v1/slack/api/chat.postMessage", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer prism_dev_upstreamerrorcanaryupstreamerror",
+          "content-type": "application/json",
+          "x-prism-workspace-id": "T123",
+          "x-prism-surface": "public_channel"
+        },
+        body: JSON.stringify({ channel: "C-MOCK-ERROR", text: "will fail upstream" })
+      }),
+      { params: Promise.resolve({ method: "chat.postMessage" }) }
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-prism-upstream-called")).toBe("true");
+    expect(body).toEqual({ ok: false, error: "channel_not_found" });
   });
 
   it("rejects malformed bearer tokens before querying token or Slack credential metadata", async () => {

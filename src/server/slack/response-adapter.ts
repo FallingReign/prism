@@ -12,6 +12,10 @@ export type PrismSlackResponseDiagnostics = {
 };
 
 export function slackSuccessResponse(body: unknown, diagnostics: PrismSlackResponseDiagnostics, status = 200): NextResponse {
+  return slackApiResponse(body, diagnostics, status);
+}
+
+export function slackApiResponse(body: unknown, diagnostics: PrismSlackResponseDiagnostics, status = 200): NextResponse {
   const response = NextResponse.json(body, { status });
   applyPrismDiagnosticsHeaders(response, diagnostics);
   return response;

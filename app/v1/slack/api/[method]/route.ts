@@ -4,6 +4,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { getDeveloperTokenConfig, isSetupRequiredError } from "../../../../../src/server/config";
 import { database } from "../../../../../src/server/db";
+import { forwardSlackMethod } from "../../../../../src/server/slack/forwarding";
 import { applyPrismDiagnosticsHeaders, type PrismSlackResponseDiagnostics } from "../../../../../src/server/slack/response-adapter";
 import { resolveSlackExecutionIdentity } from "../../../../../src/server/token-profiles/execution-identity";
 import { evaluateSlackMethodPolicy, type SlackSurface } from "../../../../../src/server/token-profiles/method-policy";
@@ -47,22 +48,7 @@ async function handleSlackMethod(request: NextRequest, context: RouteContext): P
     });
     if (identity.kind === "denied") return noStoreJson(identity.body, identity.httpStatus, requestId, { policyDecision: "denied", upstreamCalled: false });
 
-    return noStoreJson(
-      {
-        ok: false,
-        error: "slack_forwarding_not_implemented",
-        prism: {
-          requestId,
-          method: decision.method,
-          category: decision.category,
-          tokenProfileId: decision.tokenProfileId,
-          policy: "allowed"
-        }
-      },
-      501,
-      requestId,
-      { policyDecision: "allowed", executionMode: identity.executionMode, upstreamCalled: false }
-    );
+    return forwardSlackMethod({ request, method: decision.method, identity, requestId });
   } catch (error) {
     if (isSetupRequiredError(error)) {
       return noStoreJson({ ok: false, error: "setup_required", prism: { requestId, method } }, 503, requestId, {
