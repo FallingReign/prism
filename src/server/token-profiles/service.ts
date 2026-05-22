@@ -56,6 +56,7 @@ export type TokenProfileStore = {
     expiresAt: Date | null;
     status: "active";
     verifier: DeveloperTokenVerifier;
+    audit?: { endpoint: string; requestId: string };
   }): Promise<{ kind: "created"; profile: TokenProfileMetadata } | { kind: "duplicate_name" }>;
 };
 
@@ -64,6 +65,7 @@ export async function createTokenProfile({
   sessionToken,
   developerTokenConfig,
   input,
+  audit,
   now = new Date(),
   randomBytes
 }: {
@@ -71,6 +73,7 @@ export async function createTokenProfile({
   sessionToken: string | undefined;
   developerTokenConfig: DeveloperTokenConfig;
   input: CreateTokenProfileInput;
+  audit?: { endpoint: string; requestId: string };
   now?: Date;
   randomBytes?: (size: number) => Buffer;
 }): Promise<
@@ -97,7 +100,8 @@ export async function createTokenProfile({
     capabilityMap: policy.capabilityMap,
     expiresAt: policy.expiresAt,
     status: "active",
-    verifier
+    verifier,
+    audit
   });
 
   if (result.kind === "duplicate_name") return { kind: "duplicate_name" };
@@ -112,10 +116,12 @@ export async function listTokenProfiles({
   store: TokenProfileStore;
   sessionToken: string | undefined;
   now?: Date;
-}): Promise<{ kind: "profiles"; profiles: TokenProfileMetadata[]; slackStatus: TokenProfileOwner["slackStatus"] } | { kind: "unauthenticated" | "not_linked" }> {
+}): Promise<
+  { kind: "profiles"; owner: TokenProfileOwner; profiles: TokenProfileMetadata[]; slackStatus: TokenProfileOwner["slackStatus"] } | { kind: "unauthenticated" | "not_linked" }
+> {
   const owner = await resolveOwner(store, sessionToken, now);
   if (owner.kind !== "owner") return owner;
-  return { kind: "profiles", profiles: await store.listProfiles(owner.owner), slackStatus: owner.owner.slackStatus };
+  return { kind: "profiles", owner: owner.owner, profiles: await store.listProfiles(owner.owner), slackStatus: owner.owner.slackStatus };
 }
 
 async function resolveOwner(

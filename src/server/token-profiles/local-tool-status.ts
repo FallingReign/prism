@@ -5,7 +5,9 @@ import { hashDeveloperToken, type DeveloperTokenConfig } from "./developer-token
 import type { CapabilityMap, TokenProfilePreset } from "./presets";
 
 export type ResolvedDeveloperToken = {
+  prismUserId?: string | null;
   tokenProfileId: string;
+  tokenProfileName?: string | null;
   slackConnectionId?: string | null;
   tokenExpiresAt: Date | null;
   tokenRevokedAt: Date | null;
@@ -18,6 +20,8 @@ export type ResolvedDeveloperToken = {
   hasUserCredential: boolean;
   hasBotCredential: boolean;
   slackTeamId?: string | null;
+  slackEnterpriseId?: string | null;
+  slackUserId?: string | null;
 };
 
 export type LocalToolTokenStore = {

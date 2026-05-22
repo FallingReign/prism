@@ -7,6 +7,9 @@ const mockDb = vi.hoisted(() => ({
 
 vi.mock("../../../../../src/server/db", () => ({ database: mockDb }));
 
+let defaultTokenRows: unknown[] = [];
+let queuedTokenRows: unknown[][] = [];
+
 function capabilityMap(overrides: Record<string, unknown> = {}) {
   return {
     version: 1,
@@ -33,7 +36,10 @@ function capabilityMap(overrides: Record<string, unknown> = {}) {
 
 function row(map = capabilityMap()) {
   return {
+    prism_user_id: "user_1",
     token_profile_id: "profile_1",
+    token_profile_name: "Local MCP",
+    slack_connection_id: "conn_1",
     token_expires_at: null,
     token_revoked_at: null,
     profile_status: "active",
@@ -42,6 +48,8 @@ function row(map = capabilityMap()) {
     capability_map: map,
     slack_status: "healthy",
     slack_team_id: "T123",
+    slack_enterprise_id: null,
+    slack_user_id: "U123",
     slack_last_error_class: null,
     has_user_credential: true,
     has_bot_credential: true
@@ -54,7 +62,18 @@ describe("/v1/slack/api/[method] policy tracer", () => {
     mockDb.query.mockReset();
     process.env.PRISM_DEVELOPER_TOKEN_PEPPER = "pepper-secret-canary";
     process.env.PRISM_DEVELOPER_TOKEN_PEPPER_ID = "test-pepper";
-    mockDb.query.mockResolvedValue({ rows: [row()], rowCount: 1 });
+    defaultTokenRows = [row()];
+    queuedTokenRows = [];
+    mockDb.query.mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (sql.includes("insert into prism_activity_audit")) {
+        return { rows: [activityRowFromInsertParams(params ?? [])], rowCount: 1 };
+      }
+      if (sql.includes("update prism_activity_audit")) {
+        return { rows: [activityRowFromUpdateParams(params ?? [])], rowCount: 1 };
+      }
+      const rows = queuedTokenRows.shift() ?? defaultTokenRows;
+      return { rows, rowCount: rows.length };
+    });
   });
 
   it("returns Slack-compatible denied diagnostics for policy-denied methods without exposing secrets", async () => {
@@ -119,7 +138,7 @@ describe("/v1/slack/api/[method] policy tracer", () => {
 
   it("honors selectable execution-mode headers after policy and denies invalid or non-selectable overrides before forwarding", async () => {
     const { GET } = await import("./route");
-    mockDb.query.mockResolvedValueOnce({ rows: [row({ ...capabilityMap({ writeMessages: true }), executionIdentity: "selectable" })], rowCount: 1 });
+    queueTokenRows([row({ ...capabilityMap({ writeMessages: true }), executionIdentity: "selectable" })]);
     const selectableBot = await GET(
       new NextRequest("http://localhost:3732/v1/slack/api/chat.postMessage", {
         headers: {
@@ -133,7 +152,7 @@ describe("/v1/slack/api/[method] policy tracer", () => {
     );
     const selectableBody = await selectableBot.json();
 
-    mockDb.query.mockResolvedValueOnce({ rows: [row({ ...capabilityMap(), executionIdentity: "selectable" })], rowCount: 1 });
+    queueTokenRows([row({ ...capabilityMap(), executionIdentity: "selectable" })]);
     const invalidMode = await GET(
       new NextRequest("http://localhost:3732/v1/slack/api/conversations.history", {
         headers: {
@@ -171,7 +190,7 @@ describe("/v1/slack/api/[method] policy tracer", () => {
   it("forwards representative conversations, messages, reactions, search, and file metadata methods with Slack-shaped bodies", async () => {
     const { GET, POST } = await import("./route");
     const fullBridge = capabilityMap({ writeMessages: true, reactions: true, filesMetadata: true });
-    mockDb.query.mockResolvedValue({ rows: [row(fullBridge)], rowCount: 1 });
+    defaultTokenRows = [row(fullBridge)];
 
     const conversations = await GET(
       new NextRequest("http://localhost:3732/v1/slack/api/conversations.list?cursor=abc&limit=2", {
@@ -233,7 +252,7 @@ describe("/v1/slack/api/[method] policy tracer", () => {
 
   it("passes ordinary upstream Slack errors through without Prism body wrapping", async () => {
     const { POST } = await import("./route");
-    mockDb.query.mockResolvedValue({ rows: [row(capabilityMap({ writeMessages: true }))], rowCount: 1 });
+    defaultTokenRows = [row(capabilityMap({ writeMessages: true }))];
 
     const response = await POST(
       new NextRequest("http://localhost:3732/v1/slack/api/chat.postMessage", {
@@ -270,4 +289,94 @@ describe("/v1/slack/api/[method] policy tracer", () => {
     expect(body).toMatchObject({ ok: false, error: "invalid_auth", prism: { errorClass: "invalid_auth", method: "conversations.history" } });
     expect(mockDb.query).not.toHaveBeenCalled();
   });
+
+  it("records Slack method audit rows with metadata only", async () => {
+    const { POST } = await import("./route");
+    defaultTokenRows = [row(capabilityMap({ writeMessages: true }))];
+
+    const response = await POST(
+      new NextRequest("http://localhost:3732/v1/slack/api/chat.postMessage", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer prism_dev_auditroutecanaryauditroutecanary",
+          "content-type": "application/json",
+          "x-prism-workspace-id": "T123",
+          "x-prism-surface": "public_channel"
+        },
+        body: JSON.stringify({
+          channel: "C123",
+          text: "MESSAGE_TEXT_CANARY",
+          blocks: [{ text: "BLOCK_KIT_CANARY" }],
+          token: "local-tool-token-must-not-audit"
+        })
+      }),
+      { params: Promise.resolve({ method: "chat.postMessage" }) }
+    );
+
+    expect(await response.json()).toMatchObject({ ok: true });
+    expect(mockDb.query.mock.calls.filter(([sql]) => String(sql).includes("insert into prism_activity_audit"))).toHaveLength(1);
+    expect(mockDb.query.mock.calls.filter(([sql]) => String(sql).includes("update prism_activity_audit"))).toHaveLength(1);
+    expect(JSON.stringify(mockDb.query.mock.calls)).toContain("C123");
+    expect(JSON.stringify(mockDb.query.mock.calls)).not.toMatch(/MESSAGE_TEXT_CANARY|BLOCK_KIT_CANARY|local-tool-token-must-not-audit|prism_dev_|pepper-secret-canary|xox[bp]-|client_secret/i);
+  });
 });
+
+function queueTokenRows(rows: unknown[]) {
+  queuedTokenRows.push(rows);
+}
+
+function activityRowFromInsertParams(params: unknown[]) {
+  return {
+    id: params[0],
+    prism_user_id: params[1],
+    slack_connection_id: params[2],
+    token_profile_id: params[3],
+    token_profile_name: params[4],
+    slack_user_id: params[5],
+    slack_team_id: params[6],
+    slack_enterprise_id: params[7],
+    activity_type: params[8],
+    endpoint: params[9],
+    slack_method: params[10],
+    action_category: params[11],
+    surface: params[12],
+    object_type: params[13],
+    object_id: params[14],
+    execution_mode: params[15],
+    status: params[16],
+    error_class: params[17],
+    http_status: params[18],
+    request_id: params[19],
+    upstream_called: params[20],
+    occurred_at: params[21],
+    retention_expires_at: params[22]
+  };
+}
+
+function activityRowFromUpdateParams(params: unknown[]) {
+  return {
+    id: params[0],
+    prism_user_id: "user_1",
+    slack_connection_id: "conn_1",
+    token_profile_id: "profile_1",
+    token_profile_name: "Local MCP",
+    slack_user_id: "U123",
+    slack_team_id: "T123",
+    slack_enterprise_id: null,
+    activity_type: "slack_method",
+    endpoint: "/v1/slack/api/chat.postMessage",
+    slack_method: "chat.postMessage",
+    action_category: "messages.write",
+    surface: "public_channel",
+    object_type: "channel",
+    object_id: "C-MOCK-GENERAL",
+    execution_mode: "bot",
+    status: params[1],
+    error_class: params[2],
+    http_status: params[3],
+    request_id: "req_1",
+    upstream_called: params[4],
+    occurred_at: new Date("2026-01-01T00:00:00.000Z"),
+    retention_expires_at: new Date("2026-04-01T00:00:00.000Z")
+  };
+}

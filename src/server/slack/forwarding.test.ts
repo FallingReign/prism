@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
+import { ActivityAuditUnavailableError } from "../audit/postgres-store";
 import { forwardSlackMethod } from "./forwarding";
 import type { SlackWebApiClient } from "./web-api-client";
 import type { SlackExecutionIdentityDecision } from "../token-profiles/execution-identity";
@@ -85,5 +86,150 @@ describe("Slack forwarding service", () => {
     expect(response.status).toBe(429);
     expect(response.headers.get("x-prism-upstream-called")).toBe("false");
     expect(await response.json()).toEqual({ ok: false, error: "rate_limited" });
+  });
+
+  it("records metadata-only audit attempts and outcomes without storing request content", async () => {
+    const calls: unknown[] = [];
+    const client: SlackWebApiClient = {
+      async callMethod(input) {
+        calls.push(input);
+        return { status: 200, body: { ok: true, channel: input.payload.channel, message: { text: input.payload.text } } };
+      }
+    };
+    const audit = {
+      store: {
+        recordActivity: vi.fn(async (input) => ({ id: "audit_1", ...input })),
+        updateActivityOutcome: vi.fn(async () => null)
+      },
+      base: {
+        prismUserId: "user_1",
+        slackConnectionId: "conn_1",
+        tokenProfileId: "profile_1",
+        tokenProfileName: "Local MCP",
+        activityType: "slack_method" as const,
+        slackMethod: "chat.postMessage",
+        actionCategory: "messages.write",
+        surface: "public_channel",
+        executionMode: "bot",
+        requestId: "req_audit"
+      }
+    };
+
+    const response = await forwardSlackMethod({
+      request: new NextRequest("http://localhost:3732/v1/slack/api/chat.postMessage", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ channel: "C123", text: "MESSAGE_TEXT_CANARY", blocks: [{ text: "BLOCK_KIT_CANARY" }], token: "prism_dev_must_not_audit" })
+      }),
+      method: "chat.postMessage",
+      identity,
+      requestId: "req_audit",
+      client,
+      audit
+    });
+
+    expect(response.headers.get("x-prism-upstream-called")).toBe("true");
+    expect(audit.store.recordActivity).toHaveBeenCalledWith(
+      expect.objectContaining({ status: "attempted", objectType: "channel", objectId: "C123", upstreamCalled: false })
+    );
+    expect(audit.store.updateActivityOutcome).toHaveBeenCalledWith(
+      "audit_1",
+      expect.objectContaining({ status: "forwarded", httpStatus: 200, upstreamCalled: true })
+    );
+    expect(JSON.stringify(audit.store.recordActivity.mock.calls)).not.toMatch(/MESSAGE_TEXT_CANARY|BLOCK_KIT_CANARY|prism_dev_/);
+    expect(calls).toHaveLength(1);
+  });
+
+  it("preserves the Slack response when the final audit outcome update fails after upstream", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const client: SlackWebApiClient = {
+      async callMethod(input) {
+        return { status: 200, body: { ok: true, channel: input.payload.channel, message: { text: input.payload.text } } };
+      }
+    };
+    const audit = {
+      store: {
+        recordActivity: vi.fn(async (input) => ({ id: "audit_1", ...input })),
+        updateActivityOutcome: vi.fn(async () => {
+          throw new Error("database unavailable");
+        })
+      },
+      base: {
+        prismUserId: "user_1",
+        slackConnectionId: "conn_1",
+        tokenProfileId: "profile_1",
+        tokenProfileName: "Local MCP",
+        activityType: "slack_method" as const,
+        slackMethod: "chat.postMessage",
+        actionCategory: "messages.write",
+        surface: "public_channel",
+        executionMode: "bot",
+        requestId: "req_audit_update_fail"
+      }
+    };
+
+    const response = await forwardSlackMethod({
+      request: new NextRequest("http://localhost:3732/v1/slack/api/chat.postMessage", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ channel: "C123", text: "hello" })
+      }),
+      method: "chat.postMessage",
+      identity,
+      requestId: "req_audit_update_fail",
+      client,
+      audit
+    });
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-prism-upstream-called")).toBe("true");
+    expect(await response.json()).toEqual({ ok: true, channel: "C123", message: { text: "hello" } });
+    expect(errorSpy).toHaveBeenCalledWith(
+      "prism_activity_audit_update_failed",
+      expect.objectContaining({ requestId: "req_audit_update_fail", method: "chat.postMessage", auditId: "audit_1" })
+    );
+    errorSpy.mockRestore();
+  });
+
+  it("does not call upstream when the required pre-upstream audit insert is unavailable", async () => {
+    const client: SlackWebApiClient = { callMethod: vi.fn() };
+    const audit = {
+      store: {
+        recordActivity: vi.fn(async () => {
+          throw new ActivityAuditUnavailableError("record");
+        }),
+        updateActivityOutcome: vi.fn()
+      },
+      base: {
+        prismUserId: "user_1",
+        slackConnectionId: "conn_1",
+        tokenProfileId: "profile_1",
+        tokenProfileName: "Local MCP",
+        activityType: "slack_method" as const,
+        slackMethod: "chat.postMessage",
+        actionCategory: "messages.write",
+        surface: "public_channel",
+        executionMode: "bot",
+        requestId: "req_audit_unavailable"
+      }
+    };
+
+    const response = await forwardSlackMethod({
+      request: new NextRequest("http://localhost:3732/v1/slack/api/chat.postMessage", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ channel: "C123", text: "hello" })
+      }),
+      method: "chat.postMessage",
+      identity,
+      requestId: "req_audit_unavailable",
+      client,
+      audit
+    });
+
+    expect(client.callMethod).not.toHaveBeenCalled();
+    expect(response.status).toBe(503);
+    expect(response.headers.get("x-prism-upstream-called")).toBe("false");
+    expect(await response.json()).toEqual({ ok: false, error: "audit_unavailable" });
   });
 });

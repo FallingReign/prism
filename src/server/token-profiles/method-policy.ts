@@ -34,6 +34,16 @@ export type SlackPolicyBody = {
   };
 };
 
+export type SlackPolicyAuditContext = {
+  prismUserId?: string | null;
+  slackConnectionId?: string | null;
+  tokenProfileId?: string | null;
+  tokenProfileName?: string | null;
+  slackUserId?: string | null;
+  slackTeamId?: string | null;
+  slackEnterpriseId?: string | null;
+};
+
 export type SlackMethodPolicyDecision =
   | {
       kind: "allowed";
@@ -41,11 +51,12 @@ export type SlackMethodPolicyDecision =
       category: MethodCategory;
       tokenProfileId: string;
       slackConnectionId?: string | null;
+      auditContext: SlackPolicyAuditContext;
       capabilityMap: CapabilityMap;
       mutation: CapabilityMap["mutation"];
       executionIdentity: ReturnType<typeof executionIdentityStatus>;
     }
-  | { kind: "denied" | "unsupported" | "auth_failed"; httpStatus: number; body: SlackPolicyBody };
+  | { kind: "denied" | "unsupported" | "auth_failed"; httpStatus: number; body: SlackPolicyBody; auditContext?: SlackPolicyAuditContext };
 
 export async function evaluateSlackMethodPolicy({
   store,
@@ -67,14 +78,14 @@ export async function evaluateSlackMethodPolicy({
   const resolution = await resolvePresentedDeveloperToken({ store, bearerToken, developerTokenConfig, requestId, now });
   if (resolution.kind === "result") return authFailure(method, requestId, resolution.result.httpStatus, resolution.result.body.token.status);
 
-  const classification = classifySlackMethod(method);
-  if (!classification.supported) return unsupported(method, requestId, classification);
-
   const resolved = resolution.resolved;
+  const classification = classifySlackMethod(method);
+  if (!classification.supported) return unsupported(method, requestId, classification, resolved);
+
   const workspaceDenial = checkWorkspace(method, requestId, classification, resolved, requestContext);
   if (workspaceDenial) return workspaceDenial;
 
-  const surfaceDenial = checkSurface(method, requestId, classification, resolved.capabilityMap, requestContext);
+  const surfaceDenial = checkSurface(method, requestId, classification, resolved, requestContext);
   if (surfaceDenial) return surfaceDenial;
 
   const missingCapability = classification.requiredCapabilities.find((capability) => !resolved.capabilityMap.actions[capability]);
@@ -93,6 +104,7 @@ export async function evaluateSlackMethodPolicy({
     category: classification.category,
     tokenProfileId: resolved.tokenProfileId,
     slackConnectionId: resolved.slackConnectionId,
+    auditContext: auditContext(resolved),
     capabilityMap: resolved.capabilityMap,
     mutation: resolved.capabilityMap.mutation,
     executionIdentity
@@ -116,16 +128,16 @@ function checkSurface(
   method: string,
   requestId: string,
   classification: Extract<MethodClassification, { supported: true }>,
-  capabilityMap: CapabilityMap,
+  resolved: ResolvedDeveloperToken,
   requestContext: SlackMethodPolicyContext
 ): SlackMethodPolicyDecision | null {
   if (!classification.requiresSurface) return null;
   if (!requestContext.surface) {
-    return deniedBody(method, requestId, classification.category, "surface_required", "not_allowed");
+    return deniedBody(method, requestId, classification.category, "surface_required", "not_allowed", resolved);
   }
   const surfaceCapability = surfaceCapabilityFor(requestContext.surface);
-  if (!capabilityMap.surfaces[surfaceCapability]) {
-    return deniedBody(method, requestId, classification.category, "surface_denied", "not_allowed", undefined, { requiredCapability: surfaceCapability });
+  if (!resolved.capabilityMap.surfaces[surfaceCapability]) {
+    return deniedBody(method, requestId, classification.category, "surface_denied", "not_allowed", resolved, { requiredCapability: surfaceCapability });
   }
   return null;
 }
@@ -149,10 +161,16 @@ function capabilityDenied(
   return deniedBody(method, requestId, classification.category, "capability_denied", "not_allowed", resolved, { requiredCapability });
 }
 
-function unsupported(method: string, requestId: string, classification: Extract<MethodClassification, { supported: false }>): SlackMethodPolicyDecision {
+function unsupported(
+  method: string,
+  requestId: string,
+  classification: Extract<MethodClassification, { supported: false }>,
+  resolved: ResolvedDeveloperToken
+): SlackMethodPolicyDecision {
   return {
     kind: "unsupported",
     httpStatus: 200,
+    auditContext: auditContext(resolved),
     body: {
       ok: false,
       error: "method_not_supported",
@@ -195,6 +213,7 @@ function deniedBody(
   return {
     kind: "denied",
     httpStatus: 200,
+    auditContext: resolved ? auditContext(resolved) : undefined,
     body: {
       ok: false,
       error,
@@ -209,5 +228,17 @@ function deniedBody(
         mutation: resolved?.capabilityMap.mutation
       }
     }
+  };
+}
+
+function auditContext(resolved: ResolvedDeveloperToken): SlackPolicyAuditContext {
+  return {
+    prismUserId: resolved.prismUserId,
+    slackConnectionId: resolved.slackConnectionId,
+    tokenProfileId: resolved.tokenProfileId,
+    tokenProfileName: resolved.tokenProfileName,
+    slackUserId: resolved.slackUserId,
+    slackTeamId: resolved.slackTeamId,
+    slackEnterpriseId: resolved.slackEnterpriseId
   };
 }

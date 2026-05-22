@@ -2,6 +2,7 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 
+import { insertActivityAuditRecord } from "../audit/postgres-store";
 import type { Database } from "../db";
 import { hashSecret } from "../slack/oauth-flow";
 import type { LocalToolTokenStore, ResolvedDeveloperToken } from "./local-tool-status";
@@ -73,6 +74,21 @@ export function createPostgresTokenProfileStore(database: Database): TokenProfil
              values ($1, $2, $3, $4, $5, $6)`,
             [randomUUID(), row.id, input.verifier.tokenHash, input.verifier.algorithm, input.verifier.pepperId, input.expiresAt]
           );
+          if (input.audit) {
+            await insertActivityAuditRecord(tx, {
+             prismUserId: input.prismUserId,
+             slackConnectionId: input.slackConnectionId,
+             tokenProfileId: row.id,
+             tokenProfileName: row.name,
+             activityType: "token_profile_created",
+             endpoint: input.audit.endpoint,
+             actionCategory: input.preset,
+             status: "created",
+             httpStatus: 201,
+             requestId: input.audit.requestId,
+             upstreamCalled: false
+            });
+          }
           return { kind: "created" as const, profile: toTokenProfileMetadata(row) };
         });
       } catch (error) {
@@ -83,7 +99,9 @@ export function createPostgresTokenProfileStore(database: Database): TokenProfil
     async resolveDeveloperToken({ tokenHash }) {
       const result = await database.query<DeveloperTokenResolutionRow>(
         `select
+          p.prism_user_id,
            p.id as token_profile_id,
+           p.name as token_profile_name,
            p.slack_connection_id,
            t.expires_at as token_expires_at,
            t.revoked_at as token_revoked_at,
@@ -93,6 +111,8 @@ export function createPostgresTokenProfileStore(database: Database): TokenProfil
            p.capability_map,
            c.status as slack_status,
            c.team_id as slack_team_id,
+           c.enterprise_id as slack_enterprise_id,
+           c.authed_user_id as slack_user_id,
            c.last_error_class as slack_last_error_class,
            exists(select 1 from slack_credentials sc where sc.connection_id = c.id and sc.kind = 'user') as has_user_credential,
            exists(select 1 from slack_credentials sc where sc.connection_id = c.id and sc.kind = 'bot') as has_bot_credential
@@ -125,7 +145,9 @@ type TokenProfileRow = {
 };
 
 type DeveloperTokenResolutionRow = {
+  prism_user_id: string;
   token_profile_id: string;
+  token_profile_name: string;
   slack_connection_id: string;
   token_expires_at: Date | null;
   token_revoked_at: Date | null;
@@ -135,6 +157,8 @@ type DeveloperTokenResolutionRow = {
   capability_map: CapabilityMap;
   slack_status: "healthy" | "reauth_required";
   slack_team_id: string | null;
+  slack_enterprise_id: string | null;
+  slack_user_id: string | null;
   slack_last_error_class: string | null;
   has_user_credential: boolean;
   has_bot_credential: boolean;
@@ -159,7 +183,9 @@ function toTokenProfileMetadata(row: TokenProfileRow): TokenProfileMetadata {
 
 function toResolvedDeveloperToken(row: DeveloperTokenResolutionRow): ResolvedDeveloperToken {
   return {
+    prismUserId: row.prism_user_id,
     tokenProfileId: row.token_profile_id,
+    tokenProfileName: row.token_profile_name,
     slackConnectionId: row.slack_connection_id,
     tokenExpiresAt: row.token_expires_at,
     tokenRevokedAt: row.token_revoked_at,
@@ -169,6 +195,8 @@ function toResolvedDeveloperToken(row: DeveloperTokenResolutionRow): ResolvedDev
     capabilityMap: row.capability_map,
     slackStatus: row.slack_status,
     slackTeamId: row.slack_team_id,
+    slackEnterpriseId: row.slack_enterprise_id,
+    slackUserId: row.slack_user_id,
     slackLastErrorClass: row.slack_last_error_class,
     hasUserCredential: row.has_user_credential,
     hasBotCredential: row.has_bot_credential

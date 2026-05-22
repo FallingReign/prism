@@ -1,10 +1,13 @@
 import { cookies } from "next/headers";
 
+import { createPostgresActivityAuditStore } from "../src/server/audit/postgres-store";
+import { toActivityAuditSummary, type ActivityAuditSummary } from "../src/server/audit/presentation";
 import { database } from "../src/server/db";
 import { prismSessionCookieName } from "../src/server/slack/oauth-flow";
 import { getSlackLinkStatus } from "../src/server/slack/postgres-store";
 import { listTokenProfiles } from "../src/server/token-profiles/service";
 import { createPostgresTokenProfileStore } from "../src/server/token-profiles/store";
+import { ActivityAuditPanel } from "./activity-audit-panel";
 import { SlackStatusPanel, type SlackWebsiteStatus } from "./slack-status-panel";
 import { TokenProfilesPanel, type TokenProfileSummary } from "./token-profiles-panel";
 
@@ -19,6 +22,7 @@ async function HomeContent() {
   const sessionToken = cookieStore.get(prismSessionCookieName)?.value;
   const status = await readSlackWebsiteStatus(sessionToken);
   const tokenProfiles = status.kind === "linked" ? await readTokenProfileSummaries(sessionToken) : [];
+  const activity = status.kind === "linked" ? await readActivityAudit(sessionToken) : [];
 
   return (
     <main className="shell">
@@ -45,6 +49,7 @@ async function HomeContent() {
       </section>
       <SlackStatusPanel status={status} />
       {status.kind === "linked" ? <TokenProfilesPanel slackStatus={status.status} initialProfiles={tokenProfiles} /> : null}
+      {status.kind === "linked" ? <ActivityAuditPanel activity={activity} /> : null}
     </main>
   );
 }
@@ -71,4 +76,9 @@ async function readTokenProfileSummaries(sessionToken: string | undefined): Prom
     expiresAt: profile.expiresAt?.toISOString() ?? null,
     createdAt: profile.createdAt.toISOString()
   }));
+}
+
+async function readActivityAudit(sessionToken: string | undefined): Promise<ActivityAuditSummary[]> {
+  const activity = await createPostgresActivityAuditStore(database).listRecentActivityForSession({ sessionToken, limit: 20 });
+  return activity.map(toActivityAuditSummary);
 }
