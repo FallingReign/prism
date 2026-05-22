@@ -75,14 +75,6 @@ export function createPostgresOAuthFlowStore(database: Database): OAuthFlowStore
         "insert into prism_sessions (session_token_hash, prism_user_id, expires_at) values ($1, $2, $3)",
         [input.sessionTokenHash, input.prismUserId, input.expiresAt]
       );
-    },
-    async ensureTokenProfile(input) {
-      await database.query(
-        `insert into token_profiles (id, prism_user_id, slack_connection_id)
-         values ($1, $2, $3)
-         on conflict (prism_user_id, slack_connection_id) do update set updated_at = now()`,
-        [randomUUID(), input.prismUserId, input.slackConnectionId]
-      );
     }
   };
 }

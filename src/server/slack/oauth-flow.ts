@@ -50,7 +50,6 @@ export type OAuthFlowStore = {
     scopes: string | null;
   }): Promise<void>;
   createWebsiteSession(input: { sessionTokenHash: string; prismUserId: string; expiresAt: Date }): Promise<void>;
-  ensureTokenProfile(input: { prismUserId: string; slackConnectionId: string }): Promise<void>;
 };
 
 export async function createSlackOAuthStart({
@@ -139,7 +138,6 @@ export async function completeSlackOAuthCallback({
 
   await storeCredentialIfPresent({ store, cipher, connectionId: connection.id, kind: "bot", token: slackResult.bot, now });
   await storeCredentialIfPresent({ store, cipher, connectionId: connection.id, kind: "user", token: slackResult.authedUser, now });
-  await store.ensureTokenProfile({ prismUserId: prismUser.id, slackConnectionId: connection.id });
 
   const sessionToken = randomBytes(32).toString("base64url");
   await store.createWebsiteSession({

@@ -154,7 +154,7 @@ describe("Slack OAuth flow", () => {
     expect(result.redirectUrl).toBe("http://localhost:3732/?slack=linked");
     expect(store.rows.users).toHaveLength(1);
     expect(store.rows.connections).toMatchObject([{ prismUserId: "user_1", teamId: "T123", authedUserId: "U123", status: "healthy" }]);
-    expect(store.rows.tokenProfiles).toHaveLength(1);
+    expect(store.rows.tokenProfiles).toHaveLength(0);
 
     const persisted = JSON.stringify(store.rows);
     expect(persisted).not.toContain("xoxb-bot-token-canary");

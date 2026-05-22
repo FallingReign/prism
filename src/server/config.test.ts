@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { getCredentialEncryptionConfig, getDatabaseUrl, getSlackOAuthConfig, isSetupRequiredError } from "./config";
+import {
+  getCredentialEncryptionConfig,
+  getDatabaseUrl,
+  getDeveloperTokenConfig,
+  getSlackOAuthConfig,
+  isSetupRequiredError
+} from "./config";
 
 describe("server setup config", () => {
   it("derives the local database URL from canonical Postgres fields", () => {
@@ -26,6 +32,21 @@ describe("server setup config", () => {
       expect(isSetupRequiredError(error)).toBe(true);
       expect(String(error)).not.toContain("super-secret-canary");
       expect(String(error)).not.toContain("replace-with-key");
+    }
+  });
+
+  it("loads developer token verifier config without echoing pepper values", () => {
+    expect(getDeveloperTokenConfig({ PRISM_DEVELOPER_TOKEN_PEPPER: "pepper-secret-canary" })).toEqual({
+      pepper: "pepper-secret-canary",
+      pepperId: "local-dev-pepper-v1"
+    });
+
+    try {
+      getDeveloperTokenConfig({ PRISM_DEVELOPER_TOKEN_PEPPER: "replace-with-pepper-secret-canary" });
+    } catch (error) {
+      expect(isSetupRequiredError(error)).toBe(true);
+      expect(String(error)).toBe("Error: setup-required:PRISM_DEVELOPER_TOKEN_PEPPER");
+      expect(String(error)).not.toContain("pepper-secret-canary");
     }
   });
 });

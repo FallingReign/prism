@@ -3,7 +3,10 @@ import { cookies } from "next/headers";
 import { database } from "../src/server/db";
 import { prismSessionCookieName } from "../src/server/slack/oauth-flow";
 import { getSlackLinkStatus } from "../src/server/slack/postgres-store";
+import { listTokenProfiles } from "../src/server/token-profiles/service";
+import { createPostgresTokenProfileStore } from "../src/server/token-profiles/store";
 import { SlackStatusPanel, type SlackWebsiteStatus } from "./slack-status-panel";
+import { TokenProfilesPanel, type TokenProfileSummary } from "./token-profiles-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +16,9 @@ export default function Home() {
 
 async function HomeContent() {
   const cookieStore = await cookies();
-  const status = await readSlackWebsiteStatus(cookieStore.get(prismSessionCookieName)?.value);
+  const sessionToken = cookieStore.get(prismSessionCookieName)?.value;
+  const status = await readSlackWebsiteStatus(sessionToken);
+  const tokenProfiles = status.kind === "linked" ? await readTokenProfileSummaries(sessionToken) : [];
 
   return (
     <main className="shell">
@@ -31,7 +36,7 @@ async function HomeContent() {
         </article>
         <article>
           <h2>Prism website</h2>
-          <p>Provides the user-facing setup surface for linking Slack and managing token profiles in later slices.</p>
+          <p>Provides the user-facing setup surface for linking Slack and issuing copy-once Prism developer tokens.</p>
         </article>
         <article>
           <h2>Local tools</h2>
@@ -39,6 +44,7 @@ async function HomeContent() {
         </article>
       </section>
       <SlackStatusPanel status={status} />
+      {status.kind === "linked" ? <TokenProfilesPanel slackStatus={status.status} initialProfiles={tokenProfiles} /> : null}
     </main>
   );
 }
@@ -49,4 +55,20 @@ async function readSlackWebsiteStatus(sessionToken: string | undefined): Promise
   } catch {
     return { kind: "not_linked" };
   }
+}
+
+async function readTokenProfileSummaries(sessionToken: string | undefined): Promise<TokenProfileSummary[]> {
+  const result = await listTokenProfiles({
+    store: createPostgresTokenProfileStore(database),
+    sessionToken
+  });
+  if (result.kind !== "profiles") return [];
+  return result.profiles.map((profile) => ({
+    id: profile.id,
+    name: profile.name,
+    intendedUse: profile.intendedUse,
+    preset: profile.preset,
+    expiresAt: profile.expiresAt?.toISOString() ?? null,
+    createdAt: profile.createdAt.toISOString()
+  }));
 }

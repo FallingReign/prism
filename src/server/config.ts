@@ -19,6 +19,11 @@ export type CredentialEncryptionConfig = {
   keyId: string;
 };
 
+export type DeveloperTokenServerConfig = {
+  pepper: string;
+  pepperId: string;
+};
+
 export function getServerConfig(env: NodeJS.ProcessEnv = process.env): ServerConfig {
   return {
     databaseUrl: getDatabaseUrl(env)
@@ -90,6 +95,13 @@ export function getCredentialEncryptionConfig(env: NodeJS.ProcessEnv = process.e
   return {
     key: requiredConfiguredValue(env.PRISM_CREDENTIAL_ENCRYPTION_KEY, "PRISM_CREDENTIAL_ENCRYPTION_KEY"),
     keyId: requiredConfiguredValue(env.PRISM_CREDENTIAL_ENCRYPTION_KEY_ID, "PRISM_CREDENTIAL_ENCRYPTION_KEY_ID")
+  };
+}
+
+export function getDeveloperTokenConfig(env: NodeJS.ProcessEnv = process.env): DeveloperTokenServerConfig {
+  return {
+    pepper: requiredConfiguredValue(env.PRISM_DEVELOPER_TOKEN_PEPPER, "PRISM_DEVELOPER_TOKEN_PEPPER"),
+    pepperId: configuredValue(env.PRISM_DEVELOPER_TOKEN_PEPPER_ID) ?? "local-dev-pepper-v1"
   };
 }
 
