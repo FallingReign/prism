@@ -4,18 +4,20 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { extractSlackObjectMetadata, type ActivityAuditInput, type ActivityAuditRecord } from "../audit/activity";
 import { isActivityAuditUnavailableError, type ActivityAuditStore } from "../audit/postgres-store";
+import { database } from "../db";
 import type { SlackExecutionIdentityDecision } from "../token-profiles/execution-identity";
+import { createPostgresSlackRateLimitStore } from "./postgres-rate-limit-store";
+import { createSlackForwardingRateLimiter, defaultSlackRateLimitConfig, type SlackForwardingRateLimiter } from "./rate-limit";
 import { slackApiResponse } from "./response-adapter";
 import { createDefaultSlackWebApiClient, type SlackForwardingPayload, type SlackWebApiClient } from "./web-api-client";
 
 type ResolvedExecutionIdentity = Extract<SlackExecutionIdentityDecision, { kind: "resolved" }>;
-type SlackForwardingRateLimitDecision = { kind: "allowed" } | { kind: "limited"; httpStatus: number; body: { ok: false; error: "rate_limited" } };
-export type SlackForwardingRateLimiter = (input: {
-  tokenProfileId: string;
-  method: string;
-  executionMode: ResolvedExecutionIdentity["executionMode"];
-  requestId: string;
-}) => SlackForwardingRateLimitDecision;
+const defaultSlackForwardingRateLimiter = createSlackForwardingRateLimiter({
+  store: createPostgresSlackRateLimitStore(database),
+  config: defaultSlackRateLimitConfig()
+});
+
+export const checkSlackForwardingRateLimit: SlackForwardingRateLimiter = (input) => defaultSlackForwardingRateLimiter(input);
 
 export type SlackForwardingAudit = {
   store: Pick<ActivityAuditStore, "recordActivity" | "updateActivityOutcome">;
@@ -51,7 +53,7 @@ export async function forwardSlackMethod({
     return slackApiResponse(payload.body, { requestId, policyDecision: "allowed", executionMode: identity.executionMode, upstreamCalled: false }, payload.httpStatus);
   }
 
-  const rateLimit = rateLimiter({ tokenProfileId: identity.tokenProfileId, method, executionMode: identity.executionMode, requestId });
+  const rateLimit = await rateLimiter({ tokenProfileId: identity.tokenProfileId, method, executionMode: identity.executionMode, requestId });
   if (rateLimit.kind === "limited") {
     await audit?.store.recordActivity({
       ...audit.base,
@@ -61,7 +63,9 @@ export async function forwardSlackMethod({
       httpStatus: rateLimit.httpStatus,
       upstreamCalled: false
     });
-    return slackApiResponse(rateLimit.body, { requestId, policyDecision: "allowed", executionMode: identity.executionMode, upstreamCalled: false }, rateLimit.httpStatus);
+    const response = slackApiResponse(rateLimit.body, { requestId, policyDecision: "allowed", executionMode: identity.executionMode, upstreamCalled: false }, rateLimit.httpStatus);
+    response.headers.set("Retry-After", String(rateLimit.retryAfterSeconds));
+    return response;
   }
 
   let auditAttempt: ActivityAuditRecord | null = null;
@@ -98,11 +102,9 @@ export async function forwardSlackMethod({
       logActivityAuditUpdateFailure({ requestId, method, auditId: auditAttempt.id, error });
     }
   }
-  return slackApiResponse(upstream.body, { requestId, policyDecision: "allowed", executionMode: identity.executionMode, upstreamCalled: true }, upstream.status);
-}
-
-export function checkSlackForwardingRateLimit(): SlackForwardingRateLimitDecision {
-  return { kind: "allowed" };
+  const response = slackApiResponse(upstream.body, { requestId, policyDecision: "allowed", executionMode: identity.executionMode, upstreamCalled: true }, upstream.status);
+  applySelectedUpstreamHeaders(response, upstream.headers);
+  return response;
 }
 
 async function parseSlackPayload(
@@ -170,4 +172,18 @@ function logActivityAuditUpdateFailure({
     auditId,
     errorName: error instanceof Error ? error.name : typeof error
   });
+}
+
+function applySelectedUpstreamHeaders(response: NextResponse, headers: Headers | Record<string, string | undefined> | undefined): void {
+  for (const header of ["retry-after", "x-slack-req-id"]) {
+    const value = readHeader(headers, header);
+    if (value) response.headers.set(header, value);
+  }
+}
+
+function readHeader(headers: Headers | Record<string, string | undefined> | undefined, name: string): string | undefined {
+  if (!headers) return undefined;
+  if (headers instanceof Headers) return headers.get(name) ?? undefined;
+  const found = Object.entries(headers).find(([key]) => key.toLowerCase() === name);
+  return found?.[1];
 }

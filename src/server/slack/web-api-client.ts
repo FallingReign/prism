@@ -14,6 +14,7 @@ export type SlackWebApiCall = {
 export type SlackWebApiResult = {
   status: number;
   body: unknown;
+  headers?: Headers | Record<string, string | undefined>;
 };
 
 export type SlackWebApiClient = {
@@ -26,6 +27,13 @@ export function createDefaultSlackWebApiClient(): SlackWebApiClient {
 
 export class MockSlackWebApiClient implements SlackWebApiClient {
   async callMethod(input: SlackWebApiCall): Promise<SlackWebApiResult> {
+    if (input.payload.channel === "C-MOCK-UPSTREAM-429") {
+      return {
+        status: 429,
+        body: { ok: false, error: "slack_rate_limited" },
+        headers: { "retry-after": "30", "x-slack-req-id": "mock_slack_req_rate_limited" }
+      };
+    }
     return { status: 200, body: mockBody(input) };
   }
 }

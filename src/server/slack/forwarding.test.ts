@@ -13,6 +13,7 @@ const identity: Extract<SlackExecutionIdentityDecision, { kind: "resolved" }> = 
   executionMode: "bot",
   requestedMode: null
 };
+const allowRateLimiter = () => ({ kind: "allowed" as const });
 
 describe("Slack forwarding service", () => {
   it("preserves Slack-shaped JSON payloads while stripping Local-tool token fields before the upstream call", async () => {
@@ -33,7 +34,8 @@ describe("Slack forwarding service", () => {
       method: "chat.postMessage",
       identity,
       requestId: "req_forward_json",
-      client
+      client,
+      rateLimiter: allowRateLimiter
     });
 
     expect(calls).toEqual([
@@ -50,6 +52,7 @@ describe("Slack forwarding service", () => {
 
   it("rejects malformed Slack JSON payloads before upstream calls", async () => {
     const client: SlackWebApiClient = { callMethod: vi.fn() };
+    const rateLimiter = vi.fn(allowRateLimiter);
 
     const response = await forwardSlackMethod({
       request: new NextRequest("http://localhost:3732/v1/slack/api/chat.postMessage", {
@@ -60,17 +63,19 @@ describe("Slack forwarding service", () => {
       method: "chat.postMessage",
       identity,
       requestId: "req_bad_json",
-      client
+      client,
+      rateLimiter
     });
 
     expect(client.callMethod).not.toHaveBeenCalled();
+    expect(rateLimiter).not.toHaveBeenCalled();
     expect(response.headers.get("x-prism-upstream-called")).toBe("false");
     expect(await response.json()).toEqual({ ok: false, error: "invalid_json" });
   });
 
   it("runs the rate-limit seam before upstream calls", async () => {
     const client: SlackWebApiClient = { callMethod: vi.fn() };
-    const rateLimiter = vi.fn(() => ({ kind: "limited" as const, httpStatus: 429, body: { ok: false as const, error: "rate_limited" as const } }));
+    const rateLimiter = vi.fn(() => ({ kind: "limited" as const, httpStatus: 429, retryAfterSeconds: 60, body: { ok: false as const, error: "rate_limited" as const } }));
 
     const response = await forwardSlackMethod({
       request: new NextRequest("http://localhost:3732/v1/slack/api/conversations.list?limit=2"),
@@ -84,6 +89,7 @@ describe("Slack forwarding service", () => {
     expect(rateLimiter).toHaveBeenCalledWith({ tokenProfileId: "profile_1", method: "conversations.list", executionMode: "bot", requestId: "req_limited" });
     expect(client.callMethod).not.toHaveBeenCalled();
     expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("60");
     expect(response.headers.get("x-prism-upstream-called")).toBe("false");
     expect(await response.json()).toEqual({ ok: false, error: "rate_limited" });
   });
@@ -125,6 +131,7 @@ describe("Slack forwarding service", () => {
       identity,
       requestId: "req_audit",
       client,
+      rateLimiter: allowRateLimiter,
       audit
     });
 
@@ -178,6 +185,7 @@ describe("Slack forwarding service", () => {
       identity,
       requestId: "req_audit_update_fail",
       client,
+      rateLimiter: allowRateLimiter,
       audit
     });
 
@@ -189,6 +197,52 @@ describe("Slack forwarding service", () => {
       expect.objectContaining({ requestId: "req_audit_update_fail", method: "chat.postMessage", auditId: "audit_1" })
     );
     errorSpy.mockRestore();
+  });
+
+  it("passes upstream Slack 429 responses through with retry headers and upstream diagnostics", async () => {
+    const client: SlackWebApiClient = {
+      async callMethod() {
+        return { status: 429, body: { ok: false, error: "slack_rate_limited" }, headers: { "retry-after": "30", "x-slack-req-id": "slack_req_1" } };
+      }
+    };
+    const audit = {
+      store: {
+        recordActivity: vi.fn(async (input) => ({ id: "audit_1", ...input })),
+        updateActivityOutcome: vi.fn(async () => null)
+      },
+      base: {
+        prismUserId: "user_1",
+        slackConnectionId: "conn_1",
+        tokenProfileId: "profile_1",
+        tokenProfileName: "Local MCP",
+        activityType: "slack_method" as const,
+        slackMethod: "conversations.history",
+        actionCategory: "conversations.read",
+        surface: "public_channel",
+        executionMode: "bot",
+        requestId: "req_upstream_429"
+      }
+    };
+
+    const response = await forwardSlackMethod({
+      request: new NextRequest("http://localhost:3732/v1/slack/api/conversations.history?channel=C123"),
+      method: "conversations.history",
+      identity,
+      requestId: "req_upstream_429",
+      client,
+      rateLimiter: allowRateLimiter,
+      audit
+    });
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("30");
+    expect(response.headers.get("x-slack-req-id")).toBe("slack_req_1");
+    expect(response.headers.get("x-prism-upstream-called")).toBe("true");
+    expect(await response.json()).toEqual({ ok: false, error: "slack_rate_limited" });
+    expect(audit.store.updateActivityOutcome).toHaveBeenCalledWith(
+      "audit_1",
+      expect.objectContaining({ status: "upstream_error", errorClass: "slack_rate_limited", httpStatus: 429, upstreamCalled: true })
+    );
   });
 
   it("does not call upstream when the required pre-upstream audit insert is unavailable", async () => {
@@ -224,6 +278,7 @@ describe("Slack forwarding service", () => {
       identity,
       requestId: "req_audit_unavailable",
       client,
+      rateLimiter: allowRateLimiter,
       audit
     });
 

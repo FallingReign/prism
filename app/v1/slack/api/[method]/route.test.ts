@@ -2,13 +2,15 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 const mockDb = vi.hoisted(() => ({
-  query: vi.fn<(sql: string, params?: unknown[]) => Promise<unknown>>()
+  query: vi.fn<(sql: string, params?: unknown[]) => Promise<unknown>>(),
+  transaction: vi.fn()
 }));
 
 vi.mock("../../../../../src/server/db", () => ({ database: mockDb }));
 
 let defaultTokenRows: unknown[] = [];
 let queuedTokenRows: unknown[][] = [];
+let rateLimitBuckets: Map<string, { request_count: number; window_reset_at: Date }>;
 
 function capabilityMap(overrides: Record<string, unknown> = {}) {
   return {
@@ -65,11 +67,35 @@ describe("/v1/slack/api/[method] policy tracer", () => {
   beforeEach(() => {
     vi.resetModules();
     mockDb.query.mockReset();
+    mockDb.transaction.mockReset();
     process.env.PRISM_DEVELOPER_TOKEN_PEPPER = "pepper-secret-canary";
     process.env.PRISM_DEVELOPER_TOKEN_PEPPER_ID = "test-pepper";
+    delete process.env.PRISM_RATE_LIMIT_MAX_REQUESTS;
+    delete process.env.PRISM_RATE_LIMIT_WINDOW_SECONDS;
     defaultTokenRows = [row()];
     queuedTokenRows = [];
+    rateLimitBuckets = new Map();
+    mockDb.transaction.mockImplementation(async (callback: (database: typeof mockDb) => Promise<unknown>) => callback(mockDb));
     mockDb.query.mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (sql.includes("from slack_forwarding_rate_limits")) {
+        const bucket = rateLimitBuckets.get(rateLimitKey(params));
+        return { rows: bucket ? [bucket] : [], rowCount: bucket ? 1 : 0 };
+      }
+      if (sql.includes("insert into slack_forwarding_rate_limits")) {
+        if (rateLimitBuckets.has(rateLimitKey(params))) return { rows: [], rowCount: 0 };
+        rateLimitBuckets.set(rateLimitKey(params), { request_count: params?.[4] as number, window_reset_at: params?.[3] as Date });
+        return { rows: [], rowCount: 1 };
+      }
+      if (sql.includes("request_count = request_count + 1")) {
+        const bucket = rateLimitBuckets.get(rateLimitKey(params));
+        if (!bucket) throw new Error("missing rate-limit bucket");
+        bucket.request_count += 1;
+        return { rows: [bucket], rowCount: 1 };
+      }
+      if (sql.includes("update slack_forwarding_rate_limits")) {
+        rateLimitBuckets.set(rateLimitKey(params), { request_count: params?.[4] as number, window_reset_at: params?.[3] as Date });
+        return { rows: [], rowCount: 1 };
+      }
       if (sql.includes("insert into prism_activity_audit")) {
         return { rows: [activityRowFromInsertParams(params ?? [])], rowCount: 1 };
       }
@@ -107,6 +133,7 @@ describe("/v1/slack/api/[method] policy tracer", () => {
     });
     expect(JSON.stringify(mockDb.query.mock.calls)).not.toMatch(/access_token_envelope|refresh_token_envelope|xox[bp]-|client_secret/i);
     expect(JSON.stringify(body)).not.toMatch(/prism_dev_|tokenHash|pepper-secret-canary|xox[bp]-|refresh|access_token|client_secret/i);
+    expect(mockDb.query.mock.calls.filter(([sql]) => String(sql).includes("slack_forwarding_rate_limits"))).toHaveLength(0);
   });
 
   it("returns unsupported errors without upstream calls and forwards allowed methods through the default mock upstream", async () => {
@@ -279,6 +306,70 @@ describe("/v1/slack/api/[method] policy tracer", () => {
     expect(body).toEqual({ ok: false, error: "channel_not_found" });
   });
 
+  it("passes upstream Slack 429 responses through without turning them into Prism-side limits", async () => {
+    const { POST } = await import("./route");
+    defaultTokenRows = [row(capabilityMap({ writeMessages: true }))];
+
+    const response = await POST(
+      new NextRequest("http://localhost:3732/v1/slack/api/chat.postMessage", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer prism_dev_upstreamratelimitroutecanaryokxxxx",
+          "content-type": "application/json",
+          "x-prism-workspace-id": "T123",
+          "x-prism-surface": "public_channel"
+        },
+        body: JSON.stringify({ channel: "C-MOCK-UPSTREAM-429", text: "Slack should own this limit" })
+      }),
+      { params: Promise.resolve({ method: "chat.postMessage" }) }
+    );
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe("30");
+    expect(response.headers.get("x-slack-req-id")).toBe("mock_slack_req_rate_limited");
+    expect(response.headers.get("x-prism-upstream-called")).toBe("true");
+    expect(await response.json()).toEqual({ ok: false, error: "slack_rate_limited" });
+    expect(JSON.stringify(mockDb.query.mock.calls)).toContain("upstream_error");
+    expect(JSON.stringify(mockDb.query.mock.calls)).not.toMatch(/Slack should own this limit|prism_dev_|xox[bp]-|client_secret/i);
+  });
+
+  it("enforces Prism-side rate limits per Token profile and Slack method after policy allows forwarding", async () => {
+    process.env.PRISM_RATE_LIMIT_MAX_REQUESTS = "1";
+    process.env.PRISM_RATE_LIMIT_WINDOW_SECONDS = "60";
+    const { GET } = await import("./route");
+
+    const first = await GET(
+      new NextRequest("http://localhost:3732/v1/slack/api/conversations.history", {
+        headers: {
+          authorization: "Bearer prism_dev_ratelimitroutecanaryfirstokxxxxx",
+          "x-prism-workspace-id": "T123",
+          "x-prism-surface": "public_channel"
+        }
+      }),
+      { params: Promise.resolve({ method: "conversations.history" }) }
+    );
+    const second = await GET(
+      new NextRequest("http://localhost:3732/v1/slack/api/conversations.history", {
+        headers: {
+          authorization: "Bearer prism_dev_ratelimitroutecanarysecondokxxxx",
+          "x-prism-workspace-id": "T123",
+          "x-prism-surface": "public_channel"
+        }
+      }),
+      { params: Promise.resolve({ method: "conversations.history" }) }
+    );
+
+    expect(first.status).toBe(200);
+    expect(first.headers.get("x-prism-upstream-called")).toBe("true");
+    expect(second.status).toBe(429);
+    expect(second.headers.get("retry-after")).toBe("60");
+    expect(second.headers.get("cache-control")).toBe("no-store");
+    expect(second.headers.get("x-prism-upstream-called")).toBe("false");
+    expect(await second.json()).toEqual({ ok: false, error: "rate_limited" });
+    expect(JSON.stringify(mockDb.query.mock.calls)).toContain("rate_limited");
+    expect(JSON.stringify(mockDb.query.mock.calls)).not.toMatch(/access_token_envelope|refresh_token_envelope|xox[bp]-|client_secret|MESSAGE_TEXT_CANARY/i);
+  });
+
   it("rejects malformed bearer tokens before querying token or Slack credential metadata", async () => {
     const { POST } = await import("./route");
     const response = await POST(
@@ -350,6 +441,7 @@ describe("/v1/slack/api/[method] policy tracer", () => {
       prism: { errorClass: "execution_identity_unavailable", unavailableReason: "slack_reauth_required" }
     });
     expect(JSON.stringify(mockDb.query.mock.calls)).not.toMatch(/access_token_envelope|refresh_token_envelope|xox[bp]-|client_secret/i);
+    expect(mockDb.query.mock.calls.filter(([sql]) => String(sql).includes("slack_forwarding_rate_limits"))).toHaveLength(0);
   });
 
   it("records Slack method audit rows with metadata only", async () => {
@@ -385,6 +477,10 @@ describe("/v1/slack/api/[method] policy tracer", () => {
 
 function queueTokenRows(rows: unknown[]) {
   queuedTokenRows.push(rows);
+}
+
+function rateLimitKey(params: unknown[] | undefined) {
+  return `${params?.[0]}:${params?.[1]}`;
 }
 
 function activityRowFromInsertParams(params: unknown[]) {
