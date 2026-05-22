@@ -30,4 +30,20 @@ describe("Prism substrate dependencies", () => {
       await expect(readFile(file, "utf8")).resolves.toMatch(/^import "server-only";/);
     }
   });
+
+  it("keeps Local-tool token verification and Method registry modules server-only", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const files = [
+      "src/server/slack/method-registry.ts",
+      "src/server/token-profiles/developer-token.ts",
+      "src/server/token-profiles/local-tool-status.ts",
+      "src/server/token-profiles/presets.ts",
+      "src/server/token-profiles/service.ts",
+      "src/server/token-profiles/store.ts"
+    ];
+
+    for (const file of files) {
+      await expect(readFile(file, "utf8")).resolves.toMatch(/^import "server-only";/);
+    }
+  });
 });

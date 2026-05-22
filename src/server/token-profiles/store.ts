@@ -4,10 +4,11 @@ import { randomUUID } from "node:crypto";
 
 import type { Database } from "../db";
 import { hashSecret } from "../slack/oauth-flow";
+import type { LocalToolTokenStore, ResolvedDeveloperToken } from "./local-tool-status";
 import type { CapabilityMap, TokenProfilePreset } from "./presets";
 import type { TokenProfileMetadata, TokenProfileStore } from "./service";
 
-export function createPostgresTokenProfileStore(database: Database): TokenProfileStore {
+export function createPostgresTokenProfileStore(database: Database): TokenProfileStore & LocalToolTokenStore {
   return {
     async resolveOwner({ sessionToken, now }) {
       const result = await database.query<{
@@ -78,6 +79,30 @@ export function createPostgresTokenProfileStore(database: Database): TokenProfil
         if (isUniqueViolation(error)) return { kind: "duplicate_name" };
         throw error;
       }
+    },
+    async resolveDeveloperToken({ tokenHash }) {
+      const result = await database.query<DeveloperTokenResolutionRow>(
+        `select
+           p.id as token_profile_id,
+           t.expires_at as token_expires_at,
+           t.revoked_at as token_revoked_at,
+           p.status as profile_status,
+           p.expires_at as profile_expires_at,
+           p.preset,
+           p.capability_map,
+           c.status as slack_status,
+           c.last_error_class as slack_last_error_class,
+           exists(select 1 from slack_credentials sc where sc.connection_id = c.id and sc.kind = 'user') as has_user_credential,
+           exists(select 1 from slack_credentials sc where sc.connection_id = c.id and sc.kind = 'bot') as has_bot_credential
+         from prism_developer_tokens t
+         join token_profiles p on p.id = t.token_profile_id
+         join slack_connections c on c.id = p.slack_connection_id
+         where t.token_hash = $1
+         limit 1`,
+        [tokenHash]
+      );
+      const row = result.rows[0];
+      return row ? toResolvedDeveloperToken(row) : null;
     }
   };
 }
@@ -97,6 +122,20 @@ type TokenProfileRow = {
   updated_at: Date;
 };
 
+type DeveloperTokenResolutionRow = {
+  token_profile_id: string;
+  token_expires_at: Date | null;
+  token_revoked_at: Date | null;
+  profile_status: "active" | "bootstrap" | "revoked";
+  profile_expires_at: Date | null;
+  preset: TokenProfilePreset;
+  capability_map: CapabilityMap;
+  slack_status: "healthy" | "reauth_required";
+  slack_last_error_class: string | null;
+  has_user_credential: boolean;
+  has_bot_credential: boolean;
+};
+
 function toTokenProfileMetadata(row: TokenProfileRow): TokenProfileMetadata {
   return {
     id: row.id,
@@ -111,6 +150,22 @@ function toTokenProfileMetadata(row: TokenProfileRow): TokenProfileMetadata {
     status: row.status,
     createdAt: row.created_at,
     updatedAt: row.updated_at
+  };
+}
+
+function toResolvedDeveloperToken(row: DeveloperTokenResolutionRow): ResolvedDeveloperToken {
+  return {
+    tokenProfileId: row.token_profile_id,
+    tokenExpiresAt: row.token_expires_at,
+    tokenRevokedAt: row.token_revoked_at,
+    profileStatus: row.profile_status,
+    profileExpiresAt: row.profile_expires_at,
+    preset: row.preset,
+    capabilityMap: row.capability_map,
+    slackStatus: row.slack_status,
+    slackLastErrorClass: row.slack_last_error_class,
+    hasUserCredential: row.has_user_credential,
+    hasBotCredential: row.has_bot_credential
   };
 }
 
