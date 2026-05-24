@@ -5,6 +5,7 @@ import {
   getDatabaseUrl,
   getDeveloperTokenConfig,
   getSlackOAuthConfig,
+  getSlackWebApiConfig,
   isSetupRequiredError
 } from "./config";
 
@@ -48,5 +49,11 @@ describe("server setup config", () => {
       expect(String(error)).toBe("Error: setup-required:PRISM_DEVELOPER_TOKEN_PEPPER");
       expect(String(error)).not.toContain("pepper-secret-canary");
     }
+  });
+
+  it("defaults Slack Web API forwarding to real mode and requires explicit non-production mock mode", () => {
+    expect(getSlackWebApiConfig({})).toEqual({ mockWebApi: false });
+    expect(getSlackWebApiConfig({ PRISM_SLACK_WEB_API_MOCK: "1", NODE_ENV: "development" })).toEqual({ mockWebApi: true });
+    expect(getSlackWebApiConfig({ PRISM_SLACK_WEB_API_MOCK: "1", NODE_ENV: "production" })).toEqual({ mockWebApi: false });
   });
 });

@@ -4,12 +4,17 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { extractSlackObjectMetadata, type ActivityAuditInput, type ActivityAuditRecord } from "../audit/activity";
 import { isActivityAuditUnavailableError, type ActivityAuditStore } from "../audit/postgres-store";
+import { getSlackOAuthConfig } from "../config";
+import { createConfiguredCredentialCipher } from "../credentials/factory";
 import { database } from "../db";
 import type { SlackExecutionIdentityDecision } from "../token-profiles/execution-identity";
+import { createFetchSlackOAuthClient } from "./oauth-client";
 import { createPostgresSlackRateLimitStore } from "./postgres-rate-limit-store";
+import { createPostgresRefreshStore } from "./postgres-store";
+import { createSlackForwardingCredentialProvider, type SlackForwardingCredentialProvider } from "./forwarding-credentials";
 import { createSlackForwardingRateLimiter, defaultSlackRateLimitConfig, type SlackForwardingRateLimiter } from "./rate-limit";
 import { slackApiResponse } from "./response-adapter";
-import { createDefaultSlackWebApiClient, type SlackForwardingPayload, type SlackWebApiClient } from "./web-api-client";
+import { createDefaultSlackWebApiClient, type SlackForwardingPayload, type SlackPayloadEncoding, type SlackWebApiCall, type SlackWebApiClient } from "./web-api-client";
 
 type ResolvedExecutionIdentity = Extract<SlackExecutionIdentityDecision, { kind: "resolved" }>;
 const defaultSlackForwardingRateLimiter = createSlackForwardingRateLimiter({
@@ -31,6 +36,7 @@ export async function forwardSlackMethod({
   requestId,
   client = createDefaultSlackWebApiClient(),
   rateLimiter = checkSlackForwardingRateLimit,
+  credentialProvider,
   audit
 }: {
   request: NextRequest;
@@ -39,6 +45,7 @@ export async function forwardSlackMethod({
   requestId: string;
   client?: SlackWebApiClient;
   rateLimiter?: SlackForwardingRateLimiter;
+  credentialProvider?: SlackForwardingCredentialProvider;
   audit?: SlackForwardingAudit;
 }): Promise<NextResponse> {
   const payload = await parseSlackPayload(request);
@@ -52,12 +59,13 @@ export async function forwardSlackMethod({
     });
     return slackApiResponse(payload.body, { requestId, policyDecision: "allowed", executionMode: identity.executionMode, upstreamCalled: false }, payload.httpStatus);
   }
+  const slackPayload = withWorkspaceTeamId(payload.value, request.headers.get("x-prism-workspace-id"));
 
   const rateLimit = await rateLimiter({ tokenProfileId: identity.tokenProfileId, method, executionMode: identity.executionMode, requestId });
   if (rateLimit.kind === "limited") {
     await audit?.store.recordActivity({
       ...audit.base,
-      ...extractSlackObjectMetadata(method, payload.value),
+      ...extractSlackObjectMetadata(method, slackPayload),
       status: "rate_limited",
       errorClass: rateLimit.body.error,
       httpStatus: rateLimit.httpStatus,
@@ -73,7 +81,7 @@ export async function forwardSlackMethod({
     try {
       auditAttempt = await audit.store.recordActivity({
         ...audit.base,
-        ...extractSlackObjectMetadata(method, payload.value),
+        ...extractSlackObjectMetadata(method, slackPayload),
         status: "attempted",
         upstreamCalled: false
       });
@@ -84,23 +92,48 @@ export async function forwardSlackMethod({
       throw error;
     }
   }
-  const upstream = await client.callMethod({
+  let accessToken: string | undefined;
+  if (client.requiresAccessToken) {
+    const credential = await (credentialProvider ?? createDefaultSlackForwardingCredentialProvider()).getAccessToken({
+      connectionId: identity.slackConnectionId,
+      kind: identity.executionMode
+    });
+    if (credential.kind === "unavailable") {
+      await updateAuditOutcome({
+        audit,
+        auditAttempt,
+        requestId,
+        method,
+        outcome: { status: "upstream_error", errorClass: credential.errorClass, httpStatus: 200, upstreamCalled: false }
+      });
+      return slackApiResponse({ ok: false, error: credential.error }, { requestId, policyDecision: "allowed", executionMode: identity.executionMode, upstreamCalled: false });
+    }
+    accessToken = credential.accessToken;
+  }
+
+  const httpMethod: SlackWebApiCall["httpMethod"] = request.method === "POST" ? "POST" : "GET";
+  const call: SlackWebApiCall = {
     method,
-    httpMethod: request.method === "POST" ? "POST" : "GET",
-    payload: payload.value,
-    executionMode: identity.executionMode
-  });
+    httpMethod,
+    payloadEncoding: payload.encoding,
+    payload: slackPayload,
+    executionMode: identity.executionMode,
+    ...(accessToken ? { accessToken } : {})
+  };
+  const upstream = await client.callMethod(call);
   if (audit && auditAttempt) {
-    try {
-      await audit.store.updateActivityOutcome(auditAttempt.id, {
+    await updateAuditOutcome({
+      audit,
+      auditAttempt,
+      requestId,
+      method,
+      outcome: {
         status: isSlackError(upstream.body) ? "upstream_error" : "forwarded",
         errorClass: isSlackError(upstream.body) ? upstream.body.error : null,
         httpStatus: upstream.status,
         upstreamCalled: true
-      });
-    } catch (error) {
-      logActivityAuditUpdateFailure({ requestId, method, auditId: auditAttempt.id, error });
-    }
+      }
+    });
   }
   const response = slackApiResponse(upstream.body, { requestId, policyDecision: "allowed", executionMode: identity.executionMode, upstreamCalled: true }, upstream.status);
   applySelectedUpstreamHeaders(response, upstream.headers);
@@ -109,8 +142,11 @@ export async function forwardSlackMethod({
 
 async function parseSlackPayload(
   request: NextRequest
-): Promise<{ kind: "payload"; value: SlackForwardingPayload } | { kind: "error"; httpStatus: number; body: { ok: false; error: string } }> {
-  if (request.method !== "POST") return { kind: "payload", value: paramsToPayload(new URL(request.url).searchParams) };
+): Promise<
+  | { kind: "payload"; value: SlackForwardingPayload; encoding: SlackPayloadEncoding }
+  | { kind: "error"; httpStatus: number; body: { ok: false; error: string } }
+> {
+  if (request.method !== "POST") return { kind: "payload", value: paramsToPayload(new URL(request.url).searchParams), encoding: "query" };
 
   const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
   if (contentType.includes("multipart/form-data")) return { kind: "error", httpStatus: 200, body: { ok: false, error: "method_not_supported" } };
@@ -122,10 +158,19 @@ async function parseSlackPayload(
       return { kind: "error", httpStatus: 200, body: { ok: false, error: "invalid_json" } };
     }
     if (!isRecord(body)) return { kind: "error", httpStatus: 200, body: { ok: false, error: "json_not_object" } };
-    return { kind: "payload", value: stripLocalToolToken(body) };
+    return { kind: "payload", value: stripLocalToolToken(body), encoding: "json" };
   }
 
-  return { kind: "payload", value: paramsToPayload(new URLSearchParams(await request.text())) };
+  return { kind: "payload", value: paramsToPayload(new URLSearchParams(await request.text())), encoding: "form" };
+}
+
+function createDefaultSlackForwardingCredentialProvider(): SlackForwardingCredentialProvider {
+  const config = getSlackOAuthConfig();
+  return createSlackForwardingCredentialProvider({
+    store: createPostgresRefreshStore(database),
+    cipher: createConfiguredCredentialCipher(),
+    slackOAuthClient: createFetchSlackOAuthClient({ clientId: config.clientId, clientSecret: config.clientSecret })
+  });
 }
 
 function paramsToPayload(params: URLSearchParams): SlackForwardingPayload {
@@ -141,6 +186,12 @@ function paramsToPayload(params: URLSearchParams): SlackForwardingPayload {
 function stripLocalToolToken(body: Record<string, unknown>): SlackForwardingPayload {
   const { token: _token, ...payload } = body;
   return payload;
+}
+
+function withWorkspaceTeamId(payload: SlackForwardingPayload, workspaceId: string | null): SlackForwardingPayload {
+  const normalized = workspaceId?.trim();
+  if (!normalized || "team_id" in payload) return payload;
+  return { ...payload, team_id: normalized };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -172,6 +223,27 @@ function logActivityAuditUpdateFailure({
     auditId,
     errorName: error instanceof Error ? error.name : typeof error
   });
+}
+
+async function updateAuditOutcome({
+  audit,
+  auditAttempt,
+  requestId,
+  method,
+  outcome
+}: {
+  audit: SlackForwardingAudit | undefined;
+  auditAttempt: ActivityAuditRecord | null;
+  requestId: string;
+  method: string;
+  outcome: { status: "forwarded" | "upstream_error"; errorClass: string | null; httpStatus: number; upstreamCalled: boolean };
+}): Promise<void> {
+  if (!audit || !auditAttempt) return;
+  try {
+    await audit.store.updateActivityOutcome(auditAttempt.id, outcome);
+  } catch (error) {
+    logActivityAuditUpdateFailure({ requestId, method, auditId: auditAttempt.id, error });
+  }
 }
 
 function applySelectedUpstreamHeaders(response: NextResponse, headers: Headers | Record<string, string | undefined> | undefined): void {

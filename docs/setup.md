@@ -92,6 +92,8 @@ Surface-gated methods require `X-Prism-Surface`, such as `public_channel`, `priv
 
 Prism strips local `token` payload fields before forwarding. Local tools should still avoid sending Prism developer tokens or Slack credentials in request bodies.
 
+Normal forwarding calls Slack's real Web API with server-held Slack credentials selected from the resolved Execution identity. On Enterprise Grid installs, pass `X-Prism-Workspace-ID` with the target Slack workspace ID; Prism forwards it to Slack as `team_id` when the payload does not already include `team_id`. For local-only mock QA, set `PRISM_SLACK_WEB_API_MOCK=1`; production ignores mock mode.
+
 ## Token profile lifecycle
 
 A **Token profile** is the user-owned policy object for one Local tool. It narrows what Slack administration approved at the app level.

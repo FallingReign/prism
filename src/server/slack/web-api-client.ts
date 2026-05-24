@@ -1,14 +1,18 @@
 import "server-only";
 
+import { getSlackWebApiConfig, type SlackWebApiConfig } from "../config";
 import type { ConcreteExecutionMode } from "../token-profiles/execution-identity";
 
 export type SlackForwardingPayload = Record<string, unknown>;
+export type SlackPayloadEncoding = "query" | "json" | "form";
 
 export type SlackWebApiCall = {
   method: string;
   httpMethod: "GET" | "POST";
+  payloadEncoding?: SlackPayloadEncoding;
   payload: SlackForwardingPayload;
   executionMode: ConcreteExecutionMode;
+  accessToken?: string;
 };
 
 export type SlackWebApiResult = {
@@ -18,11 +22,59 @@ export type SlackWebApiResult = {
 };
 
 export type SlackWebApiClient = {
+  requiresAccessToken?: boolean;
   callMethod(input: SlackWebApiCall): Promise<SlackWebApiResult>;
 };
 
-export function createDefaultSlackWebApiClient(): SlackWebApiClient {
-  return new MockSlackWebApiClient();
+export function createDefaultSlackWebApiClient(config: SlackWebApiConfig = getSlackWebApiConfig()): SlackWebApiClient {
+  return config.mockWebApi ? new MockSlackWebApiClient() : new FetchSlackWebApiClient();
+}
+
+export class FetchSlackWebApiClient implements SlackWebApiClient {
+  readonly requiresAccessToken = true;
+  private readonly fetchImpl: typeof fetch;
+  private readonly baseUrl: string;
+
+  constructor({ fetchImpl = fetch, baseUrl = "https://slack.com/api" }: { fetchImpl?: typeof fetch; baseUrl?: string } = {}) {
+    this.fetchImpl = fetchImpl;
+    this.baseUrl = baseUrl.replace(/\/$/, "");
+  }
+
+  async callMethod(input: SlackWebApiCall): Promise<SlackWebApiResult> {
+    if (!input.accessToken) {
+      return { status: 200, body: { ok: false, error: "not_authed" } };
+    }
+
+    const url = new URL(`${this.baseUrl}/${input.method}`);
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${input.accessToken}`
+    };
+    const init: RequestInit = { method: input.httpMethod, headers };
+
+    if (input.httpMethod === "GET") {
+      appendPayload(url.searchParams, input.payload);
+    } else if ((input.payloadEncoding ?? "form") === "json") {
+      headers["Content-Type"] = "application/json; charset=utf-8";
+      init.body = JSON.stringify(sanitizePayload(input.payload));
+    } else {
+      headers["Content-Type"] = "application/x-www-form-urlencoded";
+      const body = new URLSearchParams();
+      appendPayload(body, input.payload);
+      init.body = body;
+    }
+
+    try {
+      const response = await this.fetchImpl(url, init);
+      const text = await response.text();
+      try {
+        return { status: response.status, body: JSON.parse(text), headers: response.headers };
+      } catch {
+        return { status: 502, body: { ok: false, error: "slack_bad_response" } };
+      }
+    } catch {
+      return { status: 503, body: { ok: false, error: "slack_unavailable" } };
+    }
+  }
 }
 
 export class MockSlackWebApiClient implements SlackWebApiClient {
@@ -76,4 +128,20 @@ function mockBody({ method, payload, executionMode }: SlackWebApiCall): unknown 
   if (method === "files.info") return { ok: true, file: { id: String(payload.file ?? "F-MOCK"), name: "mock.txt", mimetype: "text/plain", size: 42 } };
   if (method === "files.list") return { ok: true, files: [{ id: "F-MOCK", name: "mock.txt", mimetype: "text/plain", size: 42 }], paging: { page: 1, pages: 1, total: 1 } };
   return { ok: false, error: "method_not_supported" };
+}
+
+function appendPayload(params: URLSearchParams, payload: SlackForwardingPayload): void {
+  for (const [key, value] of Object.entries(sanitizePayload(payload))) {
+    if (value === undefined || value === null) continue;
+    if (Array.isArray(value)) {
+      for (const item of value) params.append(key, String(item));
+      continue;
+    }
+    params.set(key, String(value));
+  }
+}
+
+function sanitizePayload(payload: SlackForwardingPayload): SlackForwardingPayload {
+  const { token: _token, ...sanitized } = payload;
+  return sanitized;
 }

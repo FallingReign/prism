@@ -14,6 +14,10 @@ export type SlackOAuthServerConfig = {
   mockOAuth: boolean;
 };
 
+export type SlackWebApiConfig = {
+  mockWebApi: boolean;
+};
+
 export type CredentialEncryptionConfig = {
   key: string;
   keyId: string;
@@ -88,6 +92,12 @@ export function getSlackOAuthConfig(env: NodeJS.ProcessEnv = process.env): Slack
       "users:read"
     ],
     mockOAuth: env.PRISM_SLACK_OAUTH_MOCK === "1" && env.NODE_ENV !== "production"
+  };
+}
+
+export function getSlackWebApiConfig(env: NodeJS.ProcessEnv = process.env): SlackWebApiConfig {
+  return {
+    mockWebApi: env.PRISM_SLACK_WEB_API_MOCK === "1" && env.NODE_ENV !== "production"
   };
 }
 

@@ -20,6 +20,7 @@ describe("Prism substrate dependencies", () => {
       "src/server/credentials/encryption.ts",
       "src/server/credentials/factory.ts",
       "src/server/slack/forwarding.ts",
+      "src/server/slack/forwarding-credentials.ts",
       "src/server/slack/oauth-flow.ts",
       "src/server/slack/postgres-store.ts",
       "src/server/slack/refresh.ts",

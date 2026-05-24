@@ -70,6 +70,7 @@ describe("/v1/slack/api/[method] policy tracer", () => {
     mockDb.transaction.mockReset();
     process.env.PRISM_DEVELOPER_TOKEN_PEPPER = "pepper-secret-canary";
     process.env.PRISM_DEVELOPER_TOKEN_PEPPER_ID = "test-pepper";
+    process.env.PRISM_SLACK_WEB_API_MOCK = "1";
     delete process.env.PRISM_RATE_LIMIT_MAX_REQUESTS;
     delete process.env.PRISM_RATE_LIMIT_WINDOW_SECONDS;
     defaultTokenRows = [row()];
@@ -136,7 +137,7 @@ describe("/v1/slack/api/[method] policy tracer", () => {
     expect(mockDb.query.mock.calls.filter(([sql]) => String(sql).includes("slack_forwarding_rate_limits"))).toHaveLength(0);
   });
 
-  it("returns unsupported errors without upstream calls and forwards allowed methods through the default mock upstream", async () => {
+  it("returns unsupported errors without upstream calls and forwards allowed methods through explicit mock upstream", async () => {
     const { GET } = await import("./route");
     const admin = await GET(
       new NextRequest("http://localhost:3732/v1/slack/api/admin.users.list", {

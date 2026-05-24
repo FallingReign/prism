@@ -42,12 +42,41 @@ describe("Slack forwarding service", () => {
       {
         method: "chat.postMessage",
         httpMethod: "POST",
+        payloadEncoding: "json",
         payload: { channel: "C123", text: "hello" },
         executionMode: "bot"
       }
     ]);
     expect(response.headers.get("x-prism-upstream-called")).toBe("true");
     expect(await response.json()).toEqual({ ok: true, channel: "C123", message: { text: "hello" } });
+  });
+
+  it("uses the Prism workspace header as Slack team_id for Enterprise Grid forwarding", async () => {
+    const calls: unknown[] = [];
+    const client: SlackWebApiClient = {
+      async callMethod(input) {
+        calls.push(input);
+        return { status: 200, body: { ok: true, channels: [] } };
+      }
+    };
+
+    const response = await forwardSlackMethod({
+      request: new NextRequest("http://localhost:3732/v1/slack/api/conversations.list?limit=2", {
+        headers: { "x-prism-workspace-id": "T123" }
+      }),
+      method: "conversations.list",
+      identity,
+      requestId: "req_workspace_team",
+      client,
+      rateLimiter: allowRateLimiter
+    });
+
+    expect(response.headers.get("x-prism-upstream-called")).toBe("true");
+    expect(calls).toEqual([
+      expect.objectContaining({
+        payload: { limit: "2", team_id: "T123" }
+      })
+    ]);
   });
 
   it("rejects malformed Slack JSON payloads before upstream calls", async () => {
@@ -145,6 +174,132 @@ describe("Slack forwarding service", () => {
     );
     expect(JSON.stringify(audit.store.recordActivity.mock.calls)).not.toMatch(/MESSAGE_TEXT_CANARY|BLOCK_KIT_CANARY|prism_dev_/);
     expect(calls).toHaveLength(1);
+  });
+
+  it("resolves server-held Slack credentials after rate limit and audit before real upstream calls", async () => {
+    const events: string[] = [];
+    const client: SlackWebApiClient = {
+      requiresAccessToken: true,
+      async callMethod(input) {
+        events.push("client");
+        return {
+          status: 200,
+          body: { ok: true, channel: input.payload.channel, credentialUsed: input.accessToken, encoding: input.payloadEncoding }
+        };
+      }
+    };
+    const rateLimiter = vi.fn(() => {
+      events.push("rate-limit");
+      return { kind: "allowed" as const };
+    });
+    const audit = {
+      store: {
+        recordActivity: vi.fn(async (input) => {
+          events.push("audit-attempt");
+          return { id: "audit_1", ...input };
+        }),
+        updateActivityOutcome: vi.fn(async () => {
+          events.push("audit-outcome");
+          return null;
+        })
+      },
+      base: {
+        prismUserId: "user_1",
+        slackConnectionId: "conn_1",
+        tokenProfileId: "profile_1",
+        tokenProfileName: "Local MCP",
+        activityType: "slack_method" as const,
+        slackMethod: "chat.postMessage",
+        actionCategory: "messages.write",
+        surface: "public_channel",
+        executionMode: "bot",
+        requestId: "req_real_credential"
+      }
+    };
+    const credentialProvider = {
+      async getAccessToken(input: { connectionId: string | null | undefined; kind: "bot" | "user" }) {
+        events.push("credential");
+        expect(input).toEqual({ connectionId: "conn_1", kind: "bot" });
+        return { kind: "available" as const, accessToken: "xoxb-server-held-token-canary" };
+      }
+    };
+
+    const response = await forwardSlackMethod({
+      request: new NextRequest("http://localhost:3732/v1/slack/api/chat.postMessage", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ channel: "C123", text: "hello" })
+      }),
+      method: "chat.postMessage",
+      identity,
+      requestId: "req_real_credential",
+      client,
+      rateLimiter,
+      audit,
+      credentialProvider
+    });
+
+    expect(events).toEqual(["rate-limit", "audit-attempt", "credential", "client", "audit-outcome"]);
+    expect(response.headers.get("x-prism-upstream-called")).toBe("true");
+    expect(await response.json()).toEqual({
+      ok: true,
+      channel: "C123",
+      credentialUsed: "xoxb-server-held-token-canary",
+      encoding: "json"
+    });
+  });
+
+  it("does not call Slack when the selected server-held credential is unavailable", async () => {
+    const client: SlackWebApiClient = {
+      requiresAccessToken: true,
+      callMethod: vi.fn()
+    };
+    const audit = {
+      store: {
+        recordActivity: vi.fn(async (input) => ({ id: "audit_1", ...input })),
+        updateActivityOutcome: vi.fn(async () => null)
+      },
+      base: {
+        prismUserId: "user_1",
+        slackConnectionId: "conn_1",
+        tokenProfileId: "profile_1",
+        tokenProfileName: "Local MCP",
+        activityType: "slack_method" as const,
+        slackMethod: "chat.postMessage",
+        actionCategory: "messages.write",
+        surface: "public_channel",
+        executionMode: "bot",
+        requestId: "req_missing_credential"
+      }
+    };
+    const credentialProvider = {
+      async getAccessToken() {
+        return { kind: "unavailable" as const, error: "not_authed" as const, errorClass: "missing_slack_credential" };
+      }
+    };
+
+    const response = await forwardSlackMethod({
+      request: new NextRequest("http://localhost:3732/v1/slack/api/chat.postMessage", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ channel: "C123", text: "hello" })
+      }),
+      method: "chat.postMessage",
+      identity,
+      requestId: "req_missing_credential",
+      client,
+      rateLimiter: allowRateLimiter,
+      audit,
+      credentialProvider
+    });
+
+    expect(client.callMethod).not.toHaveBeenCalled();
+    expect(response.headers.get("x-prism-upstream-called")).toBe("false");
+    expect(await response.json()).toEqual({ ok: false, error: "not_authed" });
+    expect(audit.store.updateActivityOutcome).toHaveBeenCalledWith(
+      "audit_1",
+      expect.objectContaining({ status: "upstream_error", errorClass: "missing_slack_credential", httpStatus: 200, upstreamCalled: false })
+    );
   });
 
   it("preserves the Slack response when the final audit outcome update fails after upstream", async () => {
