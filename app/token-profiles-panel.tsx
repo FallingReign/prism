@@ -2,6 +2,8 @@
 
 import { FormEvent, useState } from "react";
 
+import { formatUtcDate, formatUtcDateTime } from "./date-format";
+
 export type TokenProfileSummary = {
   id: string;
   name: string;
@@ -238,22 +240,22 @@ export function TokenProfilesPanel({
               </div>
               <div>
                 <dt>Expiry</dt>
-                <dd>{formatDate(profile.expiresAt ?? profile.developerToken?.expiresAt ?? null) ?? "No expiry"}</dd>
+                <dd>{formatUtcDate(profile.expiresAt ?? profile.developerToken?.expiresAt ?? null) ?? "No expiry"}</dd>
               </div>
               <div>
                 <dt>Last used</dt>
-                <dd>{formatDateTime(profile.developerToken?.lastUsedAt ?? null) ?? "Not used yet"}</dd>
+                <dd>{formatUtcDateTime(profile.developerToken?.lastUsedAt ?? null) ?? "Not used yet"}</dd>
               </div>
               {profile.developerToken?.overlapExpiresAt ? (
                 <div>
                   <dt>Overlap until</dt>
-                  <dd>{formatDateTime(profile.developerToken.overlapExpiresAt)}</dd>
+                  <dd>{formatUtcDateTime(profile.developerToken.overlapExpiresAt)}</dd>
                 </div>
               ) : null}
               {profile.developerToken?.revokedAt ? (
                 <div>
                   <dt>Revoked</dt>
-                  <dd>{formatDateTime(profile.developerToken.revokedAt)}</dd>
+                  <dd>{formatUtcDateTime(profile.developerToken.revokedAt)}</dd>
                 </div>
               ) : null}
             </dl>
@@ -349,12 +351,4 @@ function developerTokenStatusLabel(status: NonNullable<TokenProfileSummary["deve
   if (status === "revoked") return "Revoked";
   if (status === "missing") return "Missing";
   return "Active";
-}
-
-function formatDate(value: string | null): string | null {
-  return value ? new Date(value).toLocaleDateString() : null;
-}
-
-function formatDateTime(value: string | null): string | null {
-  return value ? new Date(value).toLocaleString() : null;
 }

@@ -33,6 +33,7 @@ describe("Prism website activity audit panel", () => {
     expect(html).toContain("Token profile rotated");
     expect(html).toContain("rotated");
     expect(html).toContain("15m");
+    expect(html).toContain("2026-01-01 00:00:00 UTC");
     expect(html).not.toMatch(/prism_dev_|tokenHash|xox[bp]-|refresh-secret|client_secret|access_token/i);
   });
 });

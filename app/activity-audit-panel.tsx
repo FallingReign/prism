@@ -1,4 +1,5 @@
 import type { ActivityAuditSummary } from "../src/server/audit/presentation";
+import { formatUtcDateTime } from "./date-format";
 
 export function ActivityAuditPanel({ activity }: { activity: ActivityAuditSummary[] }) {
   return (
@@ -25,7 +26,7 @@ export function ActivityAuditPanel({ activity }: { activity: ActivityAuditSummar
                 </div>
                 <div>
                   <dt>When</dt>
-                  <dd>{new Date(entry.occurredAt).toLocaleString()}</dd>
+                  <dd>{formatUtcDateTime(entry.occurredAt)}</dd>
                 </div>
                 {entry.actionCategory ? (
                   <div>

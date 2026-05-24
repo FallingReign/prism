@@ -38,7 +38,9 @@ describe("Prism website Token profiles", () => {
     expect(html).toContain("Token status");
     expect(html).toContain("Active");
     expect(html).toContain("Last used");
+    expect(html).toContain("2026-01-01 00:15:00 UTC");
     expect(html).toContain("Overlap until");
+    expect(html).toContain("2026-01-01 01:00:00 UTC");
     expect(html).toContain("Rotate token");
     expect(html).toContain("Revoke token");
     expect(html).toContain("Update policy");
