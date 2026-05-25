@@ -20,4 +20,18 @@ describe("Prism website design-system guard", () => {
     expect(css).not.toMatch(/border-left:\s*[2-9]/);
     expect(css).not.toMatch(/background-clip:\s*text/);
   });
+
+  it("keeps Token profile interactions accessible on long forms", () => {
+    const css = readFileSync(join(process.cwd(), "app", "globals.css"), "utf8");
+    const panel = readFileSync(join(process.cwd(), "app", "token-profiles-panel.tsx"), "utf8");
+
+    expect(css).toMatch(/\.checkbox-grid label,[\s\S]*min-height:\s*44px/);
+    expect(css).toMatch(/\.preset-grid,[\s\S]*grid-template-columns:\s*1fr/);
+    expect(css).not.toMatch(/\.product-header\s*\{[\s\S]*position:\s*sticky/);
+    expect(panel).toContain('role="alert"');
+    expect(panel).toContain('aria-live="polite"');
+    expect(panel).toContain("Rotating...");
+    expect(panel).toContain("Updating...");
+    expect(panel).toContain("Revoking...");
+  });
 });
