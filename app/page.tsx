@@ -10,6 +10,8 @@ import { createPostgresTokenProfileStore } from "../src/server/token-profiles/st
 import { ActivityAuditPanel } from "./activity-audit-panel";
 import { SlackStatusPanel, type SlackWebsiteStatus } from "./slack-status-panel";
 import { TokenProfilesPanel, type TokenProfileSummary } from "./token-profiles-panel";
+import { LinkButton, Panel, StatusBadge, SummaryMetric } from "./ui";
+import { buildWebsiteOverview } from "./website-overview";
 
 export const dynamic = "force-dynamic";
 
@@ -23,33 +25,92 @@ async function HomeContent() {
   const status = await readSlackWebsiteStatus(sessionToken);
   const tokenProfiles = status.kind === "linked" ? await readTokenProfileSummaries(sessionToken) : [];
   const activity = status.kind === "linked" ? await readActivityAudit(sessionToken) : [];
+  const overview = buildWebsiteOverview(status, tokenProfiles, activity);
+  const slackActionLabel = status.kind === "linked" && status.status === "reauth_required" ? "Reconnect Slack" : "Connect Slack";
 
   return (
-    <main className="shell">
-      <section className="hero" aria-labelledby="prism-title">
-        <p className="eyebrow">Prism hosted service</p>
-        <h1 id="prism-title">A Slack-compatible bridge for developer-owned local tools.</h1>
-        <p>
-          The Prism website helps developers prepare local tools to call Prism while Slack credentials stay with the Prism hosted service.
-        </p>
+    <main className="site-shell">
+      <header className="product-header" aria-label="Prism product navigation">
+        <a className="brand-lockup" href="/">
+          <span className="brand-mark" aria-hidden="true">
+            P
+          </span>
+          <span>
+            <strong>Prism</strong>
+            <span>Slack bridge</span>
+          </span>
+        </a>
+        <nav className="product-nav" aria-label="Primary">
+          <a href="#slack-status-title">Slack status</a>
+          <a href="#token-profiles-title">Token profiles</a>
+          <a href="#activity-audit-title">Metadata audit</a>
+        </nav>
+        <div className="header-actions">
+          <StatusBadge tone={overview.slack.tone}>{overview.slack.label}</StatusBadge>
+          {status.kind !== "linked" || status.status === "reauth_required" ? (
+            <LinkButton href="/v1/slack/oauth/start" variant="secondary">
+              {slackActionLabel}
+            </LinkButton>
+          ) : null}
+        </div>
+      </header>
+
+      <section className="hero-panel" aria-labelledby="prism-title">
+        <div className="hero-copy">
+          <p className="eyebrow">Prism hosted service</p>
+          <h1 id="prism-title">Slack access for local tools, without handing them Slack credentials.</h1>
+          <p>
+            Prism owns OAuth, policy, forwarding, rate limits, and metadata-only audit. Local CLIs, MCP servers, and coding agents
+            receive Prism developer tokens scoped to a Token profile.
+          </p>
+        </div>
+        <div className="hero-card" aria-label="Prism trust boundary">
+          <p className="hero-card__label">Trust boundary</p>
+          <p className="hero-card__value">Slack tokens stay server-side.</p>
+          <p>Use Token profiles to decide what a local tool can read, write, rotate, or revoke.</p>
+        </div>
       </section>
-      <section className="cards" aria-label="Prism boundaries">
-        <article>
-          <h2>Prism hosted service</h2>
-          <p>Owns Slack credential custody, policy enforcement, and future Slack-compatible API forwarding.</p>
-        </article>
-        <article>
-          <h2>Prism website</h2>
-          <p>Provides the user-facing setup surface for linking Slack and issuing copy-once Prism developer tokens.</p>
-        </article>
-        <article>
-          <h2>Local tools</h2>
-          <p>Developer-owned CLIs, MCP servers, coding agents, and apps will call Prism with Prism developer tokens.</p>
-        </article>
+
+      <section className="overview-grid" aria-label="Prism status overview">
+        <SummaryMetric {...overview.slack} />
+        <SummaryMetric {...overview.custody} />
+        <SummaryMetric {...overview.tokenProfiles} />
+        <SummaryMetric {...overview.activity} />
       </section>
-      <SlackStatusPanel status={status} />
-      {status.kind === "linked" ? <TokenProfilesPanel slackStatus={status.status} initialProfiles={tokenProfiles} /> : null}
-      {status.kind === "linked" ? <ActivityAuditPanel activity={activity} /> : null}
+
+      <div className="workspace-grid">
+        <section className="workspace-primary" aria-label="Primary setup workspace">
+          {status.kind === "linked" ? (
+            <TokenProfilesPanel slackStatus={status.status} initialProfiles={tokenProfiles} />
+          ) : (
+            <Panel
+              title="Token profiles unlock after Slack is connected"
+              titleId="token-profiles-title"
+              eyebrow="Token profiles"
+              accent="primary"
+              actions={<LinkButton href="/v1/slack/oauth/start">{slackActionLabel}</LinkButton>}
+            >
+              <p>
+                Create copy-once Prism developer tokens after Slack is linked. Each Token profile captures the intended local tool,
+                allowed Slack methods, execution identity, and expiry behavior.
+              </p>
+            </Panel>
+          )}
+        </section>
+        <aside className="workspace-secondary" aria-label="Supporting status and audit context">
+          <SlackStatusPanel status={status} />
+          {status.kind === "linked" ? (
+            <ActivityAuditPanel activity={activity} />
+          ) : (
+            <Panel title="Metadata audit starts after activity" titleId="activity-audit-title" eyebrow="Metadata audit" accent="info">
+              <p>
+                Prism records metadata only once Token profiles call Slack through the bridge: method, policy outcome, object IDs,
+                request IDs, and time.
+              </p>
+            </Panel>
+          )}
+        </aside>
+      </div>
     </main>
   );
 }

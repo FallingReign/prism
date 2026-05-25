@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react";
 
 import { formatUtcDate, formatUtcDateTime } from "./date-format";
+import { Button, Notice, Panel, StatusBadge } from "./ui";
 
 export type TokenProfileSummary = {
   id: string;
@@ -142,16 +143,23 @@ export function TokenProfilesPanel({
   }
 
   return (
-    <section className="status-card token-profiles" aria-labelledby="token-profiles-title">
-      <p className="eyebrow">Token profiles</p>
-      <h2 id="token-profiles-title">Create Token profile</h2>
+    <Panel
+      className="token-profiles"
+      title="Create Token profile"
+      titleId="token-profiles-title"
+      eyebrow="Token profiles"
+      accent="primary"
+      badge={<StatusBadge tone={slackStatus === "healthy" ? "success" : "warning"}>{slackStatus === "healthy" ? "Slack ready" : "Reauth needed"}</StatusBadge>}
+    >
       {slackStatus === "reauth_required" ? (
-        <p className="notice warning">Slack reauth is required before these profiles can be used for Slack calls, but profile management is preserved.</p>
+        <Notice title="Slack reauth required" tone="warning">
+          Slack reauth is required before these profiles can be used for Slack calls, but profile management is preserved.
+        </Notice>
       ) : null}
-      <p className="notice">
+      <Notice title="Local tool safety" tone="info">
         Slack content is untrusted input to Local tools. Prism does not execute local actions. Copy the Prism developer token when it is shown; it
         cannot be retrieved later.
-      </p>
+      </Notice>
       <form className="token-form" onSubmit={onSubmit}>
         <label>
           Profile name
@@ -207,9 +215,9 @@ export function TokenProfilesPanel({
             <option value="7d">7 days</option>
           </select>
         </label>
-        <button className="button" type="submit" disabled={submitting}>
+        <Button type="submit" disabled={submitting}>
           {submitting ? "Creating..." : "Create and show token once"}
-        </button>
+        </Button>
       </form>
       {error ? <p className="form-error">{error}</p> : null}
       {developerToken ? (
@@ -222,7 +230,7 @@ export function TokenProfilesPanel({
         <h3>Existing profiles</h3>
         {profiles.length === 0 ? <p>No Token profiles yet.</p> : null}
         {profiles.map((profile) => (
-          <article key={profile.id}>
+          <article className="profile-card" key={profile.id}>
             <h4>{profile.name}</h4>
             <p>{profile.intendedUse}</p>
             <dl>
@@ -236,7 +244,11 @@ export function TokenProfilesPanel({
               </div>
               <div>
                 <dt>Token status</dt>
-                <dd>{developerTokenStatusLabel(profile.developerToken?.status)}</dd>
+                <dd>
+                  <StatusBadge tone={developerTokenStatusTone(profile.developerToken?.status)}>
+                    {developerTokenStatusLabel(profile.developerToken?.status)}
+                  </StatusBadge>
+                </dd>
               </div>
               <div>
                 <dt>Expiry</dt>
@@ -270,9 +282,9 @@ export function TokenProfilesPanel({
                     <option value="24h">24 hours</option>
                   </select>
                 </label>
-                <button className="button" type="submit" disabled={actionProfileId === profile.id}>
+                <Button type="submit" disabled={actionProfileId === profile.id}>
                   Rotate token
-                </button>
+                </Button>
               </form>
               <form onSubmit={(event) => onPolicyUpdate(event, profile)}>
                 <label>
@@ -304,18 +316,18 @@ export function TokenProfilesPanel({
                 <label className="inline-check">
                   <input type="checkbox" name="confirmBroadening" /> Confirm broadening and rotate token
                 </label>
-                <button className="button" type="submit" disabled={actionProfileId === profile.id}>
+                <Button type="submit" disabled={actionProfileId === profile.id}>
                   Update policy
-                </button>
+                </Button>
               </form>
-              <button className="button secondary" type="button" onClick={() => onRevoke(profile)} disabled={actionProfileId === profile.id}>
+              <Button variant="danger" type="button" onClick={() => onRevoke(profile)} disabled={actionProfileId === profile.id}>
                 Revoke token
-              </button>
+              </Button>
             </div>
           </article>
         ))}
       </div>
-    </section>
+    </Panel>
   );
 }
 
@@ -351,4 +363,10 @@ function developerTokenStatusLabel(status: NonNullable<TokenProfileSummary["deve
   if (status === "revoked") return "Revoked";
   if (status === "missing") return "Missing";
   return "Active";
+}
+
+function developerTokenStatusTone(status: NonNullable<TokenProfileSummary["developerToken"]>["status"] | undefined): "success" | "warning" | "neutral" {
+  if (status === "active" || status === undefined) return "success";
+  if (status === "missing") return "warning";
+  return "neutral";
 }

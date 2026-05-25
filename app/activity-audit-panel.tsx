@@ -1,15 +1,21 @@
 import type { ActivityAuditSummary } from "../src/server/audit/presentation";
 import { formatUtcDateTime } from "./date-format";
+import { Notice, Panel, StatusBadge } from "./ui";
 
 export function ActivityAuditPanel({ activity }: { activity: ActivityAuditSummary[] }) {
   return (
-    <section className="status-card activity-audit" aria-labelledby="activity-audit-title">
-      <p className="eyebrow">Activity audit</p>
-      <h2 id="activity-audit-title">Recent Prism activity</h2>
-      <p className="notice">
+    <Panel
+      className="activity-audit"
+      title="Recent Prism activity"
+      titleId="activity-audit-title"
+      eyebrow="Activity audit"
+      accent="info"
+      badge={<StatusBadge tone={activity.length > 0 ? "info" : "neutral"}>{activity.length > 0 ? "Metadata events" : "No activity"}</StatusBadge>}
+    >
+      <Notice title="Metadata only" tone="info">
         This view stores metadata only: methods, policy outcomes, object identifiers, request IDs, and timestamps. Slack message text, search queries,
         file contents, and tokens are not stored.
-      </p>
+      </Notice>
       {activity.length === 0 ? <p>No recent Prism activity yet.</p> : null}
       {activity.length > 0 ? (
         <div className="activity-list" aria-label="Recent Prism activity">
@@ -17,7 +23,7 @@ export function ActivityAuditPanel({ activity }: { activity: ActivityAuditSummar
             <article key={entry.id}>
               <div className="activity-row">
                 <h3>{entry.slackMethod ?? activityLabel(entry.activityType)}</h3>
-                <span className={`activity-status ${entry.status}`}>{entry.status.replaceAll("_", " ")}</span>
+                <StatusBadge tone={activityStatusTone(entry.status)}>{entry.status.replaceAll("_", " ")}</StatusBadge>
               </div>
               <dl>
                 <div>
@@ -59,7 +65,7 @@ export function ActivityAuditPanel({ activity }: { activity: ActivityAuditSummar
           ))}
         </div>
       ) : null}
-    </section>
+    </Panel>
   );
 }
 
@@ -70,4 +76,10 @@ function activityLabel(activityType: ActivityAuditSummary["activityType"]): stri
   if (activityType === "token_profile_rotated") return "Token profile rotated";
   if (activityType === "token_profile_policy_updated") return "Token profile policy updated";
   return "Slack method";
+}
+
+function activityStatusTone(status: ActivityAuditSummary["status"]): "success" | "warning" | "neutral" | "info" {
+  if (["forwarded", "created", "listed", "revoked", "rotated", "updated"].includes(status)) return "success";
+  if (["denied", "unsupported", "upstream_error", "parse_error", "rate_limited", "identity_unavailable"].includes(status)) return "warning";
+  return "info";
 }

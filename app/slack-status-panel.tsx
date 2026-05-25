@@ -1,3 +1,5 @@
+import { LinkButton, Notice, Panel, StatusBadge } from "./ui";
+
 export type SlackWebsiteStatus =
   | { kind: "not_linked" }
   | { kind: "setup_required" }
@@ -13,52 +15,70 @@ export type SlackWebsiteStatus =
 export function SlackStatusPanel({ status }: { status: SlackWebsiteStatus }) {
   if (status.kind === "setup_required") {
     return (
-      <section className="status-card" aria-labelledby="slack-status-title">
-        <p className="eyebrow">Slack link</p>
-        <h2 id="slack-status-title">Setup required</h2>
+      <Panel
+        title="Setup required"
+        titleId="slack-status-title"
+        eyebrow="Slack link"
+        accent="warning"
+        badge={<StatusBadge tone="warning">Configuration needed</StatusBadge>}
+      >
         <p>Slack OAuth or credential encryption configuration is missing. Add server-side settings, then reconnect.</p>
-      </section>
+      </Panel>
     );
   }
 
   if (status.kind === "not_linked") {
     return (
-      <section className="status-card" aria-labelledby="slack-status-title">
-        <p className="eyebrow">Slack link</p>
-        <h2 id="slack-status-title">Not linked</h2>
+      <Panel
+        title="Not linked"
+        titleId="slack-status-title"
+        eyebrow="Slack link"
+        accent="primary"
+        badge={<StatusBadge>Waiting for OAuth</StatusBadge>}
+        actions={<LinkButton href="/v1/slack/oauth/start">Connect Slack</LinkButton>}
+      >
         <p>Connect Slack to let the Prism hosted service hold Slack credentials server-side.</p>
-        <a className="button" href="/v1/slack/oauth/start">
-          Connect Slack
-        </a>
-      </section>
+        <Notice title="Custody boundary" tone="info">
+          Local tools only receive Prism developer tokens after Slack is connected.
+        </Notice>
+      </Panel>
     );
   }
 
   if (status.status === "reauth_required") {
     const scope = slackScopeLabel(status);
     return (
-      <section className="status-card warning" aria-labelledby="slack-status-title">
-        <p className="eyebrow">Slack link</p>
-        <h2 id="slack-status-title">Reauth required</h2>
+      <Panel
+        title="Reauth required"
+        titleId="slack-status-title"
+        eyebrow="Slack link"
+        accent="warning"
+        badge={<StatusBadge tone="warning">Reconnect needed</StatusBadge>}
+        actions={<LinkButton href="/v1/slack/oauth/start">Reconnect Slack</LinkButton>}
+      >
         <p>
           Slack identity <strong>{status.slackUserId}</strong> in {scope.label} <strong>{scope.value}</strong> needs to reconnect.
         </p>
-        <a className="button" href="/v1/slack/oauth/start">
-          Reconnect Slack
-        </a>
-      </section>
+      </Panel>
     );
   }
 
   const scope = slackScopeLabel(status);
   return (
-    <section className="status-card healthy" aria-labelledby="slack-status-title">
-      <p className="eyebrow">Slack link</p>
-      <h2 id="slack-status-title">Linked and healthy</h2>
+    <Panel
+      title="Linked and healthy"
+      titleId="slack-status-title"
+      eyebrow="Slack link"
+      accent="success"
+      badge={<StatusBadge tone="success">Ready for forwarding</StatusBadge>}
+    >
       <p>
         Slack identity <strong>{status.slackUserId}</strong> in {scope.label} <strong>{scope.value}</strong> is linked.
       </p>
-    </section>
+      <Notice title="Server custody active" tone="success">
+        Slack credentials remain encrypted and server-held while local tools use Prism developer tokens.
+      </Notice>
+    </Panel>
   );
 }
 
