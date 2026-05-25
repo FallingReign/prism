@@ -90,7 +90,7 @@ describe("Prism website Token profiles", () => {
     expect(html).toContain('name="policyRead"');
     expect(html).toContain('name="policyDestructive"');
     expect(html).toContain("Revocation is immediate");
-    expect(html).toContain("Copy-once token appears here after create or rotate.");
+    expect(html).toContain("Manage rotation, policy, and revocation");
     expect(html).not.toMatch(/prism_dev_|tokenHash|xox[bp]-|refresh-secret|client_secret|access_token/i);
   });
 });

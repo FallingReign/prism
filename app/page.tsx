@@ -29,23 +29,29 @@ async function HomeContent() {
   const slackActionLabel = status.kind === "linked" && status.status === "reauth_required" ? "Reconnect Slack" : "Connect Slack";
 
   return (
-    <main className="site-shell">
-      <header className="product-header" aria-label="Prism product navigation">
-        <a className="brand-lockup" href="/">
-          <span className="brand-mark" aria-hidden="true">
+    <main className="mx-auto grid w-full max-w-7xl gap-6 px-4 py-4 sm:px-6 lg:px-8 lg:py-6">
+      <header className="grid gap-4 rounded-2xl bg-card/75 p-3 shadow-sm ring-1 ring-foreground/5 backdrop-blur sm:grid-cols-[auto_1fr_auto] sm:items-center" aria-label="Prism product navigation">
+        <a className="inline-flex items-center gap-3 rounded-xl text-foreground no-underline" href="/">
+          <span className="grid size-10 place-items-center rounded-xl bg-primary text-sm font-bold text-primary-foreground shadow-sm" aria-hidden="true">
             P
           </span>
-          <span>
-            <strong>Prism</strong>
-            <span>Slack bridge</span>
+          <span className="grid">
+            <strong className="text-sm font-semibold leading-5">Prism</strong>
+            <span className="text-xs text-muted-foreground">Slack bridge</span>
           </span>
         </a>
-        <nav className="product-nav" aria-label="Primary">
-          <a href="#slack-status-title">Slack status</a>
-          <a href="#token-profiles-title">Token profiles</a>
-          <a href="#activity-audit-title">Metadata audit</a>
+        <nav className="flex flex-wrap gap-1 sm:justify-center" aria-label="Primary">
+          <a className="inline-flex min-h-11 items-center rounded-full px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground" href="#slack-status-title">
+            Slack status
+          </a>
+          <a className="inline-flex min-h-11 items-center rounded-full px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground" href="#token-profiles-title">
+            Token profiles
+          </a>
+          <a className="inline-flex min-h-11 items-center rounded-full px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground" href="#activity-audit-title">
+            Metadata audit
+          </a>
         </nav>
-        <div className="header-actions">
+        <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           <StatusBadge tone={overview.slack.tone}>{overview.slack.label}</StatusBadge>
           {status.kind !== "linked" || status.status === "reauth_required" ? (
             <LinkButton href="/v1/slack/oauth/start" variant="secondary">
@@ -55,31 +61,33 @@ async function HomeContent() {
         </div>
       </header>
 
-      <section className="hero-panel" aria-labelledby="prism-title">
-        <div className="hero-copy">
-          <p className="eyebrow">Prism hosted service</p>
-          <h1 id="prism-title">Slack access for local tools, without handing them Slack credentials.</h1>
-          <p>
-            Prism owns OAuth, policy, forwarding, rate limits, and metadata-only audit. Local CLIs, MCP servers, and coding agents
-            receive Prism developer tokens scoped to a Token profile.
-          </p>
+      <section className="rounded-3xl bg-card/85 p-5 shadow-sm ring-1 ring-foreground/5 backdrop-blur lg:p-6" aria-labelledby="prism-title">
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
+          <div className="max-w-3xl">
+            <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Prism hosted service</p>
+            <h1 id="prism-title" className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
+              Slack bridge control plane
+            </h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
+              Slack OAuth and tokens stay server-side. Local CLIs, MCP servers, and coding agents receive scoped Prism developer
+              tokens, policy enforcement, rate limits, and metadata-only audit.
+            </p>
+          </div>
+          <div className="rounded-2xl bg-muted/45 p-4 text-sm leading-6 text-muted-foreground" aria-label="Prism trust boundary">
+            <p className="font-semibold text-foreground">Credential custody stays with Prism.</p>
+            <p>Profiles decide which Slack methods a local tool can call, and audit stores metadata only.</p>
+          </div>
         </div>
-        <div className="hero-card" aria-label="Prism trust boundary">
-          <p className="hero-card__label">Trust boundary</p>
-          <p className="hero-card__value">Slack tokens stay server-side.</p>
-          <p>Use Token profiles to decide what a local tool can read, write, rotate, or revoke.</p>
+        <div className="mt-5 hidden gap-3 xl:grid xl:grid-cols-4" aria-label="Prism status overview">
+          <SummaryMetric {...overview.slack} />
+          <SummaryMetric {...overview.custody} />
+          <SummaryMetric {...overview.tokenProfiles} />
+          <SummaryMetric {...overview.activity} />
         </div>
       </section>
 
-      <section className="overview-grid" aria-label="Prism status overview">
-        <SummaryMetric {...overview.slack} />
-        <SummaryMetric {...overview.custody} />
-        <SummaryMetric {...overview.tokenProfiles} />
-        <SummaryMetric {...overview.activity} />
-      </section>
-
-      <div className="workspace-grid">
-        <section className="workspace-primary" aria-label="Primary setup workspace">
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(22rem,0.65fr)] xl:items-start">
+        <section className="order-2 grid gap-5 xl:order-1" aria-label="Primary setup workspace">
           {status.kind === "linked" ? (
             <TokenProfilesPanel slackStatus={status.status} initialProfiles={tokenProfiles} />
           ) : (
@@ -97,20 +105,20 @@ async function HomeContent() {
             </Panel>
           )}
         </section>
-        <aside className="workspace-secondary" aria-label="Supporting status and audit context">
+        <aside className="order-1 grid gap-5 xl:order-2" aria-label="Supporting status context">
           <SlackStatusPanel status={status} />
-          {status.kind === "linked" ? (
-            <ActivityAuditPanel activity={activity} />
-          ) : (
-            <Panel title="Metadata audit starts after activity" titleId="activity-audit-title" eyebrow="Metadata audit" accent="info">
-              <p>
-                Prism records metadata only once Token profiles call Slack through the bridge: method, policy outcome, object IDs,
-                request IDs, and time.
-              </p>
-            </Panel>
-          )}
         </aside>
       </div>
+      {status.kind === "linked" ? (
+        <ActivityAuditPanel activity={activity} />
+      ) : (
+        <Panel title="Metadata audit starts after activity" titleId="activity-audit-title" eyebrow="Metadata audit" accent="info">
+          <p>
+            Prism records metadata only once Token profiles call Slack through the bridge: method, policy outcome, object IDs, request
+            IDs, and time.
+          </p>
+        </Panel>
+      )}
     </main>
   );
 }

@@ -17,37 +17,43 @@ export function ActivityAuditPanel({ activity }: { activity: ActivityAuditSummar
         file contents, and tokens are not stored.
       </Notice>
       {activity.length === 0 ? (
-        <div className="activity-empty">
-          <h3>No forwarded or blocked calls yet</h3>
-          <p>When a Token profile uses the Slack bridge, this workspace will list the metadata you can inspect safely.</p>
-          <ul>
-            <li>
-              <strong>Method and category</strong>
-              <span>Slack Web API method plus the policy category Prism evaluated.</span>
+        <div className="grid gap-4 rounded-2xl bg-muted/30 p-4">
+          <h3 className="text-base font-semibold tracking-tight text-foreground">No forwarded or blocked calls yet</h3>
+          <p className="text-sm leading-6 text-muted-foreground">When a Token profile uses the Slack bridge, this workspace will list the metadata you can inspect safely.</p>
+          <ul className="divide-y rounded-xl bg-background/70 px-3">
+            <li className="py-3">
+              <strong className="block text-sm text-foreground">Method and category</strong>
+              <span className="mt-1 block text-sm leading-6 text-muted-foreground">Slack Web API method plus the policy category Prism evaluated.</span>
             </li>
-            <li>
-              <strong>Outcome and request ID</strong>
-              <span>Forwarded, denied, rate limited, or errored with the Prism request identifier.</span>
+            <li className="py-3">
+              <strong className="block text-sm text-foreground">Outcome and request ID</strong>
+              <span className="mt-1 block text-sm leading-6 text-muted-foreground">Forwarded, denied, rate limited, or errored with the Prism request identifier.</span>
             </li>
-            <li>
-              <strong>Object, identity, and time</strong>
-              <span>Safe object identifiers, execution mode, and a UTC timestamp.</span>
+            <li className="py-3">
+              <strong className="block text-sm text-foreground">Object, identity, and time</strong>
+              <span className="mt-1 block text-sm leading-6 text-muted-foreground">Safe object identifiers, execution mode, and a UTC timestamp.</span>
             </li>
           </ul>
         </div>
       ) : null}
       {activity.length > 0 ? (
-        <div className="activity-list" aria-label="Recent Prism activity">
+        <div className="divide-y rounded-2xl bg-muted/20" aria-label="Recent Prism activity">
           {activity.map((entry) => (
-            <article key={entry.id} className="activity-card">
-              <div className="activity-row">
-                <div className="activity-row__title">
-                  <h3>{safeAuditText(entry.slackMethod ?? activityLabel(entry.activityType))}</h3>
-                  {entry.actionCategory ? <span>{safeAuditText(entry.actionCategory)}</span> : null}
+            <article key={entry.id} className="grid gap-3 p-4">
+              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+                <div className="min-w-0">
+                  <h3 className="font-mono text-sm font-semibold text-foreground [overflow-wrap:anywhere]">
+                    {safeAuditText(entry.slackMethod ?? activityLabel(entry.activityType))}
+                  </h3>
+                  {entry.actionCategory ? (
+                    <span className="mt-2 inline-flex rounded-full bg-background/80 px-2 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                      {safeAuditText(entry.actionCategory)}
+                    </span>
+                  ) : null}
                 </div>
                 <StatusBadge tone={activityStatusTone(entry.status)}>{formatStatus(entry.status)}</StatusBadge>
               </div>
-              <dl className="activity-metadata">
+              <dl className="grid gap-x-4 gap-y-2 sm:grid-cols-2 xl:grid-cols-3">
                 <Metadata label="Profile" value={entry.tokenProfileName ?? entry.tokenProfileId ?? "Session"} />
                 <Metadata label="When" value={formatUtcDateTime(entry.occurredAt)} />
                 <Metadata label="Category" value={entry.actionCategory} />
@@ -87,8 +93,8 @@ function Metadata({ label, value }: { label: string; value: string | null }) {
   if (!value) return null;
   return (
     <div>
-      <dt>{label}</dt>
-      <dd>{safeAuditText(value)}</dd>
+      <dt className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{label}</dt>
+      <dd className="mt-0.5 text-sm text-foreground [overflow-wrap:anywhere]">{safeAuditText(value)}</dd>
     </div>
   );
 }

@@ -1,12 +1,56 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useId, useState } from "react";
+
+import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
 
 import { formatUtcDate, formatUtcDateTime } from "./date-format";
 import { buildCreateTokenProfileRequestBody, buildPolicyUpdateRequestBody } from "./token-profile-form";
-import { Button, Notice, Panel, StatusBadge } from "./ui";
+import { Button, Notice, Panel, StatusBadge, cn } from "./ui";
 
 type ProfileAction = { profileId: string; kind: "rotate" | "policy" | "revoke" };
+
+const fieldClass = "grid gap-2 text-sm font-medium text-foreground";
+const helperClass = "text-xs leading-5 text-muted-foreground";
+const choiceClass =
+  "flex min-h-24 gap-3 rounded-xl bg-muted/35 p-4 text-sm transition-colors hover:bg-muted/55";
+const checkboxLabelClass =
+  "flex min-h-11 items-center gap-3 rounded-lg bg-muted/35 px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted/55";
+const actionCardClass = "grid gap-3 rounded-xl bg-muted/35 p-4";
+const executionIdentityOptions = [
+  { value: "automatic", label: "Automatic" },
+  { value: "user", label: "User-backed" },
+  { value: "bot", label: "Bot-backed" },
+  { value: "selectable", label: "Selectable by request" }
+];
+const experimentOptions = [
+  { value: "none", label: "Not an experiment token" },
+  { value: "24h", label: "24 hours" },
+  { value: "7d", label: "7 days" }
+];
+const policyExperimentOptions = [
+  { value: "none", label: "Policy default" },
+  { value: "24h", label: "24 hours" },
+  { value: "7d", label: "7 days" }
+];
+const presetOptions = [
+  { value: "read_only", label: "Read-only" },
+  { value: "messages_only", label: "Messages only" },
+  { value: "full_slack_bridge", label: "Full Slack bridge" },
+  { value: "custom", label: "Custom" }
+];
+const overlapOptions = [
+  { value: "none", label: "No overlap" },
+  { value: "15m", label: "15 minutes" },
+  { value: "1h", label: "1 hour" },
+  { value: "24h", label: "24 hours" }
+];
 
 export type TokenProfileSummary = {
   id: string;
@@ -123,8 +167,8 @@ export function TokenProfilesPanel({
   }
 
   return (
+    <>
     <Panel
-      className="token-profiles"
       title="Create Token profile"
       titleId="token-profiles-title"
       eyebrow="Token profiles"
@@ -140,121 +184,120 @@ export function TokenProfilesPanel({
         Slack content is untrusted input to Local tools. Prism does not execute local actions. Copy the Prism developer token when it is shown; it
         cannot be retrieved later.
       </Notice>
-      <form className="token-form guided-token-form" onSubmit={onSubmit}>
-        <fieldset className="guided-step">
+      <details className="group/create rounded-2xl bg-muted/25 p-4">
+        <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 py-2 text-sm font-semibold text-foreground [&::-webkit-details-marker]:hidden">
+          Create a new Token profile
+          <span className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">Open form</span>
+        </summary>
+        <form className="mt-5 hidden gap-6 group-open/create:grid" onSubmit={onSubmit}>
+        <fieldset className="grid gap-4">
           <legend>
-            <span className="step-kicker">1. Name the local tool</span>
-            <span className="step-title">Make the access grant recognizable later.</span>
+            <span className="block text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">1. Name the local tool</span>
+            <span className="mt-1 block text-base font-semibold tracking-tight text-foreground">Make the access grant recognizable later.</span>
           </legend>
-          <label className="field">
+          <label className={fieldClass}>
             Profile name
-            <input name="name" required maxLength={80} placeholder="Local MCP read" />
-            <span className="field-help">Use the local tool, agent, or workflow name.</span>
+            <Input name="name" required maxLength={80} placeholder="Local MCP read" />
+            <span className={helperClass}>Use the local tool, agent, or workflow name.</span>
           </label>
-          <label className="field">
+          <label className={fieldClass}>
             Intended use
-            <input name="intendedUse" required maxLength={180} placeholder="Read Slack context from my local MCP server" />
-            <span className="field-help">This appears in profile metadata so future reviews know why access exists.</span>
+            <Textarea name="intendedUse" required maxLength={180} placeholder="Read Slack context from my local MCP server" />
+            <span className={helperClass}>This appears in profile metadata so future reviews know why access exists.</span>
           </label>
         </fieldset>
 
-        <fieldset className="guided-step">
+        <Separator />
+
+        <fieldset className="grid gap-4">
           <legend>
-            <span className="step-kicker">2. Choose least-privilege access</span>
-            <span className="step-title">Start narrow. Broader policies can require rotation.</span>
+            <span className="block text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">2. Choose least-privilege access</span>
+            <span className="mt-1 block text-base font-semibold tracking-tight text-foreground">Start narrow. Broader policies can require rotation.</span>
           </legend>
-          <div className="preset-grid">
-            <label className="choice-card">
-              <input type="radio" name="preset" value="read_only" defaultChecked />
-              <span>
-                <strong>Read-only</strong>
-                <span>Recommended for MCP readers and context tools.</span>
-              </span>
-            </label>
-            <label className="choice-card">
-              <input type="radio" name="preset" value="messages_only" />
-              <span>
-                <strong>Messages only</strong>
-                <span>Read context, post messages, and manage reactions.</span>
-              </span>
-            </label>
-            <label className="choice-card">
-              <input type="radio" name="preset" value="full_slack_bridge" />
-              <span>
-                <strong>Full Slack bridge</strong>
-                <span>Use the representative bridge surface with explicit destructive opt-in.</span>
-              </span>
-            </label>
-            <label className="choice-card">
-              <input type="radio" name="preset" value="custom" />
-              <span>
-                <strong>Custom</strong>
-                <span>Choose individual read, search, message, reaction, and file metadata capabilities.</span>
-              </span>
-            </label>
-          </div>
-          <fieldset className="custom-capabilities">
-            <legend>Custom capability details</legend>
-            <p className="field-help">Only applies when Custom is selected.</p>
-            <div className="checkbox-grid" aria-label="Custom capability options">
-              <label>
-                <input type="checkbox" name="customRead" defaultChecked /> Read
-              </label>
-              <label>
-                <input type="checkbox" name="customSearch" defaultChecked /> Search
-              </label>
-              <label>
-                <input type="checkbox" name="customWriteMessages" /> Write messages
-              </label>
-              <label>
-                <input type="checkbox" name="customReactions" /> Reactions
-              </label>
-              <label>
-                <input type="checkbox" name="customFilesMetadata" /> Files metadata
-              </label>
+          <RadioGroup name="preset" defaultValue="read_only" className="grid gap-3 md:grid-cols-2">
+            <PresetChoice
+              id="preset-read-only"
+              value="read_only"
+              label="Read-only"
+              description="Recommended for MCP readers and context tools."
+            />
+            <PresetChoice
+              id="preset-messages-only"
+              value="messages_only"
+              label="Messages only"
+              description="Read context, post messages, and manage reactions."
+            />
+            <PresetChoice
+              id="preset-full-bridge"
+              value="full_slack_bridge"
+              label="Full Slack bridge"
+              description="Use the representative bridge surface with explicit destructive opt-in."
+            />
+            <PresetChoice
+              id="preset-custom"
+              value="custom"
+              label="Custom"
+              description="Choose individual read, search, message, reaction, and file metadata capabilities."
+            />
+          </RadioGroup>
+          <details className="group/custom rounded-xl bg-muted/25 p-3">
+            <summary className="flex min-h-11 cursor-pointer list-none items-center text-sm font-semibold text-foreground [&::-webkit-details-marker]:hidden">
+              Custom and destructive options
+            </summary>
+            <div className="mt-4 hidden gap-3 group-open/custom:grid">
+              <fieldset className="grid gap-3 rounded-xl bg-background/70 p-4">
+                <legend className="px-1 text-sm font-semibold text-foreground">Custom capability details</legend>
+                <p className={helperClass}>Only applies when Custom is selected.</p>
+                <div className="grid gap-2 sm:grid-cols-2" aria-label="Custom capability options">
+                  <CheckboxField name="customRead" label="Read" defaultChecked />
+                  <CheckboxField name="customSearch" label="Search" defaultChecked />
+                  <CheckboxField name="customWriteMessages" label="Write messages" />
+                  <CheckboxField name="customReactions" label="Reactions" />
+                  <CheckboxField name="customFilesMetadata" label="Files metadata" />
+                </div>
+              </fieldset>
+              <fieldset className="grid gap-3 rounded-xl bg-destructive/5 p-4">
+                <legend className="px-1 text-sm font-semibold text-foreground">Destructive methods</legend>
+                <p className={helperClass}>Applies to Full Slack bridge and Custom profiles.</p>
+                <CheckboxField name="destructive" label="Allow explicitly destructive Slack methods for this Token profile" />
+              </fieldset>
             </div>
-          </fieldset>
-          <fieldset className="custom-capabilities destructive-opt-in">
-            <legend>Destructive methods</legend>
-            <p className="field-help">Applies to Full Slack bridge and Custom profiles.</p>
-            <label className="inline-check">
-              <input type="checkbox" name="destructive" /> Allow explicitly destructive Slack methods for this Token profile
-            </label>
-          </fieldset>
+          </details>
         </fieldset>
 
-        <fieldset className="guided-step">
+        <Separator />
+
+        <fieldset className="grid gap-4">
           <legend>
-            <span className="step-kicker">3. Set runtime boundaries</span>
-            <span className="step-title">Choose who Slack sees and when the token should expire.</span>
+            <span className="block text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">3. Set runtime boundaries</span>
+            <span className="mt-1 block text-base font-semibold tracking-tight text-foreground">Choose who Slack sees and when the token should expire.</span>
           </legend>
-          <label className="field">
-            Execution identity
-            <select name="executionIdentity" defaultValue="automatic">
-              <option value="automatic">Automatic</option>
-              <option value="user">User-backed</option>
-              <option value="bot">Bot-backed</option>
-              <option value="selectable">Selectable by request</option>
-            </select>
-            <span className="field-help">Automatic lets Prism choose the safest available Slack identity for the method.</span>
-          </label>
-          <label className="field">
-            Experiment expiry
-            <select name="experiment" defaultValue="">
-              <option value="">Not an experiment token</option>
-              <option value="24h">24 hours</option>
-              <option value="7d">7 days</option>
-            </select>
-            <span className="field-help">Use short expiry for trials. Prism still applies server-side policy expiries.</span>
-          </label>
+          <div className="grid gap-4 md:grid-cols-2">
+            <SelectField
+              name="executionIdentity"
+              label="Execution identity"
+              defaultValue="automatic"
+              options={executionIdentityOptions}
+              help="Automatic lets Prism choose the safest available Slack identity for the method."
+            />
+            <SelectField
+              name="experiment"
+              label="Experiment expiry"
+              defaultValue="none"
+              options={experimentOptions}
+              help="Use short expiry for trials. Prism still applies server-side policy expiries."
+            />
+          </div>
         </fieldset>
 
-        <fieldset className="guided-step review-step">
+        <Separator />
+
+        <fieldset className="grid gap-4 rounded-2xl bg-muted/30 p-4">
           <legend>
-            <span className="step-kicker">4. Review and create</span>
-            <span className="step-title">Server custody, Prism token only.</span>
+            <span className="block text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">4. Review and create</span>
+            <span className="mt-1 block text-base font-semibold tracking-tight text-foreground">Server custody, Prism token only.</span>
           </legend>
-          <ul className="review-list">
+          <ul className="grid gap-2 pl-5 text-sm leading-6 text-muted-foreground">
             <li>Slack credentials stay encrypted with Prism.</li>
             <li>The developer token is shown once after creation.</li>
             <li>Slack content remains untrusted input to local tools.</li>
@@ -263,9 +306,10 @@ export function TokenProfilesPanel({
             {submitting ? "Creating..." : "Create and show token once"}
           </Button>
         </fieldset>
-      </form>
+        </form>
+      </details>
       {error ? (
-        <p className="form-error" role="alert">
+        <p className="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm font-medium text-destructive" role="alert">
           {error} Check the fields and try again.
         </p>
       ) : null}
@@ -275,31 +319,35 @@ export function TokenProfilesPanel({
         </p>
       ) : null}
       {developerToken ? (
-        <div className="copy-once" role="status">
-          <strong>Copy this Prism developer token now. It will not be shown again.</strong>
-          <code>{developerToken}</code>
+        <div className="grid gap-3 rounded-2xl border border-[color:var(--prism-warning)] bg-[color:var(--prism-warning-soft)] p-4">
+          <p className="sr-only" role="status" aria-live="polite">
+            Prism developer token created. Copy it from the code field now because it will not be shown again.
+          </p>
+          <strong className="text-foreground">Copy this Prism developer token now. It will not be shown again.</strong>
+          <code className="rounded-lg bg-foreground p-3 text-sm text-background [overflow-wrap:anywhere]">{developerToken}</code>
         </div>
-      ) : (
-        <p className="copy-placeholder">Copy-once token appears here after create or rotate.</p>
-      )}
-      <div className="profile-list" aria-label="Existing Token profiles">
-        <h3>Existing profiles</h3>
-        {profiles.length === 0 ? <p>No Token profiles yet. Create one above to give a local tool scoped Slack access.</p> : null}
+      ) : null}
+    </Panel>
+    <Panel title="Token profiles" titleId="token-profile-list-title" eyebrow="Manage access" badge={<StatusBadge tone="neutral">{profiles.length} active grants</StatusBadge>}>
+      <div className="grid gap-3" aria-label="Existing Token profiles">
+        {profiles.length === 0 ? <p className="text-sm leading-6 text-muted-foreground">No Token profiles yet. Create one above to give a local tool scoped Slack access.</p> : null}
         {profiles.map((profile) => (
-          <article className="profile-card" key={profile.id}>
-            <h4>{profile.name}</h4>
-            <p>{profile.intendedUse}</p>
-            <dl>
+          <article className="grid gap-4 rounded-2xl bg-muted/20 p-4" key={profile.id}>
+            <div>
+              <h4 className="text-base font-semibold tracking-tight text-foreground">{profile.name}</h4>
+              <p className="mt-1 text-sm leading-6 text-muted-foreground">{profile.intendedUse}</p>
+            </div>
+            <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               <div>
-                <dt>Preset</dt>
-                <dd>{presetLabel(profile.preset)}</dd>
+                <dt className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Preset</dt>
+                <dd className="mt-1 text-sm text-foreground">{presetLabel(profile.preset)}</dd>
               </div>
               <div>
-                <dt>Execution identity</dt>
-                <dd>{executionIdentityLabel(profile.executionIdentity)}</dd>
+                <dt className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Execution identity</dt>
+                <dd className="mt-1 text-sm text-foreground">{executionIdentityLabel(profile.executionIdentity)}</dd>
               </div>
               <div>
-                <dt>Token status</dt>
+                <dt className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Token status</dt>
                 <dd>
                   <StatusBadge tone={developerTokenStatusTone(profile.developerToken?.status)}>
                     {developerTokenStatusLabel(profile.developerToken?.status)}
@@ -307,119 +355,151 @@ export function TokenProfilesPanel({
                 </dd>
               </div>
               <div>
-                <dt>Expiry</dt>
-                <dd>{formatUtcDate(profile.expiresAt ?? profile.developerToken?.expiresAt ?? null) ?? "No expiry"}</dd>
+                <dt className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Expiry</dt>
+                <dd className="mt-1 text-sm text-foreground">{formatUtcDate(profile.expiresAt ?? profile.developerToken?.expiresAt ?? null) ?? "No expiry"}</dd>
               </div>
               <div>
-                <dt>Last used</dt>
-                <dd>{formatUtcDateTime(profile.developerToken?.lastUsedAt ?? null) ?? "Not used yet"}</dd>
+                <dt className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Last used</dt>
+                <dd className="mt-1 text-sm text-foreground">{formatUtcDateTime(profile.developerToken?.lastUsedAt ?? null) ?? "Not used yet"}</dd>
               </div>
               {profile.developerToken?.overlapExpiresAt ? (
                 <div>
-                  <dt>Overlap until</dt>
-                  <dd>{formatUtcDateTime(profile.developerToken.overlapExpiresAt)}</dd>
+                 <dt className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Overlap until</dt>
+                 <dd className="mt-1 text-sm text-foreground">{formatUtcDateTime(profile.developerToken.overlapExpiresAt)}</dd>
                 </div>
               ) : null}
               {profile.developerToken?.revokedAt ? (
                 <div>
-                  <dt>Revoked</dt>
-                  <dd>{formatUtcDateTime(profile.developerToken.revokedAt)}</dd>
+                 <dt className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Revoked</dt>
+                 <dd className="mt-1 text-sm text-foreground">{formatUtcDateTime(profile.developerToken.revokedAt)}</dd>
                 </div>
               ) : null}
             </dl>
-            <div className="profile-actions">
-             <section className="profile-action-card" aria-labelledby={`${profile.id}-rotate-title`} aria-busy={isProfileAction(profileAction, profile.id, "rotate")}>
-               <h5 id={`${profile.id}-rotate-title`}>Rotate safely</h5>
-               <p>Issue a replacement developer token. The old token can stop immediately or keep a short overlap.</p>
-               <form onSubmit={(event) => onRotate(event, profile)}>
-                 <label>
-                   Overlap window
-                   <select name="overlap" defaultValue="none">
-                     <option value="none">No overlap</option>
-                     <option value="15m">15 minutes</option>
-                     <option value="1h">1 hour</option>
-                     <option value="24h">24 hours</option>
-                   </select>
-                 </label>
+            <details className="group/manage rounded-xl bg-background/70 p-3">
+             <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 py-2 text-sm font-semibold text-foreground [&::-webkit-details-marker]:hidden">
+               Manage rotation, policy, and revocation
+               <span className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">Open</span>
+             </summary>
+             <div className="mt-4 hidden gap-3 group-open/manage:grid xl:grid-cols-3">
+             <section className={actionCardClass} aria-labelledby={`${profile.id}-rotate-title`} aria-busy={isProfileAction(profileAction, profile.id, "rotate")}>
+               <h5 className="text-sm font-semibold text-foreground" id={`${profile.id}-rotate-title`}>Rotate safely</h5>
+               <p className="text-sm leading-6 text-muted-foreground">Issue a replacement developer token. The old token can stop immediately or keep a short overlap.</p>
+               <form className="grid gap-3" onSubmit={(event) => onRotate(event, profile)}>
+                 <SelectField name="overlap" label="Overlap window" defaultValue="none" options={overlapOptions} />
                  <Button type="submit" disabled={isProfileBusy(profileAction, profile.id)}>
                    {isProfileAction(profileAction, profile.id, "rotate") ? "Rotating..." : "Rotate token"}
                  </Button>
                </form>
              </section>
-             <section className="profile-action-card" aria-labelledby={`${profile.id}-policy-title`} aria-busy={isProfileAction(profileAction, profile.id, "policy")}>
-               <h5 id={`${profile.id}-policy-title`}>Policy changes</h5>
-               <p>Broadening requires token rotation. Narrowing can apply immediately through the server policy check.</p>
-               <form onSubmit={(event) => onPolicyUpdate(event, profile)}>
-                 <label>
-                   Policy preset
-                   <select name="policyPreset" defaultValue={profile.preset}>
-                     <option value="read_only">Read-only</option>
-                     <option value="messages_only">Messages only</option>
-                     <option value="full_slack_bridge">Full Slack bridge</option>
-                     <option value="custom">Custom</option>
-                   </select>
-                 </label>
-                 <fieldset className="custom-capabilities policy-custom-capabilities">
-                   <legend>Policy custom capabilities</legend>
-                   <p className="field-help">Used when Policy preset is Custom.</p>
-                   <div className="checkbox-grid" aria-label="Policy custom capability options">
-                     <label>
-                       <input type="checkbox" name="policyRead" defaultChecked /> Read
-                     </label>
-                     <label>
-                       <input type="checkbox" name="policySearch" defaultChecked /> Search
-                     </label>
-                     <label>
-                       <input type="checkbox" name="policyWriteMessages" /> Write messages
-                     </label>
-                     <label>
-                       <input type="checkbox" name="policyReactions" /> Reactions
-                     </label>
-                     <label>
-                       <input type="checkbox" name="policyFilesMetadata" /> Files metadata
-                     </label>
+             <section className={actionCardClass} aria-labelledby={`${profile.id}-policy-title`} aria-busy={isProfileAction(profileAction, profile.id, "policy")}>
+               <h5 className="text-sm font-semibold text-foreground" id={`${profile.id}-policy-title`}>Policy changes</h5>
+               <p className="text-sm leading-6 text-muted-foreground">Broadening requires token rotation. Narrowing can apply immediately through the server policy check.</p>
+               <form className="grid gap-3" onSubmit={(event) => onPolicyUpdate(event, profile)}>
+                 <SelectField name="policyPreset" label="Policy preset" defaultValue={profile.preset} options={presetOptions} />
+                 <fieldset className="grid gap-3 rounded-xl bg-background/70 p-3">
+                   <legend className="px-1 text-sm font-semibold text-foreground">Policy custom capabilities</legend>
+                   <p className={helperClass}>Used when Policy preset is Custom.</p>
+                   <div className="grid gap-2" aria-label="Policy custom capability options">
+                     <CheckboxField name="policyRead" label="Read" defaultChecked />
+                     <CheckboxField name="policySearch" label="Search" defaultChecked />
+                     <CheckboxField name="policyWriteMessages" label="Write messages" />
+                     <CheckboxField name="policyReactions" label="Reactions" />
+                     <CheckboxField name="policyFilesMetadata" label="Files metadata" />
                    </div>
                  </fieldset>
-                 <label>
-                   Execution identity
-                   <select name="policyExecutionIdentity" defaultValue={profile.executionIdentity}>
-                     <option value="automatic">Automatic</option>
-                     <option value="user">User-backed</option>
-                     <option value="bot">Bot-backed</option>
-                     <option value="selectable">Selectable by request</option>
-                   </select>
-                 </label>
-                 <label>
-                   Expiry
-                   <select name="policyExperiment" defaultValue="">
-                     <option value="">Policy default</option>
-                     <option value="24h">24 hours</option>
-                     <option value="7d">7 days</option>
-                   </select>
-                 </label>
-                 <label className="inline-check">
-                   <input type="checkbox" name="confirmBroadening" /> Confirm broadening and rotate token
-                 </label>
-                 <label className="inline-check">
-                   <input type="checkbox" name="policyDestructive" /> Allow destructive methods for Full Slack bridge or Custom policy
-                 </label>
+                 <SelectField name="policyExecutionIdentity" label="Execution identity" defaultValue={profile.executionIdentity} options={executionIdentityOptions} />
+                 <SelectField name="policyExperiment" label="Expiry" defaultValue="none" options={policyExperimentOptions} />
+                 <CheckboxField name="confirmBroadening" label="Confirm broadening and rotate token" />
+                 <CheckboxField name="policyDestructive" label="Allow destructive methods for Full Slack bridge or Custom policy" />
                  <Button type="submit" disabled={isProfileBusy(profileAction, profile.id)}>
                    {isProfileAction(profileAction, profile.id, "policy") ? "Updating..." : "Update policy"}
                  </Button>
                </form>
              </section>
-             <section className="profile-action-card profile-action-card--danger" aria-labelledby={`${profile.id}-revoke-title`} aria-busy={isProfileAction(profileAction, profile.id, "revoke")}>
-               <h5 id={`${profile.id}-revoke-title`}>Revocation is immediate</h5>
-               <p>Use revoke when a local tool no longer needs Slack access or a token may have been copied somewhere unsafe.</p>
+             <section className={cn(actionCardClass, "border-destructive/35 bg-destructive/5")} aria-labelledby={`${profile.id}-revoke-title`} aria-busy={isProfileAction(profileAction, profile.id, "revoke")}>
+               <h5 className="text-sm font-semibold text-foreground" id={`${profile.id}-revoke-title`}>Revocation is immediate</h5>
+               <p className="text-sm leading-6 text-muted-foreground">Use revoke when a local tool no longer needs Slack access or a token may have been copied somewhere unsafe.</p>
                <Button variant="danger" type="button" onClick={() => onRevoke(profile)} disabled={isProfileBusy(profileAction, profile.id)}>
                  {isProfileAction(profileAction, profile.id, "revoke") ? "Revoking..." : "Revoke token"}
                </Button>
              </section>
             </div>
+           </details>
           </article>
         ))}
       </div>
     </Panel>
+    </>
+  );
+}
+
+function PresetChoice({
+  id,
+  value,
+  label,
+  description
+}: {
+  id: string;
+  value: string;
+  label: string;
+  description: string;
+}) {
+  return (
+    <div className={choiceClass}>
+      <RadioGroupItem id={id} value={value} className="mt-1" />
+      <Label htmlFor={id} className="grid cursor-pointer gap-1 leading-6">
+        <span className="font-semibold text-foreground">{label}</span>
+        <span className="font-normal text-muted-foreground">{description}</span>
+      </Label>
+    </div>
+  );
+}
+
+function CheckboxField({ name, label, defaultChecked = false }: { name: string; label: string; defaultChecked?: boolean }) {
+  const id = `${name}-${useId()}`;
+
+  return (
+    <div className={checkboxLabelClass}>
+      <Checkbox id={id} name={name} defaultChecked={defaultChecked} />
+      <Label htmlFor={id} className="cursor-pointer leading-5">
+        {label}
+      </Label>
+    </div>
+  );
+}
+
+function SelectField({
+  name,
+  label,
+  defaultValue,
+  options,
+  help
+}: {
+  name: string;
+  label: string;
+  defaultValue: string;
+  options: Array<{ value: string; label: string }>;
+  help?: string;
+}) {
+  const id = `${name}-${useId()}`;
+
+  return (
+    <div className={fieldClass}>
+      <Label htmlFor={id}>{label}</Label>
+      <Select name={name} defaultValue={defaultValue}>
+        <SelectTrigger id={id} className="w-full">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((option) => (
+            <SelectItem key={option.value} value={option.value}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {help ? <span className={helperClass}>{help}</span> : null}
+    </div>
   );
 }
 

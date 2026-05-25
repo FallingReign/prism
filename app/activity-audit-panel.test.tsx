@@ -46,7 +46,7 @@ describe("Prism website activity audit panel", () => {
 
     expect(html).toContain("chat.postMessage");
     expect(html).toContain("Forwarded");
-    expect(html).toContain("status-badge status-badge--success");
+    expect(html).toContain('data-slot="badge"');
     expect(html).toContain("Local MCP writer");
     expect(html).toContain("2026-01-02 03:04:05 UTC");
     expect(html).toContain("write");
@@ -118,7 +118,7 @@ describe("Prism website activity audit panel", () => {
 
     expect(html).toContain("[redacted]");
     expect(html).toContain("Denied");
-    expect(html).toContain("status-badge status-badge--warning");
+    expect(html).toContain('data-slot="badge"');
     expect(html).not.toMatch(/prism_dev_|tokenHash|xox[a-z]-|pepper|refresh-secret|client_secret|access_token|authorization/i);
   });
 });

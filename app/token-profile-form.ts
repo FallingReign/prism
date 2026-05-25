@@ -63,7 +63,7 @@ function customCapabilities(form: FormData, prefix = "custom") {
 
 function experimentValue(form: FormData, field = "experiment"): string | undefined {
   const value = formString(form, field);
-  return value === "" ? undefined : value;
+  return value === "" || value === "none" ? undefined : value;
 }
 
 function formString(form: FormData, field: string, fallback = ""): string {

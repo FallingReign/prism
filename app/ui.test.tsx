@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { LinkButton, Notice, Panel, StatusBadge, SummaryMetric } from "./ui";
 
 describe("Prism website UI primitives", () => {
-  it("renders semantic shadcn-style primitives without secret material", () => {
+  it("renders shadcn-backed primitives without secret material", () => {
     const html = renderToStaticMarkup(
       <Panel title="Slack custody" eyebrow="Trust boundary" accent="primary">
         <StatusBadge tone="success">Linked and healthy</StatusBadge>
@@ -16,7 +16,10 @@ describe("Prism website UI primitives", () => {
       </Panel>
     );
 
-    expect(html).toContain("<section");
+    expect(html).toContain('data-slot="card"');
+    expect(html).toContain('data-slot="badge"');
+    expect(html).toContain('data-slot="alert"');
+    expect(html).toContain('data-slot="button"');
     expect(html).toContain("Linked and healthy");
     expect(html).toContain('href="/v1/slack/oauth/start"');
     expect(html).not.toMatch(/style=|xox[bp]-|refresh-secret|client_secret|access_token|prism_dev_/i);
