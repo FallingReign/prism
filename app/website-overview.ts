@@ -1,4 +1,5 @@
 import type { ActivityAuditSummary } from "../src/server/audit/presentation";
+import { safeConnectionText, slackScopeDisplay } from "./slack-connection-display";
 import type { SlackWebsiteStatus } from "./slack-status-panel";
 import type { TokenProfileSummary } from "./token-profile-summary";
 
@@ -70,23 +71,21 @@ function buildSlackOverview(slackStatus: SlackWebsiteStatus): WebsiteOverviewIte
     };
   }
 
-  const scope = slackStatus.teamId
-    ? `workspace ${slackStatus.teamId}`
-    : `organization ${slackStatus.enterpriseId ?? "unknown"}`;
+  const scope = slackScopeDisplay(slackStatus);
 
   if (slackStatus.status === "reauth_required") {
     return {
       label: "Slack reauth required",
       value: "Reconnect needed",
-      detail: `Identity ${slackStatus.slackUserId} in ${scope} must reconnect before Slack calls resume.`,
+      detail: `Slack user ${safeConnectionText(slackStatus.slackUserId)} in ${scope.label} ${scope.value} must reconnect before Slack calls resume.`,
       tone: "warning"
     };
   }
 
   return {
-    label: "Slack healthy",
+    label: "Slack connected",
     value: "Linked",
-    detail: `Identity ${slackStatus.slackUserId} is linked in ${scope}.`,
+    detail: `Slack user ${safeConnectionText(slackStatus.slackUserId)} is connected to ${scope.label} ${scope.value}.`,
     tone: "success"
   };
 }

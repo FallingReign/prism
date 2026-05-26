@@ -26,7 +26,7 @@ describe("Prism website overview", () => {
 
   it("counts active Token profiles and recent Metadata-only activity for linked sessions", () => {
     const overview = buildWebsiteOverview(
-      { kind: "linked", status: "healthy", teamId: "T123", slackUserId: "U123", lastErrorClass: null },
+      { kind: "linked", status: "healthy", teamId: "T123", teamName: "Example Workspace", slackUserId: "U123", lastErrorClass: null },
       [profile("active"), profile("revoked"), profile("expired"), profile("missing")],
       [
         {
@@ -50,7 +50,9 @@ describe("Prism website overview", () => {
       ]
     );
 
-    expect(overview.slack.label).toBe("Slack healthy");
+    expect(overview.slack.label).toBe("Slack connected");
+    expect(overview.slack.detail).toContain("Example Workspace");
+    expect(overview.slack.detail).toContain("T123");
     expect(overview.tokenProfiles.value).toBe("1 active");
     expect(overview.tokenProfiles.detail).toBe("4 total Token profiles");
     expect(overview.activity.value).toBe("1 recent event");

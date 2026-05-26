@@ -1,4 +1,5 @@
 import { LinkButton, Notice, Panel, StatusBadge } from "./ui";
+import { safeConnectionText, slackScopeDisplay } from "./slack-connection-display";
 
 export type SlackWebsiteStatus =
   | { kind: "not_linked" }
@@ -7,12 +8,18 @@ export type SlackWebsiteStatus =
       kind: "linked";
       status: "healthy" | "reauth_required";
       teamId: string | null;
+      teamName?: string | null;
       enterpriseId?: string | null;
+      enterpriseName?: string | null;
       slackUserId: string;
       lastErrorClass: string | null;
     };
 
-export function SlackStatusPanel({ status }: { status: SlackWebsiteStatus }) {
+export function SlackStatusPanel({ status, variant = "panel" }: { status: SlackWebsiteStatus; variant?: "panel" | "compact" }) {
+  if (variant === "compact") {
+    return <CompactSlackStatus status={status} />;
+  }
+
   if (status.kind === "setup_required") {
     return (
       <Panel
@@ -45,44 +52,105 @@ export function SlackStatusPanel({ status }: { status: SlackWebsiteStatus }) {
     );
   }
 
+  function CompactSlackStatus({ status }: { status: SlackWebsiteStatus }) {
+    if (status.kind === "setup_required") {
+      return (
+        <section className="rounded-2xl border border-[color:var(--prism-warning)]/55 bg-[color:var(--prism-warning-soft)]/55 p-4" aria-labelledby="slack-status-title">
+          <CompactHeading title="Setup required" tone="warning" badge="Configuration needed" />
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">Add Slack OAuth and encryption settings before connecting this hosted service.</p>
+        </section>
+      );
+    }
+
+    if (status.kind === "not_linked") {
+      return (
+        <section className="rounded-2xl border border-primary/35 bg-primary/5 p-4" aria-labelledby="slack-status-title">
+          <CompactHeading title="Connect Slack" tone="primary" badge="Not connected" />
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">Connect Slack before creating Token profiles for local tools.</p>
+          <LinkButton href="/v1/slack/oauth/start" className="mt-4" variant="secondary">
+            Connect Slack
+          </LinkButton>
+        </section>
+      );
+    }
+
+    const scope = slackScopeDisplay(status);
+
+    if (status.status === "reauth_required") {
+      return (
+        <section className="rounded-2xl border border-[color:var(--prism-warning)]/55 bg-[color:var(--prism-warning-soft)]/55 p-4" aria-labelledby="slack-status-title">
+          <CompactHeading title="Reconnect Slack" tone="warning" badge="Reconnect needed" />
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">
+            {scope.label} <strong className="text-foreground">{scope.value}</strong> is connected for Slack user{" "}
+            <strong className="text-foreground">{safeConnectionText(status.slackUserId)}</strong>. Reconnect before Slack calls resume.
+          </p>
+          <LinkButton href="/v1/slack/oauth/start" className="mt-4" variant="secondary">
+            Reconnect Slack
+          </LinkButton>
+        </section>
+      );
+    }
+
+    return (
+      <section className="rounded-2xl border border-[color:var(--prism-success)]/45 bg-[color:var(--prism-success-soft)]/55 p-4" aria-labelledby="slack-status-title">
+        <CompactHeading title="Slack connected" tone="success" badge="Connected" />
+        <p className="mt-3 text-sm leading-6 text-muted-foreground">
+          {scope.label} <strong className="text-foreground">{scope.value}</strong> is connected for Slack user{" "}
+          <strong className="text-foreground">{safeConnectionText(status.slackUserId)}</strong>.
+        </p>
+        <p className="mt-3 text-sm leading-6 text-muted-foreground">Credentials are encrypted on the server. Local tools use Prism developer tokens.</p>
+      </section>
+    );
+  }
+
+  function CompactHeading({ title, badge, tone }: { title: string; badge: string; tone: "success" | "warning" | "primary" }) {
+    return (
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="mb-1 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Slack connection</p>
+          <h2 id="slack-status-title" className="text-xl font-semibold tracking-tight text-foreground">
+            {title}
+          </h2>
+        </div>
+        <StatusBadge tone={tone}>{badge}</StatusBadge>
+      </div>
+    );
+  }
+
   if (status.status === "reauth_required") {
-    const scope = slackScopeLabel(status);
+    const scope = slackScopeDisplay(status);
     return (
       <Panel
-        title="Reauth required"
+        title="Reconnect Slack"
         titleId="slack-status-title"
-        eyebrow="Slack link"
+        eyebrow="Slack connection"
         accent="warning"
         badge={<StatusBadge tone="warning">Reconnect needed</StatusBadge>}
         actions={<LinkButton href="/v1/slack/oauth/start">Reconnect Slack</LinkButton>}
       >
         <p>
-          Slack identity <strong>{status.slackUserId}</strong> in {scope.label} <strong>{scope.value}</strong> needs to reconnect.
+          {scope.label} <strong>{scope.value}</strong> is connected for Slack user <strong>{safeConnectionText(status.slackUserId)}</strong>,
+          but Slack calls need a fresh authorization.
         </p>
       </Panel>
     );
   }
 
-  const scope = slackScopeLabel(status);
+  const scope = slackScopeDisplay(status);
   return (
     <Panel
-      title="Linked and healthy"
+      title="Slack connected"
       titleId="slack-status-title"
-      eyebrow="Slack link"
+      eyebrow="Slack connection"
       accent="success"
-      badge={<StatusBadge tone="success">Ready for forwarding</StatusBadge>}
+      badge={<StatusBadge tone="success">Connected</StatusBadge>}
     >
       <p>
-        Slack identity <strong>{status.slackUserId}</strong> in {scope.label} <strong>{scope.value}</strong> is linked.
+        {scope.label} <strong>{scope.value}</strong> is connected for Slack user <strong>{safeConnectionText(status.slackUserId)}</strong>.
       </p>
-      <Notice title="Server custody active" tone="success">
-        Slack credentials remain encrypted and server-held while local tools use Prism developer tokens.
+      <Notice title="Custody boundary" tone="success">
+        Credentials are encrypted on the server. Local tools use Prism developer tokens.
       </Notice>
     </Panel>
   );
-}
-
-function slackScopeLabel(status: Extract<SlackWebsiteStatus, { kind: "linked" }>): { label: "workspace" | "organization"; value: string } {
-  if (status.teamId) return { label: "workspace", value: status.teamId };
-  return { label: "organization", value: status.enterpriseId ?? "unknown" };
 }

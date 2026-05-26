@@ -51,4 +51,31 @@ describe("Slack OAuth client", () => {
       bot: undefined
     });
   });
+
+  it("normalizes workspace and enterprise display names from OAuth responses", async () => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
+      json: async () => ({
+        ok: true,
+        app_id: "A123",
+        team: { id: "T123", name: "Example Workspace" },
+        enterprise: { id: "E123", name: "Example Enterprise" },
+        authed_user: { id: "U123" },
+        access_token: "xoxb-bot-token-canary",
+        refresh_token: "bot-refresh-secret-canary",
+        token_type: "bot",
+        expires_in: 3600,
+        scope: "channels:read"
+      })
+    } as Response);
+    const client = createFetchSlackOAuthClient({ clientId: "client-id", clientSecret: "client-secret-canary", fetchImpl });
+
+    const result = await client.exchangeCode({ code: "code-123", redirectUri: "http://localhost:3732/v1/slack/oauth/callback" });
+
+    expect(result).toMatchObject({
+      ok: true,
+      team: { id: "T123", name: "Example Workspace" },
+      enterprise: { id: "E123", name: "Example Enterprise" },
+      authedUser: { id: "U123" }
+    });
+  });
 });

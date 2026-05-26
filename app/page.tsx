@@ -74,36 +74,28 @@ async function HomeContent() {
               tokens, policy enforcement, rate limits, and metadata-only audit.
             </p>
           </div>
-          <div className="rounded-2xl bg-muted/45 p-4 text-sm leading-6 text-muted-foreground" aria-label="Prism trust boundary">
-            <p className="font-semibold text-foreground">Credential custody stays with Prism.</p>
-            <p>Profiles decide which Slack methods a local tool can call, and audit stores metadata only.</p>
-          </div>
+          <SlackStatusPanel status={status} variant="compact" />
         </div>
       </section>
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(22rem,0.65fr)] xl:items-start">
-        <section className="order-2 grid gap-5 xl:order-1" aria-label="Primary setup workspace">
-          {status.kind === "linked" ? (
-            <TokenProfilesPanel slackStatus={status.status} initialProfiles={tokenProfiles} />
-          ) : (
-            <Panel
-              title="Token profiles unlock after Slack is connected"
-              titleId="token-profiles-title"
-              eyebrow="Token profiles"
-              accent="primary"
-              actions={<LinkButton href="/v1/slack/oauth/start">{slackActionLabel}</LinkButton>}
-            >
-              <p>
-                Create copy-once Prism developer tokens after Slack is linked. Each Token profile captures the intended local tool,
-                allowed Slack methods, execution identity, and expiry behavior.
-              </p>
-            </Panel>
-          )}
-        </section>
-        <aside className="order-1 grid gap-5 xl:order-2" aria-label="Supporting status context">
-          <SlackStatusPanel status={status} />
-        </aside>
-      </div>
+      <section className="grid gap-5" aria-label="Primary setup workspace">
+        {status.kind === "linked" ? (
+          <TokenProfilesPanel slackStatus={status.status} initialProfiles={tokenProfiles} />
+        ) : (
+          <Panel
+            title="Token profiles unlock after Slack is connected"
+            titleId="token-profiles-title"
+            eyebrow="Token profiles"
+            accent="primary"
+            actions={<LinkButton href="/v1/slack/oauth/start">{slackActionLabel}</LinkButton>}
+          >
+            <p>
+              Create copy-once Prism developer tokens after Slack is linked. Each Token profile captures the intended local tool,
+              allowed Slack methods, execution identity, and expiry behavior.
+            </p>
+          </Panel>
+        )}
+      </section>
       {status.kind === "linked" ? (
         <ActivityAuditPanel activity={activity} />
       ) : (

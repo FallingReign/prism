@@ -126,6 +126,7 @@ describe("Slack OAuth flow", () => {
             ok: true,
             appId: "A123",
             team: { id: "T123", name: "Example" },
+            enterprise: { id: "E123", name: "Example Enterprise" },
             authedUser: {
               id: "U123",
               accessToken: "xoxp-user-token-canary",
@@ -153,7 +154,17 @@ describe("Slack OAuth flow", () => {
     expect(result.sessionCookie?.httpOnly).toBe(true);
     expect(result.redirectUrl).toBe("http://localhost:3732/?slack=linked");
     expect(store.rows.users).toHaveLength(1);
-    expect(store.rows.connections).toMatchObject([{ prismUserId: "user_1", teamId: "T123", authedUserId: "U123", status: "healthy" }]);
+    expect(store.rows.connections).toMatchObject([
+      {
+        prismUserId: "user_1",
+        teamId: "T123",
+        teamName: "Example",
+        enterpriseId: "E123",
+        enterpriseName: "Example Enterprise",
+        authedUserId: "U123",
+        status: "healthy"
+      }
+    ]);
     expect(store.rows.tokenProfiles).toHaveLength(0);
 
     const persisted = JSON.stringify(store.rows);

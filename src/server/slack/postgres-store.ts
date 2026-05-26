@@ -41,12 +41,14 @@ export function createPostgresOAuthFlowStore(database: Database): OAuthFlowStore
     async upsertSlackConnection(input) {
       const result = await database.query<{ id: string }>(
         `insert into slack_connections
-           (id, prism_user_id, team_id, enterprise_id, authed_user_id, app_id, bot_scopes, user_scopes, status, last_error_class)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, 'healthy', null)
+          (id, prism_user_id, team_id, team_name, enterprise_id, enterprise_name, authed_user_id, app_id, bot_scopes, user_scopes, status, last_error_class)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'healthy', null)
          on conflict (team_id, authed_user_id)
          do update set
            prism_user_id = excluded.prism_user_id,
+           team_name = excluded.team_name,
            enterprise_id = excluded.enterprise_id,
+           enterprise_name = excluded.enterprise_name,
            app_id = excluded.app_id,
            bot_scopes = excluded.bot_scopes,
            user_scopes = excluded.user_scopes,
@@ -58,7 +60,9 @@ export function createPostgresOAuthFlowStore(database: Database): OAuthFlowStore
           randomUUID(),
           input.prismUserId,
           input.teamId,
+          input.teamName,
           input.enterpriseId,
+          input.enterpriseName,
           input.authedUserId,
           input.appId,
           input.botScopes,
@@ -132,7 +136,9 @@ export async function getSlackLinkStatus(database: Database, sessionToken: strin
       kind: "linked";
       status: "healthy" | "reauth_required";
       teamId: string | null;
+      teamName: string | null;
       enterpriseId: string | null;
+      enterpriseName: string | null;
       slackUserId: string;
       lastErrorClass: string | null;
     }
@@ -141,11 +147,14 @@ export async function getSlackLinkStatus(database: Database, sessionToken: strin
   const result = await database.query<{
     status: "healthy" | "reauth_required";
     team_id: string | null;
+    team_name: string | null;
     enterprise_id: string | null;
+    enterprise_name: string | null;
     authed_user_id: string;
     last_error_class: string | null;
   }>(
-    `select c.status, nullif(c.team_id, '') as team_id, c.enterprise_id, c.authed_user_id, c.last_error_class
+    `select c.status, nullif(c.team_id, '') as team_id, nullif(c.team_name, '') as team_name,
+            c.enterprise_id, nullif(c.enterprise_name, '') as enterprise_name, c.authed_user_id, c.last_error_class
      from prism_sessions s
      join slack_connections c on c.prism_user_id = s.prism_user_id
      where s.session_token_hash = $1 and s.expires_at > now()
@@ -159,7 +168,9 @@ export async function getSlackLinkStatus(database: Database, sessionToken: strin
         kind: "linked",
         status: row.status,
         teamId: row.team_id,
+        teamName: row.team_name,
         enterpriseId: row.enterprise_id,
+        enterpriseName: row.enterprise_name,
         slackUserId: row.authed_user_id,
         lastErrorClass: row.last_error_class
       }

@@ -34,7 +34,9 @@ export type OAuthFlowStore = {
   upsertSlackConnection(input: {
     prismUserId: string;
     teamId: string;
+    teamName: string | null;
     enterpriseId: string | null;
+    enterpriseName: string | null;
     authedUserId: string;
     appId: string;
     botScopes: string;
@@ -129,7 +131,9 @@ export async function completeSlackOAuthCallback({
   const connection = await store.upsertSlackConnection({
     prismUserId: prismUser.id,
     teamId: slackResult.team.id,
+    teamName: slackResult.team.name ?? null,
     enterpriseId: slackResult.enterprise?.id ?? null,
+    enterpriseName: slackResult.enterprise?.name ?? null,
     authedUserId: slackResult.authedUser.id,
     appId: slackResult.appId,
     botScopes: slackResult.bot?.scope ?? "",
