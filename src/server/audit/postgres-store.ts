@@ -22,6 +22,12 @@ export type ActivityAuditStore = {
     }
   ): Promise<ActivityAuditRecord | null>;
   listRecentActivityForSession(input: { sessionToken: string | undefined; now?: Date; limit?: number }): Promise<ActivityAuditRecord[]>;
+  listRecentActivityForTokenProfile(input: {
+    sessionToken: string | undefined;
+    profileId: string;
+    now?: Date;
+    limit?: number;
+  }): Promise<ActivityAuditRecord[]>;
 };
 
 export class ActivityAuditUnavailableError extends Error {
@@ -65,6 +71,29 @@ export function createPostgresActivityAuditStore(database: Database): ActivityAu
          order by a.occurred_at desc
          limit $3`,
         [hashSecret(sessionToken), now, boundedLimit]
+      );
+      return result.rows.map(toActivityAuditRecord);
+    },
+    async listRecentActivityForTokenProfile({ sessionToken, profileId, now = new Date(), limit = 20 }) {
+      if (!sessionToken) {
+        return [];
+      }
+      const boundedLimit = Math.max(1, Math.min(limit, 50));
+      const result = await database.query<ActivityAuditRow>(
+        `select a.id, a.prism_user_id, a.slack_connection_id, a.token_profile_id, a.token_profile_name,
+                a.slack_user_id, a.slack_team_id, a.slack_enterprise_id, a.activity_type, a.endpoint,
+                a.slack_method, a.action_category, a.surface, a.object_type, a.object_id, a.execution_mode,
+                a.status, a.error_class, a.http_status, a.request_id, a.upstream_called, a.occurred_at,
+                a.retention_expires_at
+         from prism_sessions s
+         join prism_activity_audit a on a.prism_user_id = s.prism_user_id
+         where s.session_token_hash = $1
+           and s.expires_at > $2
+           and a.token_profile_id = $3
+           and a.retention_expires_at > $2
+         order by a.occurred_at desc
+         limit $4`,
+        [hashSecret(sessionToken), now, profileId, boundedLimit]
       );
       return result.rows.map(toActivityAuditRecord);
     }

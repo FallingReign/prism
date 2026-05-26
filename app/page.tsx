@@ -9,8 +9,9 @@ import { listTokenProfiles } from "../src/server/token-profiles/service";
 import { createPostgresTokenProfileStore } from "../src/server/token-profiles/store";
 import { ActivityAuditPanel } from "./activity-audit-panel";
 import { SlackStatusPanel, type SlackWebsiteStatus } from "./slack-status-panel";
-import { TokenProfilesPanel, type TokenProfileSummary } from "./token-profiles-panel";
-import { LinkButton, Panel, StatusBadge, SummaryMetric } from "./ui";
+import { toTokenProfileSummary, type TokenProfileSummary } from "./token-profile-summary";
+import { TokenProfilesPanel } from "./token-profiles-panel";
+import { LinkButton, Panel, StatusBadge } from "./ui";
 import { buildWebsiteOverview } from "./website-overview";
 
 export const dynamic = "force-dynamic";
@@ -78,12 +79,6 @@ async function HomeContent() {
             <p>Profiles decide which Slack methods a local tool can call, and audit stores metadata only.</p>
           </div>
         </div>
-        <div className="mt-5 hidden gap-3 xl:grid xl:grid-cols-4" aria-label="Prism status overview">
-          <SummaryMetric {...overview.slack} />
-          <SummaryMetric {...overview.custody} />
-          <SummaryMetric {...overview.tokenProfiles} />
-          <SummaryMetric {...overview.activity} />
-        </div>
       </section>
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(22rem,0.65fr)] xl:items-start">
@@ -137,25 +132,7 @@ async function readTokenProfileSummaries(sessionToken: string | undefined): Prom
     sessionToken
   });
   if (result.kind !== "profiles") return [];
-  return result.profiles.map((profile) => ({
-    id: profile.id,
-    name: profile.name,
-    intendedUse: profile.intendedUse,
-    preset: profile.preset,
-    executionIdentity: profile.capabilityMap.executionIdentity,
-    expiresAt: profile.expiresAt?.toISOString() ?? null,
-    createdAt: profile.createdAt.toISOString(),
-    developerToken: profile.developerToken
-      ? {
-          status: profile.developerToken.status,
-          createdAt: profile.developerToken.createdAt?.toISOString() ?? null,
-          expiresAt: profile.developerToken.expiresAt?.toISOString() ?? null,
-          lastUsedAt: profile.developerToken.lastUsedAt?.toISOString() ?? null,
-          revokedAt: profile.developerToken.revokedAt?.toISOString() ?? null,
-          overlapExpiresAt: profile.developerToken.overlapExpiresAt?.toISOString() ?? null
-        }
-      : undefined
-  }));
+  return result.profiles.map(toTokenProfileSummary);
 }
 
 async function readActivityAudit(sessionToken: string | undefined): Promise<ActivityAuditSummary[]> {

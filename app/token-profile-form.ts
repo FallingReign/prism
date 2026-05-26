@@ -1,4 +1,4 @@
-import type { TokenProfileSummary } from "./token-profiles-panel";
+import type { TokenProfileSummary } from "./token-profile-summary";
 
 export type TokenProfileRequestBody = {
   name: string;
@@ -32,6 +32,16 @@ export function buildCreateTokenProfileRequestBody(form: FormData): TokenProfile
     experiment: experimentValue(form),
     custom: preset === "custom" ? customCapabilities(form) : undefined
   });
+}
+
+export function buildCreateTokenProfileModalRequestBody(form: FormData): TokenProfileRequestBody {
+  return {
+    name: formString(form, "name"),
+    intendedUse: formString(form, "intendedUse"),
+    preset: formString(form, "preset", "read_only"),
+    executionIdentity: "automatic",
+    destructive: false
+  };
 }
 
 export function buildPolicyUpdateRequestBody(form: FormData, profile: TokenProfileSummary): TokenProfilePolicyRequestBody {

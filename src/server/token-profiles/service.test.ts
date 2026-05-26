@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { createTokenProfile, listTokenProfiles, revokeTokenProfile, rotateTokenProfile, updateTokenProfilePolicy, type TokenProfileStore } from "./service";
+import { createTokenProfile, deleteTokenProfile, listTokenProfiles, revokeTokenProfile, rotateTokenProfile, updateTokenProfilePolicy, type TokenProfileStore } from "./service";
 
 const now = new Date("2026-01-01T00:00:00.000Z");
 
@@ -42,7 +42,22 @@ function createMemoryStore(): TokenProfileStore & {
         verifier.revokedAt = input.now;
         verifier.isCurrent = false;
       }
-      return { kind: "revoked", profile: { ...profile, developerToken: { status: "revoked", revokedAt: input.now, lastUsedAt: null, expiresAt: null } } };
+      profile.status = "revoked";
+      return { kind: "revoked", profile: { ...profile, status: "revoked", developerToken: { status: "revoked", revokedAt: input.now, lastUsedAt: null, expiresAt: null } } };
+    },
+    async deleteInactiveProfile(input) {
+      const profileIndex = rows.profiles.findIndex(
+        (candidate) => candidate.id === input.profileId && candidate.prismUserId === input.prismUserId && candidate.slackConnectionId === input.slackConnectionId
+      );
+      if (profileIndex === -1) return { kind: "not_found" };
+      const profile = rows.profiles[profileIndex]!;
+      const hasActiveVerifier = rows.verifiers.some(
+        (candidate) => candidate.tokenProfileId === profile.id && candidate.isCurrent !== false && !candidate.revokedAt && (!candidate.expiresAt || candidate.expiresAt > input.now)
+      );
+      if (profile.status === "active" && hasActiveVerifier) return { kind: "conflict" };
+      rows.profiles.splice(profileIndex, 1);
+      rows.verifiers = rows.verifiers.filter((candidate) => candidate.tokenProfileId !== profile.id);
+      return { kind: "deleted", profile };
     },
     async rotateProfileDeveloperToken(input) {
       const profile = rows.profiles.find(
@@ -168,6 +183,46 @@ describe("Token profile service", () => {
     ]);
     expect(JSON.stringify({ revoked, rows: store.rows })).not.toContain(created.developerToken);
     expect(JSON.stringify({ revoked, rows: store.rows })).not.toContain("pepper-canary");
+  });
+
+  it("preserves revoked profiles for listing and deletes only inactive profiles", async () => {
+    const store = createMemoryStore();
+    const created = await createTokenProfile({
+      store,
+      sessionToken: "session-token",
+      developerTokenConfig: { pepper: "pepper-canary", pepperId: "local-pepper" },
+      input: {
+        name: "Local MCP read",
+        intendedUse: "Read Slack context from my local MCP server",
+        preset: "read_only",
+        executionIdentity: "automatic"
+      },
+      now,
+      randomBytes: () => Buffer.alloc(32, 8)
+    });
+    if (created.kind !== "created") throw new Error("expected created profile");
+
+    const blocked = await deleteTokenProfile({ store, sessionToken: "session-token", profileId: created.profile.id, now });
+    expect(blocked).toEqual({ kind: "conflict" });
+
+    const revoked = await revokeTokenProfile({ store, sessionToken: "session-token", profileId: created.profile.id, now });
+    expect(revoked).toMatchObject({ kind: "revoked", profile: { status: "revoked" } });
+
+    const listed = await listTokenProfiles({ store, sessionToken: "session-token" });
+    expect(listed).toMatchObject({ kind: "profiles", profiles: [expect.objectContaining({ id: created.profile.id, status: "revoked" })] });
+
+    const deleted = await deleteTokenProfile({
+      store,
+      sessionToken: "session-token",
+      profileId: created.profile.id,
+      audit: { endpoint: "/v1/prism/token-profiles/profile_1", requestId: "req_delete" },
+      now
+    });
+    expect(deleted).toMatchObject({ kind: "deleted", profile: { id: created.profile.id, status: "revoked" } });
+    expect(store.rows.profiles).toHaveLength(0);
+    expect(store.rows.verifiers).toHaveLength(0);
+    expect(JSON.stringify({ deleted, rows: store.rows })).not.toContain(created.developerToken);
+    expect(JSON.stringify({ deleted, rows: store.rows })).not.toContain("pepper-canary");
   });
 
   it("rotates a Token profile developer token with immediate old-token invalidation and copy-once replacement", async () => {

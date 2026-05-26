@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildWebsiteOverview } from "./website-overview";
-import type { TokenProfileSummary } from "./token-profiles-panel";
+import type { TokenProfileSummary } from "./token-profile-summary";
 
 const profile = (status: NonNullable<TokenProfileSummary["developerToken"]>["status"]): TokenProfileSummary => ({
   id: `profile_${status}`,

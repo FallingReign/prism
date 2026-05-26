@@ -1,6 +1,6 @@
 import type { ActivityAuditSummary } from "../src/server/audit/presentation";
 import type { SlackWebsiteStatus } from "./slack-status-panel";
-import type { TokenProfileSummary } from "./token-profiles-panel";
+import type { TokenProfileSummary } from "./token-profile-summary";
 
 type OverviewTone = "neutral" | "success" | "warning" | "danger" | "info" | "primary";
 

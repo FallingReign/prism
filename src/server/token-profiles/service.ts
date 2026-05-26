@@ -33,7 +33,7 @@ export type TokenProfileMetadata = {
   preset: TokenProfilePreset;
   capabilityMap: CapabilityMap;
   expiresAt: Date | null;
-  status: "active";
+  status: "active" | "revoked";
   developerToken?: TokenProfileDeveloperTokenMetadata;
   createdAt: Date;
   updatedAt: Date;
@@ -98,6 +98,13 @@ export type TokenProfileStore = {
     rotation?: { verifier: DeveloperTokenVerifier };
     audit?: { endpoint: string; requestId: string };
   }): Promise<{ kind: "updated"; profile: TokenProfileMetadata } | { kind: "not_found" }>;
+  deleteInactiveProfile(input: {
+    prismUserId: string;
+    slackConnectionId: string;
+    profileId: string;
+    now: Date;
+    audit?: { endpoint: string; requestId: string };
+  }): Promise<{ kind: "deleted"; profile: TokenProfileMetadata } | { kind: "not_found" | "conflict" }>;
 };
 
 export async function createTokenProfile({
@@ -188,6 +195,32 @@ export async function revokeTokenProfile({
   });
   if (result.kind === "not_found") return result;
   return { kind: "revoked", profile: result.profile, slackStatus: owner.owner.slackStatus };
+}
+
+export async function deleteTokenProfile({
+  store,
+  sessionToken,
+  profileId,
+  audit,
+  now = new Date()
+}: {
+  store: TokenProfileStore;
+  sessionToken: string | undefined;
+  profileId: string;
+  audit?: { endpoint: string; requestId: string };
+  now?: Date;
+}): Promise<{ kind: "deleted"; profile: TokenProfileMetadata; slackStatus: TokenProfileOwner["slackStatus"] } | { kind: "unauthenticated" | "not_linked" | "not_found" | "conflict" }> {
+  const owner = await resolveOwner(store, sessionToken, now);
+  if (owner.kind !== "owner") return owner;
+  const result = await store.deleteInactiveProfile({
+    prismUserId: owner.owner.prismUserId,
+    slackConnectionId: owner.owner.slackConnectionId,
+    profileId,
+    now,
+    audit
+  });
+  if (result.kind !== "deleted") return result;
+  return { kind: "deleted", profile: result.profile, slackStatus: owner.owner.slackStatus };
 }
 
 export async function rotateTokenProfile({

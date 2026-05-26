@@ -8,7 +8,8 @@ export type ActivityType =
   | "token_profiles_listed"
   | "token_profile_revoked"
   | "token_profile_rotated"
-  | "token_profile_policy_updated";
+  | "token_profile_policy_updated"
+  | "token_profile_deleted";
 
 export type ActivityStatus =
   | "attempted"
@@ -24,7 +25,8 @@ export type ActivityStatus =
   | "listed"
   | "revoked"
   | "rotated"
-  | "updated";
+  | "updated"
+  | "deleted";
 
 export type ActivityAuditInput = {
   prismUserId?: string | null;

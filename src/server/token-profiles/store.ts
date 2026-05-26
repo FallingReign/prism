@@ -31,7 +31,7 @@ export function createPostgresTokenProfileStore(database: Database): TokenProfil
     async listProfiles(owner) {
       const result = await database.query<TokenProfileRow>(
         `${tokenProfileMetadataSelect()}
-         where p.prism_user_id = $1 and p.slack_connection_id = $2 and p.status = 'active'
+         where p.prism_user_id = $1 and p.slack_connection_id = $2 and p.status in ('active', 'revoked')
          order by p.created_at desc`,
         [owner.prismUserId, owner.slackConnectionId]
       );
@@ -141,10 +141,19 @@ export function createPostgresTokenProfileStore(database: Database): TokenProfil
           });
         }
 
+        await tx.query(
+          `update token_profiles
+           set status = 'revoked',
+               updated_at = $2
+           where id = $1 and status = 'active'`,
+          [input.profileId, input.now]
+        );
+
         return {
           kind: "revoked" as const,
           profile: {
             ...toTokenProfileMetadata(row),
+            status: "revoked",
             developerToken: {
               status: "revoked",
               createdAt: row.developer_token_created_at,
@@ -155,6 +164,60 @@ export function createPostgresTokenProfileStore(database: Database): TokenProfil
             }
           }
         };
+      });
+    },
+    async deleteInactiveProfile(input) {
+      return database.transaction(async (tx) => {
+        const existing = await tx.query<TokenProfileRow>(
+          `${tokenProfileMetadataSelect()}
+           where p.id = $1 and p.prism_user_id = $2 and p.slack_connection_id = $3 and p.status in ('active', 'revoked')
+           limit 1`,
+          [input.profileId, input.prismUserId, input.slackConnectionId]
+        );
+        const row = existing.rows[0];
+        if (!row) return { kind: "not_found" as const };
+
+        const profile = toTokenProfileMetadata(row);
+        if (profile.status === "active" && profile.developerToken?.status === "active") {
+          return { kind: "conflict" as const };
+        }
+
+        if (input.audit) {
+          await insertActivityAuditRecord(tx, {
+            prismUserId: input.prismUserId,
+            slackConnectionId: input.slackConnectionId,
+            tokenProfileId: row.id,
+            tokenProfileName: row.name,
+            activityType: "token_profile_deleted",
+            endpoint: input.audit.endpoint,
+            status: "deleted",
+            httpStatus: 200,
+            requestId: input.audit.requestId,
+            upstreamCalled: false
+          });
+        }
+
+        await tx.query(
+          `delete from token_profiles p
+           where p.id = $1
+             and p.prism_user_id = $2
+             and p.slack_connection_id = $3
+             and p.status in ('active', 'revoked')
+             and (
+               p.status = 'revoked'
+               or not exists (
+                 select 1
+                 from prism_developer_tokens t
+                 where t.token_profile_id = p.id
+                   and t.is_current = true
+                   and t.revoked_at is null
+                   and (t.expires_at is null or t.expires_at > $4)
+               )
+             )`,
+          [input.profileId, input.prismUserId, input.slackConnectionId, input.now]
+        );
+
+        return { kind: "deleted" as const, profile };
       });
     },
     async rotateProfileDeveloperToken(input) {
@@ -370,7 +433,7 @@ type TokenProfileRow = {
   preset: TokenProfilePreset;
   capability_map: CapabilityMap;
   expires_at: Date | null;
-  status: "active";
+  status: "active" | "bootstrap" | "revoked";
   created_at: Date;
   updated_at: Date;
   developer_token_created_at?: Date | null;
@@ -416,7 +479,7 @@ function toTokenProfileMetadata(row: TokenProfileRow): TokenProfileMetadata {
     preset: row.preset,
     capabilityMap: row.capability_map,
     expiresAt: row.expires_at,
-    status: row.status,
+    status: row.status === "revoked" ? "revoked" : "active",
     developerToken: toDeveloperTokenMetadata(row),
     createdAt: row.created_at,
     updatedAt: row.updated_at

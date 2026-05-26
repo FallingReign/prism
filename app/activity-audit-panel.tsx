@@ -78,11 +78,12 @@ function activityLabel(activityType: ActivityAuditSummary["activityType"]): stri
   if (activityType === "token_profile_revoked") return "Token profile revoked";
   if (activityType === "token_profile_rotated") return "Token profile rotated";
   if (activityType === "token_profile_policy_updated") return "Token profile policy updated";
+  if (activityType === "token_profile_deleted") return "Token profile deleted";
   return "Slack method";
 }
 
 function activityStatusTone(status: ActivityAuditSummary["status"]): "success" | "warning" | "neutral" | "info" {
-  if (["forwarded", "created", "listed", "revoked", "rotated", "updated"].includes(status)) return "success";
+  if (["forwarded", "created", "listed", "revoked", "rotated", "updated", "deleted"].includes(status)) return "success";
   if (["denied", "unsupported", "upstream_error", "auth_failed", "parse_error", "rate_limited", "identity_unavailable"].includes(status)) {
     return "warning";
   }

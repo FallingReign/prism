@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildCreateTokenProfileRequestBody, buildPolicyUpdateRequestBody } from "./token-profile-form";
+import { buildCreateTokenProfileModalRequestBody, buildCreateTokenProfileRequestBody, buildPolicyUpdateRequestBody } from "./token-profile-form";
 
 describe("Token profile form request bodies", () => {
   it("preserves the existing create payload shape for custom access and destructive opt-in", () => {
@@ -30,6 +30,22 @@ describe("Token profile form request bodies", () => {
         filesMetadata: false,
         destructive: true
       }
+    });
+
+  });
+
+  it("uses safe defaults for the focused create modal payload", () => {
+    const form = new FormData();
+    form.set("name", "Local MCP read");
+    form.set("intendedUse", "Read Slack context locally");
+    form.set("preset", "read_only");
+
+    expect(buildCreateTokenProfileModalRequestBody(form)).toEqual({
+      name: "Local MCP read",
+      intendedUse: "Read Slack context locally",
+      preset: "read_only",
+      executionIdentity: "automatic",
+      destructive: false
     });
   });
 

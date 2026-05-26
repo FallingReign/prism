@@ -11,7 +11,7 @@ function emptyResult(): QueryResult {
 describe("Postgres activity audit store", () => {
   it("persists explicit metadata columns and never stores payload JSON", async () => {
     const query = vi.fn(async (sql: string, params?: unknown[]) => {
-      expect(sql).not.toMatch(/payload|body|content|secret|token_hash|access_token|refresh_token/i);
+      expect(sql).not.toMatch(/payload|body|content|client_secret|\.token_hash|access_token|refresh_token/i);
       if (sql.includes("insert into prism_activity_audit")) {
         return {
           rows: [
@@ -117,6 +117,62 @@ describe("Postgres activity audit store", () => {
         id: "audit_1",
         prismUserId: "user_1",
         slackMethod: "conversations.list",
+        status: "forwarded",
+        upstreamCalled: true
+      }
+    ]);
+  });
+
+  it("lists current-session activity for one Token profile without payload columns", async () => {
+    const rows = [
+      {
+        id: "audit_1",
+        prism_user_id: "user_1",
+        slack_connection_id: "conn_1",
+        token_profile_id: "profile_1",
+        token_profile_name: "Local MCP",
+        slack_user_id: "U123",
+        slack_team_id: "T123",
+        slack_enterprise_id: null,
+        activity_type: "slack_method",
+        endpoint: "/v1/slack/api/chat.postMessage",
+        slack_method: "chat.postMessage",
+        action_category: "messages.write",
+        surface: "public_channel",
+        object_type: "channel",
+        object_id: "C123",
+        execution_mode: "user",
+        status: "forwarded",
+        error_class: null,
+        http_status: 200,
+        request_id: "req_1",
+        upstream_called: true,
+        occurred_at: new Date("2026-01-01T00:00:00.000Z"),
+        retention_expires_at: new Date("2026-04-01T00:00:00.000Z")
+      }
+    ];
+    const query = vi.fn(async (sql: string, params?: unknown[]) => {
+      expect(sql).toContain("from prism_sessions");
+      expect(sql).toContain("a.token_profile_id = $3");
+      expect(sql).toContain("a.retention_expires_at > $2");
+      expect(sql).not.toMatch(/payload|body|content|client_secret|\.token_hash|access_token|refresh_token/i);
+      expect(params).toEqual([hashSecret("session-token"), new Date("2026-01-02T00:00:00.000Z"), "profile_1", 50]);
+      return { rows, rowCount: rows.length };
+    });
+    const store = createPostgresActivityAuditStore(fakeDatabase(query));
+
+    await expect(
+      store.listRecentActivityForTokenProfile({
+        sessionToken: "session-token",
+        profileId: "profile_1",
+        now: new Date("2026-01-02T00:00:00.000Z"),
+        limit: 99
+      })
+    ).resolves.toMatchObject([
+      {
+        id: "audit_1",
+        tokenProfileId: "profile_1",
+        slackMethod: "chat.postMessage",
         status: "forwarded",
         upstreamCalled: true
       }

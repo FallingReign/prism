@@ -8,7 +8,7 @@
   ],
   "scripts": {
     "dev": "next dev --hostname 0.0.0.0 --port 3732",
-    "build": "next build",
+    "build": "next build && node scripts/restore-next-env-dev.mjs",
     "test": "vitest run",
     "db:up": "docker compose --env-file .env.local up -d postgres",
     "db:down": "docker compose --env-file .env.local down",

@@ -32,6 +32,30 @@ _Avoid_: Slack token, JWT, shared team token
 A user-owned policy object that defines what a local tool may do through Prism.
 _Avoid_: Team profile, shared service account
 
+**Token profile summary**:
+A compact representation of one token profile in the Prism website, focused on name, current status, and immediate access removal. Deeper configuration, rotation, copy-once token display, and profile-specific audit belong behind the selected token profile.
+_Avoid_: Full policy editor row, visible developer-token secret row
+
+**Active Token profile list**:
+The Prism website homepage list optimized for a small set of current token profiles, typically 0 to 12 items, without search, filters, or pagination in the core flow.
+_Avoid_: Inventory table, admin directory, audit dashboard
+
+**Token profile detail**:
+A focused Prism website view for one selected token profile, where the user first manages Prism developer token lifecycle actions, then edits policy configuration, then reviews profile-specific metadata-only audit.
+_Avoid_: Dashboard widget, homepage row expansion
+
+**Remove access**:
+The Prism website action that asks for compact confirmation, revokes the current Prism developer token for a token profile, and removes it from the default active list while preserving metadata and audit history.
+_Avoid_: Hard delete, erase audit, delete Slack credentials
+
+**Access status**:
+The homepage status for a token profile summary, answering whether its local tool can use Slack through Prism right now.
+_Avoid_: Policy preset label, usage freshness label
+
+**Create Token profile modal**:
+The focused Prism website flow for adding a new token profile from the clean homepage list and showing the copy-once Prism developer token immediately after creation.
+_Avoid_: Inline homepage form, raw debug form, retrievable token vault
+
 **Capability map**:
 The allowed Slack method categories, surfaces, workspaces, destructive-action setting, search setting, expiry, and execution identity options for a token profile.
 _Avoid_: Slack scope list
@@ -62,6 +86,7 @@ _Avoid_: Deleted profile, revoked Prism token
 - A **Prism developer token** maps to exactly one **Token profile**.
 - A Slack-authenticated user owns zero or more **Token profiles**.
 - A **Token profile** has one current **Prism developer token** secret, with optional temporary overlap during rotation.
+- **Remove access** revokes a **Token profile**'s current **Prism developer token**; it does not erase historical **Metadata-only audit**.
 - A **Capability map** belongs to exactly one **Token profile**.
 - The **Prism hosted service** resolves the **Prism developer token**, evaluates the **Capability map**, chooses an **Execution identity**, and calls Slack with server-held **Slack credentials**.
 - The **Method registry** classifies each **Slack-compatible endpoint** before policy enforcement.
@@ -76,5 +101,6 @@ _Avoid_: Deleted profile, revoked Prism token
 ## Flagged ambiguities
 
 - "token" is overloaded. Use **Prism developer token** for local bearer secrets and **Slack credentials** for Slack-issued secrets.
+- On the **Prism website**, a simple "token" list should mean **Token profile** summaries, not retrievable **Prism developer token** secrets.
 - "full Slack bridge" does not include Slack admin methods, organisation policy methods, inbound events, slash commands, interactivity, canvases, lists, or file transfer in v1.
 - "Slack-compatible" means preserving Slack method shape under Prism policy, not exposing an unmanaged raw proxy.

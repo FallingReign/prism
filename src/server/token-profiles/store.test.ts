@@ -161,6 +161,137 @@ describe("Postgres Token profile store lifecycle resolution", () => {
     expect(query.mock.calls.some(([, params]) => Array.isArray(params) && params.includes("token_profile_policy_updated"))).toBe(true);
     expect(JSON.stringify(query.mock.calls)).not.toMatch(/new-token-plain|prism_dev_|pepper-secret/i);
   });
+
+  it("lists active and revoked profiles for the manager", async () => {
+    const query = vi.fn(async (sql: string, params?: unknown[]) => {
+      expect(sql).not.toMatch(/access_token_envelope|refresh_token_envelope|xox[bp]-|client_secret/i);
+      expect(sql).toContain("p.status in ('active', 'revoked')");
+      expect(params).toEqual(["user_1", "conn_1"]);
+      return {
+        rows: [
+          tokenProfileRow({ preset: "read_only", capabilityMap: capabilityMap("read_only"), expiresAt: null, tokenExpiresAt: null, status: "active" }),
+          tokenProfileRow({
+            preset: "messages_only",
+            capabilityMap: capabilityMap("messages_only"),
+            expiresAt: null,
+            tokenExpiresAt: null,
+            status: "revoked",
+            tokenRevokedAt: new Date("2026-01-01T00:00:00.000Z")
+          })
+        ],
+        rowCount: 2
+      };
+    });
+
+    const store = createPostgresTokenProfileStore(fakeDatabase(query));
+    const profiles = await store.listProfiles({ prismUserId: "user_1", slackConnectionId: "conn_1", slackStatus: "healthy" });
+
+    expect(profiles).toEqual([
+      expect.objectContaining({ status: "active", developerToken: expect.objectContaining({ status: "active" }) }),
+      expect.objectContaining({ status: "revoked", developerToken: expect.objectContaining({ status: "revoked" }) })
+    ]);
+  });
+
+  it("marks the profile row revoked when access is removed", async () => {
+    const now = new Date("2026-01-01T00:00:00.000Z");
+    const query = vi.fn(async (sql: string, params?: unknown[]) => {
+      expect(sql).not.toMatch(/access_token_envelope|refresh_token_envelope|xox[bp]-|client_secret/i);
+      if (sql.includes("from token_profiles p")) {
+        return { rows: [tokenProfileRow({ preset: "read_only", capabilityMap: capabilityMap("read_only"), expiresAt: null, tokenExpiresAt: null })], rowCount: 1 };
+      }
+      if (sql.includes("update prism_developer_tokens")) {
+        expect(params).toEqual(["profile_1", now]);
+        return { rows: [], rowCount: 1 };
+      }
+      if (sql.includes("insert into prism_activity_audit")) {
+        expect(params?.[8]).toBe("token_profile_revoked");
+        expect(params?.[16]).toBe("revoked");
+        return { rows: [activityRowFromInsertParams(params)], rowCount: 1 };
+      }
+      if (sql.includes("update token_profiles")) {
+        expect(sql).toContain("set status = 'revoked'");
+        expect(params).toEqual(["profile_1", now]);
+        return { rows: [], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    });
+
+    const store = createPostgresTokenProfileStore(fakeDatabase(query));
+    const result = await store.revokeProfileDeveloperTokens({
+      prismUserId: "user_1",
+      slackConnectionId: "conn_1",
+      profileId: "profile_1",
+      now,
+      audit: { endpoint: "/v1/prism/token-profiles/profile_1/revoke", requestId: "req_revoke" }
+    });
+
+    expect(result).toMatchObject({ kind: "revoked", profile: { status: "revoked", developerToken: { status: "revoked", revokedAt: now } } });
+    expect(query.mock.calls.some(([sql]) => String(sql).includes("set status = 'revoked'"))).toBe(true);
+  });
+
+  it("deletes only inactive profiles and records a metadata-only deletion audit", async () => {
+    const now = new Date("2026-01-01T00:00:00.000Z");
+    const query = vi.fn(async (sql: string, params?: unknown[]) => {
+      expect(sql).not.toMatch(/access_token_envelope|refresh_token_envelope|xox[bp]-|client_secret|prism_dev_/i);
+      if (sql.includes("from token_profiles p")) {
+        return {
+          rows: [
+            tokenProfileRow({
+              preset: "read_only",
+              capabilityMap: capabilityMap("read_only"),
+              expiresAt: null,
+              tokenExpiresAt: null,
+              status: "revoked",
+              tokenRevokedAt: now
+            })
+          ],
+          rowCount: 1
+        };
+      }
+      if (sql.includes("insert into prism_activity_audit")) {
+        expect(params?.[8]).toBe("token_profile_deleted");
+        expect(params?.[16]).toBe("deleted");
+        return { rows: [activityRowFromInsertParams(params)], rowCount: 1 };
+      }
+      if (sql.includes("delete from token_profiles")) {
+        expect(sql).toContain("p.status in ('active', 'revoked')");
+        expect(sql).toContain("not exists");
+        expect(params).toEqual(["profile_1", "user_1", "conn_1", now]);
+        return { rows: [], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    });
+
+    const store = createPostgresTokenProfileStore(fakeDatabase(query));
+    const result = await store.deleteInactiveProfile({
+      prismUserId: "user_1",
+      slackConnectionId: "conn_1",
+      profileId: "profile_1",
+      now,
+      audit: { endpoint: "/v1/prism/token-profiles/profile_1", requestId: "req_delete" }
+    });
+
+    expect(result).toMatchObject({ kind: "deleted", profile: { id: "profile_1", status: "revoked" } });
+    expect(query.mock.calls.some(([sql]) => String(sql).includes("delete from token_profiles"))).toBe(true);
+  });
+
+  it("rejects permanent deletion when the profile still has an active current token", async () => {
+    const now = new Date("2026-01-01T00:00:00.000Z");
+    const query = vi.fn(async (sql: string) => {
+      expect(sql).not.toMatch(/access_token_envelope|refresh_token_envelope|xox[bp]-|client_secret|prism_dev_/i);
+      if (sql.includes("from token_profiles p")) {
+        return { rows: [tokenProfileRow({ preset: "read_only", capabilityMap: capabilityMap("read_only"), expiresAt: null, tokenExpiresAt: null })], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    });
+
+    const store = createPostgresTokenProfileStore(fakeDatabase(query));
+    const result = await store.deleteInactiveProfile({ prismUserId: "user_1", slackConnectionId: "conn_1", profileId: "profile_1", now });
+
+    expect(result).toEqual({ kind: "conflict" });
+    expect(query.mock.calls.some(([sql]) => String(sql).includes("insert into prism_activity_audit"))).toBe(false);
+    expect(query.mock.calls.some(([sql]) => String(sql).includes("delete from token_profiles"))).toBe(false);
+  });
 });
 
 function fakeDatabase(query: Database["query"]): Database {
@@ -176,12 +307,16 @@ function tokenProfileRow({
   preset,
   capabilityMap,
   expiresAt,
-  tokenExpiresAt
+  tokenExpiresAt,
+  status = "active",
+  tokenRevokedAt = null
 }: {
   preset: "read_only" | "messages_only";
   capabilityMap: ReturnType<typeof capabilityMap>;
   expiresAt: Date | null;
   tokenExpiresAt: Date | null;
+  status?: "active" | "revoked";
+  tokenRevokedAt?: Date | null;
 }) {
   return {
     id: "profile_1",
@@ -193,14 +328,14 @@ function tokenProfileRow({
     preset,
     capability_map: capabilityMap,
     expires_at: expiresAt,
-    status: "active",
+    status,
     created_at: new Date("2025-12-01T00:00:00.000Z"),
     updated_at: new Date("2026-01-01T00:00:00.000Z"),
     developer_token_created_at: new Date("2025-12-01T00:00:00.000Z"),
     developer_token_expires_at: tokenExpiresAt,
     developer_token_last_used_at: null,
-    developer_token_revoked_at: null,
-    developer_token_is_current: true,
+    developer_token_revoked_at: tokenRevokedAt,
+    developer_token_is_current: !tokenRevokedAt,
     overlap_expires_at: null
   };
 }

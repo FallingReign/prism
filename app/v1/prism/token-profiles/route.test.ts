@@ -12,6 +12,8 @@ let failAuditInsert = false;
 let persistedPreset: "read_only" | "messages_only" = "read_only";
 let persistedCapabilityMap: Record<string, unknown> = capabilityMapFor("read_only");
 let persistedExpiresAt: Date | null = null;
+let persistedProfileStatus: "active" | "revoked" = "active";
+let persistedDeveloperTokenRevokedAt: Date | null = null;
 
 describe("/v1/prism/token-profiles", () => {
   beforeEach(() => {
@@ -23,6 +25,8 @@ describe("/v1/prism/token-profiles", () => {
     persistedPreset = "read_only";
     persistedCapabilityMap = capabilityMapFor("read_only");
     persistedExpiresAt = null;
+    persistedProfileStatus = "active";
+    persistedDeveloperTokenRevokedAt = null;
     process.env.PRISM_DEVELOPER_TOKEN_PEPPER = "pepper-secret-canary";
     process.env.PRISM_DEVELOPER_TOKEN_PEPPER_ID = "test-pepper";
     mockDb.query.mockImplementation(async (sql: string, params?: unknown[]) => {
@@ -57,13 +61,25 @@ describe("/v1/prism/token-profiles", () => {
         };
       }
       if (sql.includes("insert into prism_developer_tokens")) return { rows: [], rowCount: 1 };
+      if (sql.includes("update token_profiles") && sql.includes("set status = 'revoked'")) {
+        persistedProfileStatus = "revoked";
+        persistedDeveloperTokenRevokedAt = params?.[1] as Date;
+        return { rows: [], rowCount: 1 };
+      }
       if (sql.includes("update token_profiles")) {
         persistedPreset = params?.[1] as typeof persistedPreset;
         persistedCapabilityMap = JSON.parse(String(params?.[2]));
         persistedExpiresAt = (params?.[3] as Date | null) ?? null;
         return { rows: [], rowCount: 1 };
       }
-      if (sql.includes("update prism_developer_tokens")) return { rows: [], rowCount: 1 };
+      if (sql.includes("update prism_developer_tokens")) {
+        if (sql.includes("revoked_at")) persistedDeveloperTokenRevokedAt = (params?.[1] as Date | null) ?? persistedDeveloperTokenRevokedAt;
+        return { rows: [], rowCount: 1 };
+      }
+      if (sql.includes("delete from token_profiles")) {
+        if (persistedProfileStatus === "active" && !persistedDeveloperTokenRevokedAt) return { rows: [], rowCount: 0 };
+        return { rows: [], rowCount: 1 };
+      }
       if (sql.includes("insert into prism_activity_audit")) {
         if (failAuditInsert) throw new Error("audit unavailable");
         return { rows: [activityRowFromInsertParams(params)], rowCount: 1 };
@@ -81,14 +97,14 @@ describe("/v1/prism/token-profiles", () => {
               preset: persistedPreset,
               capability_map: persistedCapabilityMap,
               expires_at: persistedExpiresAt,
-              status: "active",
+              status: persistedProfileStatus,
               created_at: new Date("2026-01-01T00:00:00.000Z"),
               updated_at: new Date("2026-01-01T00:00:00.000Z"),
               developer_token_created_at: new Date("2026-01-01T00:00:00.000Z"),
               developer_token_expires_at: persistedExpiresAt,
               developer_token_last_used_at: null,
-              developer_token_revoked_at: null,
-              developer_token_is_current: true,
+              developer_token_revoked_at: persistedDeveloperTokenRevokedAt,
+              developer_token_is_current: !persistedDeveloperTokenRevokedAt,
               overlap_expires_at: null
             }
           ],
@@ -179,6 +195,48 @@ describe("/v1/prism/token-profiles", () => {
     expect(response.headers.get("x-prism-request-id")).toBeTruthy();
     expect(body).toMatchObject({ profile: { id: "profile_1", developerToken: { status: "revoked" } }, slackStatus: "healthy" });
     expect(mockDb.query.mock.calls.some(([sql]) => String(sql).includes("update prism_developer_tokens"))).toBe(true);
+    expect(JSON.stringify(body)).not.toMatch(/prism_dev_|tokenHash|pepper-secret-canary/i);
+    expect(JSON.stringify(mockDb.query.mock.calls)).not.toMatch(/access_token_envelope|refresh_token_envelope|xox[bp]-|client_secret/i);
+  });
+
+  it("rejects permanent deletion while a Token profile still has active access", async () => {
+    const { DELETE } = await import("./[profileId]/route");
+    const response = await DELETE(
+      new NextRequest("http://localhost:3732/v1/prism/token-profiles/profile_1", {
+        method: "DELETE",
+        headers: { cookie: "prism_session=session-token" }
+      }),
+      { params: Promise.resolve({ profileId: "profile_1" }) }
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("x-prism-request-id")).toBeTruthy();
+    expect(body).toEqual({ error: "active_profile_requires_revoke" });
+    expect(mockDb.query.mock.calls.some(([sql]) => String(sql).includes("delete from token_profiles"))).toBe(false);
+    expect(JSON.stringify(body)).not.toMatch(/prism_dev_|tokenHash|pepper-secret-canary/i);
+  });
+
+  it("permanently deletes an inactive Token profile without returning token material", async () => {
+    persistedProfileStatus = "revoked";
+    persistedDeveloperTokenRevokedAt = new Date("2026-01-01T00:00:00.000Z");
+    const { DELETE } = await import("./[profileId]/route");
+    const response = await DELETE(
+      new NextRequest("http://localhost:3732/v1/prism/token-profiles/profile_1", {
+        method: "DELETE",
+        headers: { cookie: "prism_session=session-token" }
+      }),
+      { params: Promise.resolve({ profileId: "profile_1" }) }
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("x-prism-request-id")).toBeTruthy();
+    expect(body).toMatchObject({ profile: { id: "profile_1", status: "revoked" }, slackStatus: "healthy" });
+    expect(mockDb.query.mock.calls.some(([sql]) => String(sql).includes("delete from token_profiles"))).toBe(true);
+    expect(mockDb.query.mock.calls.some(([, params]) => Array.isArray(params) && params.includes("token_profile_deleted") && params.includes("deleted"))).toBe(true);
     expect(JSON.stringify(body)).not.toMatch(/prism_dev_|tokenHash|pepper-secret-canary/i);
     expect(JSON.stringify(mockDb.query.mock.calls)).not.toMatch(/access_token_envelope|refresh_token_envelope|xox[bp]-|client_secret/i);
   });

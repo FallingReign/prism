@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 describe("Prism website design-system guard", () => {
   it("keeps app components on shared classes instead of inline styles", () => {
-    const source = ["page.tsx", "slack-status-panel.tsx", "token-profiles-panel.tsx", "activity-audit-panel.tsx", "ui.tsx"]
+    const source = ["page.tsx", "slack-status-panel.tsx", "token-profiles-panel.tsx", "token-profile-detail-panel.tsx", "activity-audit-panel.tsx", "ui.tsx"]
       .map((file) => readFileSync(join(process.cwd(), "app", file), "utf8"))
       .join("\n");
 
@@ -48,14 +48,14 @@ describe("Prism website design-system guard", () => {
   });
 
   it("keeps Token profile interactions accessible on long forms", () => {
-    const panel = readFileSync(join(process.cwd(), "app", "token-profiles-panel.tsx"), "utf8");
+    const panel = readFileSync(join(process.cwd(), "app", "token-profile-detail-panel.tsx"), "utf8");
 
     expect(panel).toContain("min-h-11");
-    expect(panel).toContain("grid gap-3 md:grid-cols-2");
+    expect(panel).toContain("grid gap-4 lg:grid-cols-2");
     expect(panel).toContain('role="alert"');
     expect(panel).toContain('aria-live="polite"');
     expect(panel).toContain("Rotating...");
     expect(panel).toContain("Updating...");
-    expect(panel).toContain("Revoking...");
+    expect(panel).toContain("Removing...");
   });
 });
