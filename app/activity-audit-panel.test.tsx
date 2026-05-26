@@ -18,7 +18,7 @@ describe("Prism website activity audit panel", () => {
     expect(html).toContain("tokens are not stored");
   });
 
-  it("renders dense safe metadata for Slack method activity", () => {
+  it("renders compact safe metadata for Slack method activity", () => {
     const html = renderToStaticMarkup(
       <ActivityAuditPanel
         activity={[
@@ -45,6 +45,11 @@ describe("Prism website activity audit panel", () => {
     );
 
     expect(html).toContain("chat.postMessage");
+    expect(html).toContain('data-density="compact"');
+    expect(html).toContain("data-compact-row");
+    expect(html).toContain("mt-1 flex flex-wrap");
+    expect(html).not.toContain("grid gap-3 p-4");
+    expect(html).not.toContain("sm:grid-cols-2");
     expect(html).toContain("Forwarded");
     expect(html).toContain('data-slot="badge"');
     expect(html).toContain("Local MCP writer");

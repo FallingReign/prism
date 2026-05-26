@@ -12,7 +12,7 @@ export function ActivityAuditPanel({ activity }: { activity: ActivityAuditSummar
       accent="info"
       badge={<StatusBadge tone={activity.length > 0 ? "info" : "neutral"}>{activity.length > 0 ? "Metadata events" : "No activity"}</StatusBadge>}
     >
-      <Notice title="Metadata only" tone="info">
+      <Notice title="Metadata only" tone="info" className="px-3 py-2.5">
         This view stores metadata only: methods, policy outcomes, object identifiers, request IDs, and timestamps. Slack message text, search queries,
         file contents, and tokens are not stored.
       </Notice>
@@ -37,26 +37,28 @@ export function ActivityAuditPanel({ activity }: { activity: ActivityAuditSummar
         </div>
       ) : null}
       {activity.length > 0 ? (
-        <div className="divide-y rounded-2xl bg-muted/20" aria-label="Recent Prism activity">
+        <div className="overflow-hidden rounded-xl border border-border bg-background/75" aria-label="Recent Prism activity" data-density="compact">
           {activity.map((entry) => (
-            <article key={entry.id} className="grid gap-3 p-4">
-              <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
-                <div className="min-w-0">
-                  <h3 className="font-mono text-sm font-semibold text-foreground [overflow-wrap:anywhere]">
-                    {safeAuditText(entry.slackMethod ?? activityLabel(entry.activityType))}
-                  </h3>
-                  {entry.actionCategory ? (
-                    <span className="mt-2 inline-flex rounded-full bg-background/80 px-2 py-1 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-                      {safeAuditText(entry.actionCategory)}
-                    </span>
-                  ) : null}
-                </div>
-                <StatusBadge tone={activityStatusTone(entry.status)}>{formatStatus(entry.status)}</StatusBadge>
+            <article key={entry.id} className="border-b border-border/80 px-2.5 py-1.5 last:border-b-0" data-compact-row>
+              <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                <h3 className="min-w-0 font-mono text-xs font-semibold leading-4 text-foreground [overflow-wrap:anywhere]">
+                  {safeAuditText(entry.slackMethod ?? activityLabel(entry.activityType))}
+                </h3>
+                {entry.actionCategory ? (
+                  <span className="inline-flex rounded-full bg-muted/55 px-1.5 py-0.5 text-[0.625rem] font-semibold uppercase leading-3 tracking-[0.12em] text-muted-foreground">
+                    {safeAuditText(entry.actionCategory)}
+                  </span>
+                ) : null}
+                <StatusBadge className="h-4 px-1.5 text-[0.625rem] leading-3" tone={activityStatusTone(entry.status)}>
+                  {formatStatus(entry.status)}
+                </StatusBadge>
+                <span className="font-mono text-[0.6875rem] leading-4 text-muted-foreground">
+                  <span className="sr-only">When </span>
+                  {formatUtcDateTime(entry.occurredAt)}
+                </span>
               </div>
-              <dl className="grid gap-x-4 gap-y-2 sm:grid-cols-2 xl:grid-cols-3">
+              <dl className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
                 <Metadata label="Profile" value={entry.tokenProfileName ?? entry.tokenProfileId ?? "Session"} />
-                <Metadata label="When" value={formatUtcDateTime(entry.occurredAt)} />
-                <Metadata label="Category" value={entry.actionCategory} />
                 <Metadata label="Object" value={objectLabel(entry)} />
                 <Metadata label="Identity" value={entry.executionMode} />
                 <Metadata label="Request" value={entry.requestId} />
@@ -93,9 +95,9 @@ function activityStatusTone(status: ActivityAuditSummary["status"]): "success" |
 function Metadata({ label, value }: { label: string; value: string | null }) {
   if (!value) return null;
   return (
-    <div>
-      <dt className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">{label}</dt>
-      <dd className="mt-0.5 text-sm text-foreground [overflow-wrap:anywhere]">{safeAuditText(value)}</dd>
+    <div className="inline-flex min-w-0 max-w-full items-baseline gap-1">
+      <dt className="shrink-0 text-[0.625rem] font-semibold uppercase leading-4 tracking-[0.12em] text-muted-foreground">{label}: </dt>
+      <dd className="min-w-0 font-mono text-[0.6875rem] leading-4 text-foreground [overflow-wrap:anywhere]">{safeAuditText(value)}</dd>
     </div>
   );
 }
