@@ -1,5 +1,6 @@
 import { LinkButton, Notice, Panel, StatusBadge } from "./ui";
 import { slackScopeDisplay, slackUserDisplay } from "./slack-connection-display";
+import { SlackConnectionActions } from "./slack-connection-actions";
 
 export type SlackWebsiteStatus =
   | { kind: "not_linked" }
@@ -85,9 +86,7 @@ export function SlackStatusPanel({ status, variant = "panel" }: { status: SlackW
             {scope.label} <strong className="break-words text-foreground">{scope.value}</strong> is connected for Slack user{" "}
             <strong className="break-words text-foreground">{slackUserDisplay(status)}</strong>. Reconnect before Slack calls resume.
           </p>
-          <LinkButton href="/v1/slack/oauth/start" className="mt-4" variant="secondary">
-            Reconnect Slack
-          </LinkButton>
+          <SlackConnectionActions reauthRequired compact />
         </section>
       );
     }
@@ -100,6 +99,7 @@ export function SlackStatusPanel({ status, variant = "panel" }: { status: SlackW
           <strong className="break-words text-foreground">{slackUserDisplay(status)}</strong>.
         </p>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">Credentials are encrypted on the server. Local tools use Prism developer tokens.</p>
+        <SlackConnectionActions compact />
       </section>
     );
   }
@@ -127,7 +127,7 @@ export function SlackStatusPanel({ status, variant = "panel" }: { status: SlackW
         eyebrow="Slack connection"
         accent="warning"
         badge={<StatusBadge tone="warning">Reconnect needed</StatusBadge>}
-        actions={<LinkButton href="/v1/slack/oauth/start">Reconnect Slack</LinkButton>}
+        actions={<SlackConnectionActions reauthRequired />}
       >
         <p>
           {scope.label} <strong className="break-words">{scope.value}</strong> is connected for Slack user <strong className="break-words">{slackUserDisplay(status)}</strong>,
@@ -145,6 +145,7 @@ export function SlackStatusPanel({ status, variant = "panel" }: { status: SlackW
       eyebrow="Slack connection"
       accent="success"
       badge={<StatusBadge tone="success">Connected</StatusBadge>}
+      actions={<SlackConnectionActions />}
     >
       <p>
         {scope.label} <strong className="break-words">{scope.value}</strong> is connected for Slack user <strong className="break-words">{slackUserDisplay(status)}</strong>.

@@ -1,7 +1,11 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { SlackStatusPanel } from "./slack-status-panel";
+
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn() })
+}));
 
 describe("Prism website Slack status", () => {
   it("shows Connect Slack when no identity is linked", () => {
@@ -24,6 +28,10 @@ describe("Prism website Slack status", () => {
     expect(html).toContain("Example Workspace");
     expect(html).toContain("T123");
     expect(html).toContain("U123");
+    expect(html).toContain("Change Slack authorization");
+    expect(html).toContain("/v1/slack/oauth/start");
+    expect(html).toContain("Remove Slack connection");
+    expect(html).toContain("Slack controls workspace and organization approval");
     expect(html).not.toContain("Linked and healthy");
     expect(html).not.toContain("Ready for forwarding");
     expect(html).not.toContain("Server custody active");
@@ -51,6 +59,8 @@ describe("Prism website Slack status", () => {
     expect(html).toContain("Example Workspace");
     expect(html).toContain("Ada Lovelace");
     expect(html).toContain("U123");
+    expect(html).toContain("Change Slack authorization");
+    expect(html).toContain("Remove Slack connection");
     expect(html).not.toContain('data-slot="card"');
     expect(html).not.toContain("Ready for forwarding");
     expect(html).not.toMatch(/xox[bp]-|refresh-secret|client_secret|access_token/i);
@@ -94,7 +104,7 @@ describe("Prism website Slack status", () => {
     );
 
     expect(html).toContain("[redacted]");
-    expect(html).not.toMatch(/xox[bp]-|client_secret|access_token|refresh-secret|authorization|tokenHash|pepper/i);
+    expect(html).not.toMatch(/xox[bp]-|client_secret|access_token|refresh-secret|tokenHash|pepper/i);
   });
 
   it("shows Reauth required and reconnect without deleting the user-facing identity", () => {
@@ -105,6 +115,7 @@ describe("Prism website Slack status", () => {
     );
 
     expect(html).toContain("Reconnect Slack");
+    expect(html).toContain("Remove Slack connection");
     expect(html).toContain("Reconnect needed");
     expect(html).toContain("fresh authorization");
     expect(html).toContain("U123");

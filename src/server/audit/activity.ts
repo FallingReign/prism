@@ -9,7 +9,8 @@ export type ActivityType =
   | "token_profile_revoked"
   | "token_profile_rotated"
   | "token_profile_policy_updated"
-  | "token_profile_deleted";
+  | "token_profile_deleted"
+  | "slack_connection_removed";
 
 export type ActivityStatus =
   | "attempted"

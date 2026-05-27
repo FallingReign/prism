@@ -81,6 +81,7 @@ function activityLabel(activityType: ActivityAuditSummary["activityType"]): stri
   if (activityType === "token_profile_rotated") return "Token profile rotated";
   if (activityType === "token_profile_policy_updated") return "Token profile policy updated";
   if (activityType === "token_profile_deleted") return "Token profile deleted";
+  if (activityType === "slack_connection_removed") return "Slack connection removed";
   return "Slack method";
 }
 

@@ -80,6 +80,14 @@ _Avoid_: Payload log, message archive
 A Slack connection state where Prism keeps token profiles but requires the user to renew Slack authorization before affected calls can succeed.
 _Avoid_: Deleted profile, revoked Prism token
 
+**Remove Slack connection**:
+The Prism website action that hard-deletes Prism's local Slack connection after explicit warning, including server-held Slack credentials, dependent Token profiles, and local-tool access, so the user starts again from a fresh Slack authorization. It does not uninstall the Slack app or imply Slack-admin removal.
+_Avoid_: Reauth, temporary disable, remove one Token profile, uninstall Slack app
+
+**Expand Slack connection**:
+The Prism website action, labelled as changing Slack authorization, that sends the user back through Slack authorization to choose a broader installation target, such as another workspace or an Enterprise Grid org-wide installation, without treating it as a delete/reset flow.
+_Avoid_: Disconnect, delete connection, change Token profile policy
+
 ## Relationships
 
 - A **Local tool** receives a **Prism developer token**, never **Slack credentials**.
@@ -92,6 +100,7 @@ _Avoid_: Deleted profile, revoked Prism token
 - The **Method registry** classifies each **Slack-compatible endpoint** before policy enforcement.
 - **Metadata-only audit** records Prism activity without storing Slack message bodies, search results, file contents, Block Kit payloads, canvases, or lists.
 - Slack administration defines the maximum approved app capability; a **Token profile** narrows what one **Local tool** can actually use.
+- **Remove Slack connection** is a destructive local Prism reset and starts the Slack link over; **Expand Slack connection** is a Slack-owned reauthorization path for broader Slack installation scope.
 
 ## Example dialogue
 
