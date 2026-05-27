@@ -5,6 +5,10 @@ export function slackScopeDisplay(status: Extract<SlackWebsiteStatus, { kind: "l
   return { label: "organization", value: displayNameWithId(status.enterpriseName, status.enterpriseId ?? "unknown") };
 }
 
+export function slackUserDisplay(status: Extract<SlackWebsiteStatus, { kind: "linked" }>): string {
+  return displayNameWithId(status.slackUserDisplayName, status.slackUserId);
+}
+
 export function displayNameWithId(name: string | null | undefined, id: string): string {
   const safeId = safeConnectionText(id);
   const safeName = name ? safeConnectionText(name.trim()) : "";

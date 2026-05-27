@@ -4,7 +4,7 @@ import { createPostgresActivityAuditStore } from "../src/server/audit/postgres-s
 import { toActivityAuditSummary, type ActivityAuditSummary } from "../src/server/audit/presentation";
 import { database } from "../src/server/db";
 import { prismSessionCookieName } from "../src/server/slack/oauth-flow";
-import { getSlackLinkStatus } from "../src/server/slack/postgres-store";
+import { getSlackLinkStatusWithDisplayNameEnrichment } from "../src/server/slack/connection-status";
 import { listTokenProfiles } from "../src/server/token-profiles/service";
 import { createPostgresTokenProfileStore } from "../src/server/token-profiles/store";
 import { ActivityAuditPanel } from "./activity-audit-panel";
@@ -112,7 +112,7 @@ async function HomeContent() {
 
 async function readSlackWebsiteStatus(sessionToken: string | undefined): Promise<SlackWebsiteStatus> {
   try {
-    return await getSlackLinkStatus(database, sessionToken);
+    return await getSlackLinkStatusWithDisplayNameEnrichment({ database, sessionToken });
   } catch {
     return { kind: "not_linked" };
   }

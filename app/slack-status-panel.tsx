@@ -1,5 +1,5 @@
 import { LinkButton, Notice, Panel, StatusBadge } from "./ui";
-import { safeConnectionText, slackScopeDisplay } from "./slack-connection-display";
+import { slackScopeDisplay, slackUserDisplay } from "./slack-connection-display";
 
 export type SlackWebsiteStatus =
   | { kind: "not_linked" }
@@ -12,6 +12,7 @@ export type SlackWebsiteStatus =
       enterpriseId?: string | null;
       enterpriseName?: string | null;
       slackUserId: string;
+      slackUserDisplayName?: string | null;
       lastErrorClass: string | null;
     };
 
@@ -81,8 +82,8 @@ export function SlackStatusPanel({ status, variant = "panel" }: { status: SlackW
         <section className="rounded-2xl border border-[color:var(--prism-warning)]/55 bg-[color:var(--prism-warning-soft)]/55 p-4" aria-labelledby="slack-status-title">
           <CompactHeading title="Reconnect Slack" tone="warning" badge="Reconnect needed" />
           <p className="mt-3 text-sm leading-6 text-muted-foreground">
-            {scope.label} <strong className="text-foreground">{scope.value}</strong> is connected for Slack user{" "}
-            <strong className="text-foreground">{safeConnectionText(status.slackUserId)}</strong>. Reconnect before Slack calls resume.
+            {scope.label} <strong className="break-words text-foreground">{scope.value}</strong> is connected for Slack user{" "}
+            <strong className="break-words text-foreground">{slackUserDisplay(status)}</strong>. Reconnect before Slack calls resume.
           </p>
           <LinkButton href="/v1/slack/oauth/start" className="mt-4" variant="secondary">
             Reconnect Slack
@@ -95,8 +96,8 @@ export function SlackStatusPanel({ status, variant = "panel" }: { status: SlackW
       <section className="rounded-2xl border border-[color:var(--prism-success)]/45 bg-[color:var(--prism-success-soft)]/55 p-4" aria-labelledby="slack-status-title">
         <CompactHeading title="Slack connected" tone="success" badge="Connected" />
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
-          {scope.label} <strong className="text-foreground">{scope.value}</strong> is connected for Slack user{" "}
-          <strong className="text-foreground">{safeConnectionText(status.slackUserId)}</strong>.
+          {scope.label} <strong className="break-words text-foreground">{scope.value}</strong> is connected for Slack user{" "}
+          <strong className="break-words text-foreground">{slackUserDisplay(status)}</strong>.
         </p>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">Credentials are encrypted on the server. Local tools use Prism developer tokens.</p>
       </section>
@@ -129,7 +130,7 @@ export function SlackStatusPanel({ status, variant = "panel" }: { status: SlackW
         actions={<LinkButton href="/v1/slack/oauth/start">Reconnect Slack</LinkButton>}
       >
         <p>
-          {scope.label} <strong>{scope.value}</strong> is connected for Slack user <strong>{safeConnectionText(status.slackUserId)}</strong>,
+          {scope.label} <strong className="break-words">{scope.value}</strong> is connected for Slack user <strong className="break-words">{slackUserDisplay(status)}</strong>,
           but Slack calls need a fresh authorization.
         </p>
       </Panel>
@@ -146,7 +147,7 @@ export function SlackStatusPanel({ status, variant = "panel" }: { status: SlackW
       badge={<StatusBadge tone="success">Connected</StatusBadge>}
     >
       <p>
-        {scope.label} <strong>{scope.value}</strong> is connected for Slack user <strong>{safeConnectionText(status.slackUserId)}</strong>.
+        {scope.label} <strong className="break-words">{scope.value}</strong> is connected for Slack user <strong className="break-words">{slackUserDisplay(status)}</strong>.
       </p>
       <Notice title="Custody boundary" tone="success">
         Credentials are encrypted on the server. Local tools use Prism developer tokens.

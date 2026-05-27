@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 
 import type { CredentialEnvelope } from "../credentials/encryption";
 import type { Database } from "../db";
+import type { SlackConnectionDisplayNameStore, SlackConnectionDisplayRecord } from "./connection-display-names";
 import type { OAuthFlowStore } from "./oauth-flow";
 import { hashSecret } from "./oauth-flow";
 import type { RefreshStore } from "./refresh";
@@ -130,7 +131,7 @@ export function createPostgresRefreshStore(database: Database): RefreshStore {
   };
 }
 
-export async function getSlackLinkStatus(database: Database, sessionToken: string | undefined): Promise<
+export type SlackLinkStatus =
   | { kind: "not_linked" }
   | {
       kind: "linked";
@@ -140,21 +141,33 @@ export async function getSlackLinkStatus(database: Database, sessionToken: strin
       enterpriseId: string | null;
       enterpriseName: string | null;
       slackUserId: string;
+      slackUserDisplayName: string | null;
       lastErrorClass: string | null;
-    }
-> {
-  if (!sessionToken) return { kind: "not_linked" };
+    };
+
+export async function getSlackLinkStatus(database: Database, sessionToken: string | undefined): Promise<SlackLinkStatus> {
+  const connection = await getSlackConnectionDisplayRecordForSession(database, sessionToken);
+  return connection ? toSlackLinkStatus(connection) : { kind: "not_linked" };
+}
+
+export async function getSlackConnectionDisplayRecordForSession(database: Database, sessionToken: string | undefined): Promise<SlackConnectionDisplayRecord | null> {
+  if (!sessionToken) return null;
   const result = await database.query<{
+    id: string;
     status: "healthy" | "reauth_required";
     team_id: string | null;
     team_name: string | null;
     enterprise_id: string | null;
     enterprise_name: string | null;
     authed_user_id: string;
+    authed_user_display_name: string | null;
+    display_names_enriched_at: Date | null;
     last_error_class: string | null;
   }>(
-    `select c.status, nullif(c.team_id, '') as team_id, nullif(c.team_name, '') as team_name,
-            c.enterprise_id, nullif(c.enterprise_name, '') as enterprise_name, c.authed_user_id, c.last_error_class
+    `select c.id, c.status, nullif(c.team_id, '') as team_id, nullif(c.team_name, '') as team_name,
+            c.enterprise_id, nullif(c.enterprise_name, '') as enterprise_name,
+            c.authed_user_id, nullif(c.authed_user_display_name, '') as authed_user_display_name,
+            c.display_names_enriched_at, c.last_error_class
      from prism_sessions s
      join slack_connections c on c.prism_user_id = s.prism_user_id
      where s.session_token_hash = $1 and s.expires_at > now()
@@ -165,16 +178,78 @@ export async function getSlackLinkStatus(database: Database, sessionToken: strin
   const row = result.rows[0];
   return row
     ? {
-        kind: "linked",
+        connectionId: row.id,
         status: row.status,
         teamId: row.team_id,
         teamName: row.team_name,
         enterpriseId: row.enterprise_id,
         enterpriseName: row.enterprise_name,
         slackUserId: row.authed_user_id,
+        slackUserDisplayName: row.authed_user_display_name,
+        displayNamesEnrichedAt: row.display_names_enriched_at,
         lastErrorClass: row.last_error_class
       }
-    : { kind: "not_linked" };
+    : null;
+}
+
+export function createPostgresSlackConnectionDisplayNameStore(database: Database): SlackConnectionDisplayNameStore {
+  return {
+    async updateConnectionDisplayNames(input) {
+      const result = await database.query<{
+        id: string;
+        status: "healthy" | "reauth_required";
+        team_id: string | null;
+        team_name: string | null;
+        enterprise_id: string | null;
+        enterprise_name: string | null;
+        authed_user_id: string;
+        authed_user_display_name: string | null;
+        display_names_enriched_at: Date | null;
+        last_error_class: string | null;
+      }>(
+        `update slack_connections
+         set team_name = $2,
+             enterprise_name = $3,
+             authed_user_display_name = $4,
+             display_names_enriched_at = $5,
+             updated_at = now()
+         where id = $1
+         returning id, status, nullif(team_id, '') as team_id, nullif(team_name, '') as team_name,
+                   enterprise_id, nullif(enterprise_name, '') as enterprise_name,
+                   authed_user_id, nullif(authed_user_display_name, '') as authed_user_display_name,
+                   display_names_enriched_at, last_error_class`,
+        [input.connectionId, input.teamName, input.enterpriseName, input.slackUserDisplayName, input.enrichedAt]
+      );
+      const row = result.rows[0];
+      if (!row) throw new Error("slack-connection-not-found");
+      return {
+        connectionId: row.id,
+        status: row.status,
+        teamId: row.team_id,
+        teamName: row.team_name,
+        enterpriseId: row.enterprise_id,
+        enterpriseName: row.enterprise_name,
+        slackUserId: row.authed_user_id,
+        slackUserDisplayName: row.authed_user_display_name,
+        displayNamesEnrichedAt: row.display_names_enriched_at,
+        lastErrorClass: row.last_error_class
+      };
+    }
+  };
+}
+
+export function toSlackLinkStatus(connection: SlackConnectionDisplayRecord): Exclude<SlackLinkStatus, { kind: "not_linked" }> {
+  return {
+    kind: "linked",
+    status: connection.status,
+    teamId: connection.teamId,
+    teamName: connection.teamName,
+    enterpriseId: connection.enterpriseId,
+    enterpriseName: connection.enterpriseName,
+    slackUserId: connection.slackUserId,
+    slackUserDisplayName: connection.slackUserDisplayName,
+    lastErrorClass: connection.lastErrorClass
+  };
 }
 
 async function saveCredential(

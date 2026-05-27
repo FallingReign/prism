@@ -12,7 +12,8 @@
     "test": "vitest run",
     "db:up": "docker compose --env-file .env.local up -d postgres",
     "db:down": "docker compose --env-file .env.local down",
-    "db:migrate": "node scripts/ensure-local-encryption-key.mjs && node scripts/run-migrations.mjs"
+    "db:migrate": "node scripts/ensure-local-encryption-key.mjs && node scripts/run-migrations.mjs",
+    "slack:display-name-backfill": "node --conditions=react-server --import tsx scripts/backfill-slack-connection-display-names.ts"
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.3.0",
@@ -38,6 +39,7 @@
     "@types/pg": "^8.15.6",
     "@types/react": "^19.2.6",
     "@types/react-dom": "^19.2.3",
+    "tsx": "^4.22.3",
     "typescript": "^5.9.3",
     "vitest": "^4.0.8"
   }

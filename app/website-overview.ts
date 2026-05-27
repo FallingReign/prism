@@ -1,5 +1,5 @@
 import type { ActivityAuditSummary } from "../src/server/audit/presentation";
-import { safeConnectionText, slackScopeDisplay } from "./slack-connection-display";
+import { slackScopeDisplay, slackUserDisplay } from "./slack-connection-display";
 import type { SlackWebsiteStatus } from "./slack-status-panel";
 import type { TokenProfileSummary } from "./token-profile-summary";
 
@@ -77,7 +77,7 @@ function buildSlackOverview(slackStatus: SlackWebsiteStatus): WebsiteOverviewIte
     return {
       label: "Slack reauth required",
       value: "Reconnect needed",
-      detail: `Slack user ${safeConnectionText(slackStatus.slackUserId)} in ${scope.label} ${scope.value} must reconnect before Slack calls resume.`,
+      detail: `Slack user ${slackUserDisplay(slackStatus)} in ${scope.label} ${scope.value} must reconnect before Slack calls resume.`,
       tone: "warning"
     };
   }
@@ -85,7 +85,7 @@ function buildSlackOverview(slackStatus: SlackWebsiteStatus): WebsiteOverviewIte
   return {
     label: "Slack connected",
     value: "Linked",
-    detail: `Slack user ${safeConnectionText(slackStatus.slackUserId)} is connected to ${scope.label} ${scope.value}.`,
+    detail: `Slack user ${slackUserDisplay(slackStatus)} is connected to ${scope.label} ${scope.value}.`,
     tone: "success"
   };
 }

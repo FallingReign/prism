@@ -34,13 +34,23 @@ describe("Prism website Slack status", () => {
     const html = renderToStaticMarkup(
       <SlackStatusPanel
         variant="compact"
-        status={{ kind: "linked", status: "healthy", teamId: "T123", teamName: "Example Workspace", slackUserId: "U123", lastErrorClass: null }}
+        status={{
+          kind: "linked",
+          status: "healthy",
+          teamId: "T123",
+          teamName: "Example Workspace",
+          slackUserId: "U123",
+          slackUserDisplayName: "Ada Lovelace",
+          lastErrorClass: null
+        }}
       />
     );
 
     expect(html).toContain("slack-status-title");
     expect(html).toContain("Slack connected");
     expect(html).toContain("Example Workspace");
+    expect(html).toContain("Ada Lovelace");
+    expect(html).toContain("U123");
     expect(html).not.toContain('data-slot="card"');
     expect(html).not.toContain("Ready for forwarding");
     expect(html).not.toMatch(/xox[bp]-|refresh-secret|client_secret|access_token/i);
