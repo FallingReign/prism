@@ -67,6 +67,7 @@ export async function enrichSlackConnectionDisplayNames({
     });
     if (authTest?.ok) {
       found.teamName ??= connection.teamId && authTest.team_id === connection.teamId ? cleanDisplayName(authTest.team) : null;
+      found.enterpriseName ??= enterpriseDisplayName(authTest, connection);
       fallbackSlackUserDisplayName ??= authTest.user_id === connection.slackUserId ? cleanDisplayName(authTest.user) : null;
     }
 
@@ -84,7 +85,7 @@ export async function enrichSlackConnectionDisplayNames({
       }
     }
 
-    if (found.teamName && profileUserDisplayNameFound) break;
+    if ((found.teamName || found.enterpriseName) && profileUserDisplayNameFound) break;
   }
   found.slackUserDisplayName ??= fallbackSlackUserDisplayName;
 
@@ -100,7 +101,7 @@ export async function enrichSlackConnectionDisplayNames({
 export function needsSlackConnectionDisplayNameEnrichment(connection: SlackConnectionDisplayRecord): boolean {
   if (connection.displayNamesEnrichedAt) return false;
   if (connection.status !== "healthy") return false;
-  return Boolean((connection.teamId && !connection.teamName) || !connection.slackUserDisplayName);
+  return Boolean((connection.teamId && !connection.teamName) || (connection.enterpriseId && !connection.enterpriseName) || !connection.slackUserDisplayName);
 }
 
 const preferredCredentialKinds: SlackLookupKind[] = ["user", "bot"];
@@ -131,6 +132,18 @@ function userDisplayName(body: Record<string, unknown>): string | null {
     cleanDisplayName(body.user.real_name) ??
     cleanDisplayName(body.user.name)
   );
+}
+
+function enterpriseDisplayName(body: Record<string, unknown>, connection: SlackConnectionDisplayRecord): string | null {
+  if (!connection.enterpriseId) return null;
+  const enterprise = isObject(body.enterprise) ? body.enterprise : {};
+  const explicitName = cleanDisplayName(body.enterprise_name) ?? cleanDisplayName(enterprise.name);
+  if (explicitName && (!body.enterprise_id || body.enterprise_id === connection.enterpriseId)) return explicitName;
+
+  if (!connection.teamId && (body.team_id === connection.enterpriseId || body.enterprise_id === connection.enterpriseId)) {
+    return cleanDisplayName(body.team);
+  }
+  return null;
 }
 
 function cleanDisplayName(value: unknown): string | null {

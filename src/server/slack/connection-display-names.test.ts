@@ -119,4 +119,52 @@ describe("Slack connection display-name enrichment", () => {
 
     expect(webApiClient.callMethod).toHaveBeenCalledTimes(4);
   });
+
+  it("stores an org-level auth.test team string as the enterprise display name", async () => {
+    const orgConnection = {
+      ...connection,
+      teamId: null,
+      teamName: null,
+      enterpriseId: "E123",
+      enterpriseName: null,
+      slackUserDisplayName: "Ada Lovelace"
+    };
+    const credentialProvider: SlackForwardingCredentialProvider = {
+      async getAccessToken() {
+        return { kind: "available", accessToken: "xoxp-user-token-canary" };
+      }
+    };
+    const webApiClient: SlackWebApiClient = {
+      callMethod: vi.fn(async ({ method }) => {
+        if (method === "auth.test") {
+          return { status: 200, body: { ok: true, team: "Example Org", team_id: "E123", user: "fallback-user", user_id: "U123", enterprise_id: "E123" } };
+        }
+        return { status: 200, body: { ok: false, error: "missing_scope" } };
+      })
+    };
+
+    await expect(
+      enrichSlackConnectionDisplayNames({
+        connection: orgConnection,
+        store: {
+          async updateConnectionDisplayNames(input) {
+            return {
+              ...orgConnection,
+              teamName: input.teamName,
+              enterpriseName: input.enterpriseName,
+              slackUserDisplayName: input.slackUserDisplayName,
+              displayNamesEnrichedAt: input.enrichedAt
+            };
+          }
+        },
+        credentialProvider,
+        webApiClient
+      })
+    ).resolves.toMatchObject({
+      teamName: null,
+      enterpriseName: "Example Org",
+      slackUserDisplayName: "Ada Lovelace"
+    });
+    expect(webApiClient.callMethod).toHaveBeenCalledTimes(2);
+  });
 });

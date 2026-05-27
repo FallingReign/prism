@@ -66,6 +66,7 @@ async function listConnectionsNeedingDisplayNameEnrichment(limit: number): Promi
      where status = 'healthy'
        and display_names_enriched_at is null
        and ((nullif(team_id, '') is not null and nullif(team_name, '') is null)
+         or (nullif(enterprise_id, '') is not null and nullif(enterprise_name, '') is null)
          or nullif(authed_user_display_name, '') is null)
      order by updated_at desc
      limit $1`,
