@@ -11,4 +11,6 @@ coverage/
 dist/
 test-results/
 
+config/prism-admin-allowlist.local.json
+
 .DS_Store

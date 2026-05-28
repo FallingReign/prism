@@ -1,0 +1,24 @@
+{
+  "admins": [
+    {
+      "slackUserId": "U_FAKE_GLOBAL_ADMIN",
+      "scope": {
+        "kind": "global"
+      }
+    },
+    {
+      "slackUserId": "U_FAKE_ENTERPRISE_ADMIN",
+      "scope": {
+        "kind": "enterprise",
+        "enterpriseId": "E_FAKE_ENTERPRISE"
+      }
+    },
+    {
+      "slackUserId": "U_FAKE_TEAM_ADMIN",
+      "scope": {
+        "kind": "team",
+        "teamId": "T_FAKE_WORKSPACE"
+      }
+    }
+  ]
+}

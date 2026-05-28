@@ -17,6 +17,9 @@ describe("Prism substrate dependencies", () => {
   it("keeps Slack credential custody modules server-only", async () => {
     const { readFile } = await import("node:fs/promises");
     const files = [
+      "src/server/admin/allowlist.ts",
+      "src/server/admin/authorization.ts",
+      "src/server/admin/postgres-store.ts",
       "src/server/credentials/encryption.ts",
       "src/server/credentials/factory.ts",
       "src/server/slack/forwarding.ts",
