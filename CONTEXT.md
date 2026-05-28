@@ -18,7 +18,19 @@ _Avoid_: Local bridge, desktop app
 
 **Prism website**:
 The user-facing web surface for Slack linking, token profile management, audit review, and setup documentation.
-_Avoid_: Admin console
+_Avoid_: Slack administration console, unmanaged proxy dashboard
+
+**Prism admin console**:
+A Prism-only administrative surface where trusted Prism admins can view Prism users, inspect a target Prism user, perform audited local Prism access actions, and set organization-wide Prism defaults and limits. It does not grant Slack scopes, manage Slack workspace membership, or perform Slack administration.
+_Avoid_: Slack admin console, workspace admin panel, app management console
+
+**Prism admin**:
+A trusted Slack-authenticated user allowed to use the Prism admin console by a server-side allowlist keyed by Slack user ID with optional Enterprise Grid or workspace scope. Admin scope is least-privilege: global entries apply to all Prism users, enterprise-scoped entries apply within that Slack organization, and team-scoped entries apply within that workspace.
+_Avoid_: Slack admin, app admin, local tool owner
+
+**Prism user**:
+A local Prism record for a Slack-authenticated person who has connected Slack to Prism. Admin views of Prism users show safe metadata such as Slack identity, workspace or organization, connection status, Token profile counts, and recent activity, not Slack payloads or token secrets.
+_Avoid_: Slack workspace member directory, local tool, developer token
 
 **Slack credentials**:
 Slack app credentials, bot tokens, user tokens, refresh tokens, and app-level tokens held only by the Prism hosted service.
@@ -60,9 +72,21 @@ _Avoid_: Inline homepage form, raw debug form, retrievable token vault
 The allowed Slack method categories, surfaces, workspaces, destructive-action setting, search setting, expiry, and execution identity options for a token profile.
 _Avoid_: Slack scope list
 
+**Policy preset**:
+A named capability template that fills the Token profile capability checkboxes. Selecting a preset applies its checkbox state; manually changing a capability checkbox makes the Token profile policy Custom.
+_Avoid_: Hidden policy mode, ignored checkbox state
+
 **Execution identity**:
 The upstream Slack identity Prism uses for a permitted request: user-backed, bot-backed, or automatic.
 _Avoid_: Caller identity
+
+**Global Token profile policy**:
+The deployment-wide Prism admin-defined defaults and maximums for Token profile creation and updates. Defaults prefill user choices; maximums constrain allowed presets, capabilities, expiry, execution identity options, and broadening/rotation rules. Existing Token profiles that exceed a newer maximum are flagged for review instead of silently revoked. Only globally scoped Prism admins edit this policy.
+_Avoid_: Slack scope approval, rate-limit policy, audit-retention policy, Slack workspace allowlist, hidden token rewrite, silent access removal
+
+**Outside global policy**:
+The state of an existing Token profile whose capabilities, expiry, or execution identity exceed the current Global Token profile policy maximums. Existing tokens continue until normal expiry or revocation, but broadening, rotation, or reissue is blocked until the profile is narrowed.
+_Avoid_: Silent revoke, hidden non-compliance, automatic policy rewrite
 
 **Method registry**:
 The server-owned classification of Slack Web API methods used to decide policy before forwarding a request to Slack.
@@ -75,6 +99,10 @@ _Avoid_: Prism-wrapped Slack endpoint
 **Metadata-only audit**:
 An audit record that stores request metadata such as user, token profile, workspace, method, category, status, error class, and request ID without storing Slack payloads.
 _Avoid_: Payload log, message archive
+
+**Admin action audit**:
+A metadata-only audit record for a Prism admin action against another Prism user or their Prism-owned access. It identifies the admin actor, target Prism user, target object, action, request, and a short required reason without storing Slack payloads, token secrets, or Slack credentials. It is visible to both the target Prism user and Prism admins.
+_Avoid_: Payload log, secret log, unaccountable admin action
 
 **Reauth required**:
 A Slack connection state where Prism keeps token profiles but requires the user to renew Slack authorization before affected calls can succeed.
@@ -96,11 +124,14 @@ _Avoid_: Disconnect, delete connection, change Token profile policy
 - A **Token profile** has one current **Prism developer token** secret, with optional temporary overlap during rotation.
 - **Remove access** revokes a **Token profile**'s current **Prism developer token**; it does not erase historical **Metadata-only audit**.
 - A **Capability map** belongs to exactly one **Token profile**.
+- A **Global Token profile policy** provides defaults and maximums for Token profiles, while each **Token profile** remains the local-tool-specific policy object.
 - The **Prism hosted service** resolves the **Prism developer token**, evaluates the **Capability map**, chooses an **Execution identity**, and calls Slack with server-held **Slack credentials**.
 - The **Method registry** classifies each **Slack-compatible endpoint** before policy enforcement.
 - **Metadata-only audit** records Prism activity without storing Slack message bodies, search results, file contents, Block Kit payloads, canvases, or lists.
 - Slack administration defines the maximum approved app capability; a **Token profile** narrows what one **Local tool** can actually use.
 - **Remove Slack connection** is a destructive local Prism reset and starts the Slack link over; **Expand Slack connection** is a Slack-owned reauthorization path for broader Slack installation scope.
+- A **Prism admin** is identified by Slack identity for Prism authorization purposes; being a **Prism admin** does not imply Slack administration authority.
+- A **Prism admin** may revoke or delete another **Prism user**'s visible retained Token profiles and remove that user's current local Slack connection only through explicit confirmation and **Admin action audit**.
 
 ## Example dialogue
 
