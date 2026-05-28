@@ -19,5 +19,5 @@ export function safeConnectionText(value: string): string {
   return value
     .replace(/prism_dev_[A-Za-z0-9_-]+/g, "[redacted]")
     .replace(/xox[a-z]-[A-Za-z0-9-]+/gi, "[redacted]")
-    .replace(/access[_-]?token|client[_-]?secret|tokenHash|pepper|refresh[_-]?secret|authorization/gi, "[redacted]");
+    .replace(/(?:access|refresh)[_-]?token|client[_-]?secret|token[_-]?hash|pepper|refresh[_-]?secret|authorization/gi, "[redacted]");
 }

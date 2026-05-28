@@ -23,6 +23,9 @@ export function AdminConsoleShell({ decision }: { decision: AuthorizedAdminDecis
           <a className="inline-flex min-h-11 items-center rounded-full px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground" href="#admin-scope-title">
             Active scope
           </a>
+          <a className="inline-flex min-h-11 items-center rounded-full px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground" href="/admin/users">
+            User directory
+          </a>
           <a className="inline-flex min-h-11 items-center rounded-full px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground" href="/">
             User workspace
           </a>
@@ -55,9 +58,12 @@ export function AdminConsoleShell({ decision }: { decision: AuthorizedAdminDecis
 
       <Panel title="Admin surfaces unlock in the next slices" eyebrow="Coming next" accent="info">
         <p>
-          This shell intentionally stops at the reusable admin identity decision. Prism user directory, Global Token profile policy,
-          and destructive admin actions are separate gated slices.
+          The scoped Prism user directory is available now. Global Token profile policy and destructive admin actions remain separate
+          gated slices.
         </p>
+        <LinkButton href="/admin/users" variant="secondary">
+          Open user directory
+        </LinkButton>
       </Panel>
     </main>
   );

@@ -20,6 +20,8 @@ describe("Prism substrate dependencies", () => {
       "src/server/admin/allowlist.ts",
       "src/server/admin/authorization.ts",
       "src/server/admin/postgres-store.ts",
+      "src/server/admin/postgres-user-directory-store.ts",
+      "src/server/admin/user-directory.ts",
       "src/server/credentials/encryption.ts",
       "src/server/credentials/factory.ts",
       "src/server/slack/forwarding.ts",
