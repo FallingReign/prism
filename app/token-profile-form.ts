@@ -35,13 +35,15 @@ export function buildCreateTokenProfileRequestBody(form: FormData): TokenProfile
 }
 
 export function buildCreateTokenProfileModalRequestBody(form: FormData): TokenProfileRequestBody {
-  return {
+  const preset = formString(form, "preset", "read_only");
+  return withOptionalFields({
     name: formString(form, "name"),
     intendedUse: formString(form, "intendedUse"),
-    preset: formString(form, "preset", "read_only"),
+    preset,
     executionIdentity: "automatic",
-    destructive: false
-  };
+    destructive: form.get("destructive") === "on",
+    custom: preset === "custom" ? customCapabilities(form) : undefined
+  });
 }
 
 export function buildPolicyUpdateRequestBody(form: FormData, profile: TokenProfileSummary): TokenProfilePolicyRequestBody {

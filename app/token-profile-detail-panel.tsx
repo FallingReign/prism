@@ -13,6 +13,14 @@ import { ActivityAuditPanel } from "./activity-audit-panel";
 import { copyTextToClipboard } from "./client-clipboard";
 import { formatUtcDate, formatUtcDateTime } from "./date-format";
 import { buildPolicyUpdateRequestBody } from "./token-profile-form";
+import {
+  capabilityTemplateForPreset,
+  defaultTokenProfilePolicyOptions,
+  presetAvailability,
+  type TokenProfileCapabilitySelection,
+  type TokenProfilePolicyOptions,
+  type TokenProfilePolicyPreset
+} from "./token-profile-policy-options";
 import type { TokenProfileSummary } from "./token-profile-summary";
 import { accessStatusForProfile, isInactiveTokenProfile } from "./token-profile-workspace";
 import { Button, Notice, Panel, StatusBadge, cn } from "./ui";
@@ -41,6 +49,14 @@ const presetOptions = [
   { value: "full_slack_bridge", label: "Full Slack bridge" },
   { value: "custom", label: "Custom" }
 ];
+const capabilityOptions: Array<{ key: keyof TokenProfileCapabilitySelection; label: string }> = [
+  { key: "read", label: "Read" },
+  { key: "search", label: "Search" },
+  { key: "writeMessages", label: "Write messages" },
+  { key: "reactions", label: "Reactions" },
+  { key: "filesMetadata", label: "Files metadata" },
+  { key: "destructive", label: "Destructive methods" }
+];
 const overlapOptions = [
   { value: "none", label: "No overlap" },
   { value: "15m", label: "15 minutes" },
@@ -52,15 +68,19 @@ export function TokenProfileDetailWorkspace({
   initialProfile,
   profile: profileProp,
   slackStatus,
-  activity
+  activity,
+  policyOptions = defaultTokenProfilePolicyOptions
 }: {
   initialProfile?: TokenProfileSummary;
   profile?: TokenProfileSummary;
   slackStatus: "healthy" | "reauth_required";
   activity: ActivityAuditSummary[];
+  policyOptions?: TokenProfilePolicyOptions;
 }) {
   const router = useRouter();
   const [profile, setProfile] = useState(initialProfile ?? profileProp!);
+  const [policyPreset, setPolicyPreset] = useState<TokenProfilePolicyPreset>(() => (initialProfile ?? profileProp!).preset);
+  const [policyCapabilities, setPolicyCapabilities] = useState<TokenProfileCapabilitySelection>(() => capabilitiesForProfile(initialProfile ?? profileProp!));
   const [developerToken, setDeveloperToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [removeOpen, setRemoveOpen] = useState(false);
@@ -92,7 +112,10 @@ export function TokenProfileDetailWorkspace({
     }
     setDeveloperToken(body.developerToken);
     setTokenCopied(false);
-    setProfile(toSummary(body.profile));
+    const nextProfile = toSummary(body.profile);
+    setProfile(nextProfile);
+    setPolicyPreset(nextProfile.preset);
+    setPolicyCapabilities(capabilitiesForProfile(nextProfile));
     router.refresh();
   }
 
@@ -118,7 +141,10 @@ export function TokenProfileDetailWorkspace({
       setDeveloperToken(body.developerToken);
       setTokenCopied(false);
     }
-    setProfile(toSummary(body.profile));
+    const nextProfile = toSummary(body.profile);
+    setProfile(nextProfile);
+    setPolicyPreset(nextProfile.preset);
+    setPolicyCapabilities(capabilitiesForProfile(nextProfile));
     router.refresh();
   }
 
@@ -164,6 +190,21 @@ export function TokenProfileDetailWorkspace({
       setError(null);
     } catch {
       setError("Could not copy automatically. Select the token and copy it before continuing.");
+    }
+  }
+
+  function onPolicyPresetChange(value: string) {
+    const nextPreset = value as TokenProfilePolicyPreset;
+    setPolicyPreset(nextPreset);
+    if (nextPreset !== "custom") {
+      setPolicyCapabilities(capabilityTemplateForPreset(nextPreset));
+    }
+  }
+
+  function onPolicyCapabilityChange(key: keyof TokenProfileCapabilitySelection, checked: boolean) {
+    setPolicyCapabilities((current) => ({ ...current, [key]: checked }));
+    if (!(key === "destructive" && policyPreset === "full_slack_bridge")) {
+      setPolicyPreset("custom");
     }
   }
 
@@ -346,24 +387,41 @@ export function TokenProfileDetailWorkspace({
         ) : (
           <form className="grid gap-4" onSubmit={onPolicyUpdate}>
             <div className="grid gap-4 lg:grid-cols-2">
-              <SelectField name="policyPreset" label="Policy preset" defaultValue={profile.preset} options={presetOptions} />
+              <SelectField
+                name="policyPreset"
+                label="Policy preset"
+                value={policyPreset}
+                onValueChange={onPolicyPresetChange}
+                options={presetOptions.map((option) => ({ ...option, disabled: !presetAvailability(option.value as TokenProfilePolicyPreset, policyOptions).allowed }))}
+              />
               <SelectField name="policyExecutionIdentity" label="Execution identity" defaultValue={profile.executionIdentity} options={executionIdentityOptions} />
               <SelectField name="policyExperiment" label="Expiry" defaultValue="none" options={policyExperimentOptions} help="Use only for short-lived experiment profiles." />
             </div>
             <fieldset className="grid gap-3 rounded-xl bg-muted/30 p-4">
-              <legend className="px-1 text-sm font-semibold text-foreground">Custom capabilities</legend>
-              <p className={helperClass}>Used only when the Policy preset is Custom.</p>
+              <legend className="px-1 text-sm font-semibold text-foreground">Capability template</legend>
+              <p className={helperClass}>
+                Current capabilities: {capabilitySummary(policyCapabilities)}. Selecting a named preset applies its template; manual capability changes switch this policy to Custom.
+              </p>
               <div className="grid gap-2 sm:grid-cols-2" aria-label="Policy custom capability options">
-                <CheckboxField name="policyRead" label="Read" defaultChecked />
-                <CheckboxField name="policySearch" label="Search" defaultChecked />
-                <CheckboxField name="policyWriteMessages" label="Write messages" />
-                <CheckboxField name="policyReactions" label="Reactions" />
-                <CheckboxField name="policyFilesMetadata" label="Files metadata" />
+                {capabilityOptions.map((option) => {
+                  const allowed = policyOptions.capabilities.maximum[option.key];
+                  const checked = policyCapabilities[option.key];
+                  return (
+                    <CheckboxField
+                      key={option.key}
+                      name={option.key === "destructive" ? "policyDestructive" : `policy${capabilityFieldSuffix(option.key)}`}
+                      label={option.label}
+                      checked={checked}
+                      disabled={!allowed && !checked}
+                      help={!allowed ? `Global policy blocks adding ${option.label}.` : undefined}
+                      onCheckedChange={(nextChecked) => onPolicyCapabilityChange(option.key, nextChecked)}
+                    />
+                  );
+                })}
               </div>
             </fieldset>
-            <div className="grid gap-2 sm:grid-cols-2">
+            <div className="grid gap-2">
               <CheckboxField name="confirmBroadening" label="Confirm broadening and rotate token" />
-              <CheckboxField name="policyDestructive" label="Allow destructive methods for Full Slack bridge or Custom policy" />
             </div>
             <div className="flex flex-wrap justify-end gap-2">
               <Button type="submit" disabled={Boolean(profileAction)}>
@@ -394,15 +452,41 @@ function Metadata({ label, value }: { label: string; value: string | null }) {
   );
 }
 
-function CheckboxField({ name, label, defaultChecked = false }: { name: string; label: string; defaultChecked?: boolean }) {
+function CheckboxField({
+  name,
+  label,
+  defaultChecked = false,
+  checked,
+  disabled = false,
+  help,
+  onCheckedChange
+}: {
+  name: string;
+  label: string;
+  defaultChecked?: boolean;
+  checked?: boolean;
+  disabled?: boolean;
+  help?: string;
+  onCheckedChange?: (checked: boolean) => void;
+}) {
   const id = `${name}-${useId()}`;
 
   return (
-    <div className={checkboxLabelClass}>
-      <Checkbox id={id} name={name} defaultChecked={defaultChecked} />
-      <Label htmlFor={id} className="cursor-pointer leading-5">
-        {label}
-      </Label>
+    <div className={cn(checkboxLabelClass, disabled && "opacity-70")}>
+      <Checkbox
+        id={id}
+        name={name}
+        defaultChecked={checked === undefined ? defaultChecked : undefined}
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={(value) => onCheckedChange?.(value === true)}
+      />
+      <div className="grid gap-1">
+        <Label htmlFor={id} className={cn("leading-5", disabled ? "cursor-not-allowed" : "cursor-pointer")}>
+          {label}
+        </Label>
+        {help ? <span className={helperClass}>{help}</span> : null}
+      </div>
     </div>
   );
 }
@@ -411,13 +495,17 @@ function SelectField({
   name,
   label,
   defaultValue,
+  value,
+  onValueChange,
   options,
   help
 }: {
   name: string;
   label: string;
-  defaultValue: string;
-  options: Array<{ value: string; label: string }>;
+  defaultValue?: string;
+  value?: string;
+  onValueChange?: (value: string) => void;
+  options: Array<{ value: string; label: string; disabled?: boolean }>;
   help?: string;
 }) {
   const id = `${name}-${useId()}`;
@@ -425,13 +513,13 @@ function SelectField({
   return (
     <div className={fieldClass}>
       <Label htmlFor={id}>{label}</Label>
-      <Select name={name} defaultValue={defaultValue}>
+      <Select name={name} defaultValue={value === undefined ? (defaultValue ?? "") : undefined} value={value} onValueChange={onValueChange}>
         <SelectTrigger id={id} className="w-full">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
           {options.map((option) => (
-            <SelectItem key={option.value} value={option.value}>
+            <SelectItem key={option.value} value={option.value} disabled={option.disabled}>
               {option.label}
             </SelectItem>
           ))}
@@ -442,7 +530,11 @@ function SelectField({
   );
 }
 
-function toSummary(profile: TokenProfileSummary & { capabilityMap?: { executionIdentity?: TokenProfileSummary["executionIdentity"] } }): TokenProfileSummary {
+function toSummary(
+  profile: TokenProfileSummary & {
+    capabilityMap?: { executionIdentity?: TokenProfileSummary["executionIdentity"]; actions?: TokenProfileCapabilitySelection };
+  }
+): TokenProfileSummary {
   return {
     id: profile.id,
     name: profile.name,
@@ -453,8 +545,33 @@ function toSummary(profile: TokenProfileSummary & { capabilityMap?: { executionI
     status: profile.status,
     createdAt: profile.createdAt,
     developerToken: profile.developerToken,
-    globalPolicyStatus: profile.globalPolicyStatus
+    globalPolicyStatus: profile.globalPolicyStatus,
+    capabilities: profile.capabilities ?? capabilitySelectionFromPresetOrActions(profile.preset, profile.capabilityMap?.actions)
   };
+}
+
+function capabilitiesForProfile(profile: TokenProfileSummary): TokenProfileCapabilitySelection {
+  return profile.capabilities ?? capabilitySelectionFromPresetOrActions(profile.preset);
+}
+
+function capabilitySelectionFromPresetOrActions(
+  preset: TokenProfileSummary["preset"],
+  actions?: TokenProfileCapabilitySelection
+): TokenProfileCapabilitySelection {
+  if (actions) return { ...actions };
+  if (preset === "custom") return { ...defaultTokenProfilePolicyOptions.capabilities.defaults };
+  return capabilityTemplateForPreset(preset);
+}
+
+function capabilitySummary(capabilities: TokenProfileCapabilitySelection): string {
+  const labels = capabilityOptions.filter((option) => capabilities[option.key]).map((option) => option.label);
+  return labels.length > 0 ? labels.join(", ") : "No Slack capabilities";
+}
+
+function capabilityFieldSuffix(key: keyof TokenProfileCapabilitySelection): string {
+  if (key === "writeMessages") return "WriteMessages";
+  if (key === "filesMetadata") return "FilesMetadata";
+  return key.charAt(0).toUpperCase() + key.slice(1);
 }
 
 function profileActionStatus(action: ProfileAction | null): string | null {

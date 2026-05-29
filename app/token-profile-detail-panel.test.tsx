@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
+import { defaultTokenProfilePolicyOptions } from "./token-profile-policy-options";
 import { TokenProfileDetailWorkspace } from "./token-profile-detail-panel";
 
 vi.mock("next/navigation", () => ({
@@ -18,6 +19,7 @@ describe("Token profile detail workspace", () => {
           intendedUse: "Read Slack context locally",
           preset: "read_only",
           executionIdentity: "automatic",
+          capabilities: { read: true, search: true, writeMessages: false, reactions: false, filesMetadata: false, destructive: false },
           expiresAt: null,
           createdAt: "2026-01-01T00:00:00.000Z",
           developerToken: {
@@ -73,6 +75,7 @@ describe("Token profile detail workspace", () => {
           intendedUse: "Post release notes",
           preset: "messages_only",
           executionIdentity: "user",
+          capabilities: { read: true, search: false, writeMessages: true, reactions: true, filesMetadata: false, destructive: false },
           expiresAt: null,
           status: "revoked",
           createdAt: "2026-01-01T00:00:00.000Z",
@@ -97,5 +100,79 @@ describe("Token profile detail workspace", () => {
     expect(html).not.toContain("Update policy");
     expect(html).not.toContain("Remove access");
     expect(html).not.toMatch(/prism_dev_|tokenHash|xox[bp]-|refresh-secret|client_secret|access_token/i);
+  });
+
+  it("renders policy checkboxes from the persisted capability projection instead of preset defaults", () => {
+    const html = renderToStaticMarkup(
+      <TokenProfileDetailWorkspace
+        slackStatus="healthy"
+        profile={{
+          id: "profile_1",
+          name: "Custom release agent",
+          intendedUse: "Read context and post release notes",
+          preset: "custom",
+          executionIdentity: "automatic",
+          capabilities: {
+            read: true,
+            search: false,
+            writeMessages: true,
+            reactions: false,
+            filesMetadata: false,
+            destructive: false
+          },
+          expiresAt: null,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          developerToken: { status: "active", lastUsedAt: null }
+        }}
+        activity={[]}
+      />
+    );
+
+    expect(html).toContain("Capability template");
+    expect(html).toContain("Current capabilities: Read, Write messages");
+    expect(html).not.toContain("Current capabilities: Read, Search");
+    expect(html).not.toContain("Used only when the Policy preset is Custom.");
+  });
+
+  it("explains global-policy-disabled capabilities without hiding the current state", () => {
+    const html = renderToStaticMarkup(
+      <TokenProfileDetailWorkspace
+        slackStatus="healthy"
+        policyOptions={{
+          ...defaultTokenProfilePolicyOptions,
+          capabilities: {
+            ...defaultTokenProfilePolicyOptions.capabilities,
+            maximum: {
+              ...defaultTokenProfilePolicyOptions.capabilities.maximum,
+              writeMessages: false,
+              reactions: false
+            }
+          }
+        }}
+        profile={{
+          id: "profile_1",
+          name: "Messages agent",
+          intendedUse: "Post release notes",
+          preset: "messages_only",
+          executionIdentity: "automatic",
+          capabilities: {
+            read: true,
+            search: false,
+            writeMessages: true,
+            reactions: true,
+            filesMetadata: false,
+            destructive: false
+          },
+          expiresAt: null,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          developerToken: { status: "active", lastUsedAt: null }
+        }}
+        activity={[]}
+      />
+    );
+
+    expect(html).toContain("Current capabilities: Read, Write messages, Reactions");
+    expect(html).toContain("Global policy blocks adding Write messages.");
+    expect(html).toContain("Global policy blocks adding Reactions.");
   });
 });

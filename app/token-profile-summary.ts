@@ -1,4 +1,5 @@
 import type { TokenProfileMetadata } from "../src/server/token-profiles/service";
+import type { TokenProfileCapabilitySelection } from "./token-profile-policy-options";
 
 export type TokenProfileSummary = {
   id: string;
@@ -12,6 +13,7 @@ export type TokenProfileSummary = {
     kind: "inside" | "outside";
     reasons: Array<{ code: string; message: string }>;
   };
+  capabilities: TokenProfileCapabilitySelection;
   createdAt: string;
   developerToken?: {
     status: "active" | "expired" | "revoked" | "missing";
@@ -33,6 +35,7 @@ export function toTokenProfileSummary(profile: TokenProfileMetadata): TokenProfi
     expiresAt: profile.expiresAt?.toISOString() ?? null,
     status: profile.status,
     globalPolicyStatus: profile.globalPolicyStatus,
+    capabilities: { ...profile.capabilityMap.actions },
     createdAt: profile.createdAt.toISOString(),
     developerToken: profile.developerToken
       ? {

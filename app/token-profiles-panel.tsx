@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react";
 import Link from "next/link";
 
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,6 +11,14 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
 
 import { buildCreateTokenProfileModalRequestBody } from "./token-profile-form";
+import {
+  capabilityTemplateForPreset,
+  defaultTokenProfilePolicyOptions,
+  presetAvailability,
+  type TokenProfileCapabilitySelection,
+  type TokenProfilePolicyOptions,
+  type TokenProfilePolicyPreset
+} from "./token-profile-policy-options";
 import type { TokenProfileSummary } from "./token-profile-summary";
 import { accessStatusForProfile, hasUsableDeveloperToken, isInactiveTokenProfile, managerTokenProfiles } from "./token-profile-workspace";
 import { copyTextToClipboard } from "./client-clipboard";
@@ -21,15 +30,30 @@ const fieldClass = "grid gap-2 text-sm font-medium text-foreground";
 const helperClass = "text-xs leading-5 text-muted-foreground";
 const choiceClass =
   "flex min-h-20 gap-3 rounded-xl bg-muted/35 p-4 text-sm transition-colors hover:bg-muted/55";
+const checkboxLabelClass =
+  "flex min-h-11 items-start gap-3 rounded-lg bg-muted/35 px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted/55";
+const capabilityOptions: Array<{ key: keyof TokenProfileCapabilitySelection; label: string }> = [
+  { key: "read", label: "Read" },
+  { key: "search", label: "Search" },
+  { key: "writeMessages", label: "Write messages" },
+  { key: "reactions", label: "Reactions" },
+  { key: "filesMetadata", label: "Files metadata" },
+  { key: "destructive", label: "Destructive methods" }
+];
 
 export function TokenProfilesPanel({
   initialProfiles,
-  slackStatus
+  slackStatus,
+  policyOptions = defaultTokenProfilePolicyOptions
 }: {
   initialProfiles: TokenProfileSummary[];
   slackStatus: "healthy" | "reauth_required";
+  policyOptions?: TokenProfilePolicyOptions;
 }) {
   const [profiles, setProfiles] = useState(initialProfiles);
+  const initialCreatePreset = policyOptions.presets.default;
+  const [createPreset, setCreatePreset] = useState<TokenProfilePolicyPreset>(initialCreatePreset);
+  const [createCapabilities, setCreateCapabilities] = useState<TokenProfileCapabilitySelection>(() => initialCapabilitiesForPreset(initialCreatePreset, policyOptions));
   const [developerToken, setDeveloperToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -64,6 +88,27 @@ export function TokenProfilesPanel({
     setDeveloperToken(body.developerToken);
     setTokenCopied(false);
     setProfiles((current) => [toSummary(body.profile), ...current]);
+  }
+
+  function resetCreatePolicy() {
+    const nextPreset = policyOptions.presets.default;
+    setCreatePreset(nextPreset);
+    setCreateCapabilities(initialCapabilitiesForPreset(nextPreset, policyOptions));
+  }
+
+  function onCreatePresetChange(value: string) {
+    const nextPreset = value as TokenProfilePolicyPreset;
+    setCreatePreset(nextPreset);
+    setCreateCapabilities(initialCapabilitiesForPreset(nextPreset, policyOptions));
+  }
+
+  function onCreateCapabilityChange(key: keyof TokenProfileCapabilitySelection, checked: boolean) {
+    const customAllowed = policyOptions.presets.allowed.includes("custom");
+    if (!(key === "destructive" && createPreset === "full_slack_bridge") && !customAllowed) return;
+    setCreateCapabilities((current) => ({ ...current, [key]: checked }));
+    if (!(key === "destructive" && createPreset === "full_slack_bridge")) {
+      setCreatePreset("custom");
+    }
   }
 
   async function onRevoke(profile: TokenProfileSummary) {
@@ -143,6 +188,7 @@ export function TokenProfilesPanel({
                 setError(null);
                 setDeveloperToken(null);
                 setTokenCopied(false);
+                resetCreatePolicy();
               }
             }}
           >
@@ -198,11 +244,63 @@ export function TokenProfilesPanel({
                   </label>
                   <fieldset className="grid gap-3">
                     <legend className="text-sm font-semibold text-foreground">Access preset</legend>
-                    <RadioGroup name="preset" defaultValue="read_only" className="grid gap-3">
-                      <PresetChoice id="create-preset-read-only" value="read_only" label="Read-only" description="Recommended for MCP readers and context tools." />
-                      <PresetChoice id="create-preset-messages-only" value="messages_only" label="Messages only" description="Read context, post messages, and manage reactions." />
-                      <PresetChoice id="create-preset-full-bridge" value="full_slack_bridge" label="Full Slack bridge" description="Representative bridge surface, destructive methods still off." />
+                    <RadioGroup name="preset" value={createPreset} onValueChange={onCreatePresetChange} className="grid gap-3">
+                      <PresetChoice
+                        id="create-preset-read-only"
+                        value="read_only"
+                        label="Read-only"
+                        description="Recommended for MCP readers and context tools."
+                        availability={presetAvailability("read_only", policyOptions)}
+                      />
+                      <PresetChoice
+                        id="create-preset-messages-only"
+                        value="messages_only"
+                        label="Messages only"
+                        description="Read context, post messages, and manage reactions."
+                        availability={presetAvailability("messages_only", policyOptions)}
+                      />
+                      <PresetChoice
+                        id="create-preset-full-bridge"
+                        value="full_slack_bridge"
+                        label="Full Slack bridge"
+                        description="Representative bridge surface, destructive methods still off."
+                        availability={presetAvailability("full_slack_bridge", policyOptions)}
+                      />
+                      <PresetChoice
+                        id="create-preset-custom"
+                        value="custom"
+                        label="Custom"
+                        description="Start from the default template and tune individual capabilities."
+                        availability={presetAvailability("custom", policyOptions)}
+                      />
                     </RadioGroup>
+                  </fieldset>
+                  <fieldset className="grid gap-3 rounded-xl bg-muted/30 p-4">
+                    <legend className="px-1 text-sm font-semibold text-foreground">Capability template</legend>
+                    <p className={helperClass}>
+                      Current capabilities: {capabilitySummary(createCapabilities)}. Selecting a preset applies its template; manual capability changes switch this profile to Custom.
+                    </p>
+                    {!policyOptions.presets.allowed.includes("custom") ? (
+                      <p className={helperClass}>Global policy requires named presets, so manual capability edits are disabled.</p>
+                    ) : null}
+                    <div className="grid gap-2 sm:grid-cols-2" aria-label="Create Token profile capability options">
+                      {capabilityOptions.map((option) => {
+                        const allowed = policyOptions.capabilities.maximum[option.key];
+                        const checked = createCapabilities[option.key];
+                        const canToggle = allowed && (policyOptions.presets.allowed.includes("custom") || (option.key === "destructive" && createPreset === "full_slack_bridge"));
+                        return (
+                          <CapabilityCheckboxField
+                            key={option.key}
+                            name={option.key === "destructive" ? "destructive" : `custom${capabilityFieldSuffix(option.key)}`}
+                            label={option.label}
+                            checked={checked}
+                            disabled={!canToggle}
+                            help={!allowed ? `Global policy blocks adding ${option.label}.` : undefined}
+                            onCheckedChange={(nextChecked) => onCreateCapabilityChange(option.key, nextChecked)}
+                          />
+                        );
+                      })}
+                    </div>
                   </fieldset>
                   <Notice title="Safe defaults" tone="info">
                     Prism uses automatic execution identity and no experiment expiry. Configure advanced policy after creation.
@@ -342,25 +440,60 @@ function PresetChoice({
   id,
   value,
   label,
-  description
+  description,
+  availability
 }: {
   id: string;
   value: string;
   label: string;
   description: string;
+  availability: { allowed: true; reason: null } | { allowed: false; reason: string };
 }) {
   return (
-    <div className={choiceClass}>
-      <RadioGroupItem id={id} value={value} className="mt-1" />
-      <Label htmlFor={id} className="grid cursor-pointer gap-1 leading-6">
+    <div className={cn(choiceClass, !availability.allowed && "opacity-70")}>
+      <RadioGroupItem id={id} value={value} className="mt-1" disabled={!availability.allowed} />
+      <Label htmlFor={id} className={cn("grid gap-1 leading-6", availability.allowed ? "cursor-pointer" : "cursor-not-allowed")}>
         <span className="font-semibold text-foreground">{label}</span>
         <span className="font-normal text-muted-foreground">{description}</span>
+        {!availability.allowed ? <span className={helperClass}>{availability.reason}</span> : null}
       </Label>
     </div>
   );
 }
 
-function toSummary(profile: TokenProfileSummary & { capabilityMap?: { executionIdentity?: TokenProfileSummary["executionIdentity"] } }): TokenProfileSummary {
+function CapabilityCheckboxField({
+  name,
+  label,
+  checked,
+  disabled,
+  help,
+  onCheckedChange
+}: {
+  name: string;
+  label: string;
+  checked: boolean;
+  disabled: boolean;
+  help?: string;
+  onCheckedChange: (checked: boolean) => void;
+}) {
+  return (
+    <div className={cn(checkboxLabelClass, disabled && "opacity-70")}>
+      <Checkbox id={`create-${name}`} name={name} checked={checked} disabled={disabled} onCheckedChange={(value) => onCheckedChange(value === true)} />
+      <div className="grid gap-1">
+        <Label htmlFor={`create-${name}`} className={cn("leading-5", disabled ? "cursor-not-allowed" : "cursor-pointer")}>
+          {label}
+        </Label>
+        {help ? <span className={helperClass}>{help}</span> : null}
+      </div>
+    </div>
+  );
+}
+
+function toSummary(
+  profile: TokenProfileSummary & {
+    capabilityMap?: { executionIdentity?: TokenProfileSummary["executionIdentity"]; actions?: TokenProfileCapabilitySelection };
+  }
+): TokenProfileSummary {
   return {
     id: profile.id,
     name: profile.name,
@@ -371,8 +504,34 @@ function toSummary(profile: TokenProfileSummary & { capabilityMap?: { executionI
     status: profile.status,
     createdAt: profile.createdAt,
     developerToken: profile.developerToken,
-    globalPolicyStatus: profile.globalPolicyStatus
+    globalPolicyStatus: profile.globalPolicyStatus,
+    capabilities: profile.capabilities ?? capabilitySelectionFromPresetOrActions(profile.preset, profile.capabilityMap?.actions)
   };
+}
+
+function initialCapabilitiesForPreset(preset: TokenProfilePolicyPreset, policyOptions: TokenProfilePolicyOptions): TokenProfileCapabilitySelection {
+  if (preset === "custom") return { ...policyOptions.capabilities.defaults };
+  return capabilityTemplateForPreset(preset);
+}
+
+function capabilitySelectionFromPresetOrActions(
+  preset: TokenProfileSummary["preset"],
+  actions?: TokenProfileCapabilitySelection
+): TokenProfileCapabilitySelection {
+  if (actions) return { ...actions };
+  if (preset === "custom") return { ...defaultTokenProfilePolicyOptions.capabilities.defaults };
+  return capabilityTemplateForPreset(preset);
+}
+
+function capabilitySummary(capabilities: TokenProfileCapabilitySelection): string {
+  const labels = capabilityOptions.filter((option) => capabilities[option.key]).map((option) => option.label);
+  return labels.length > 0 ? labels.join(", ") : "No Slack capabilities";
+}
+
+function capabilityFieldSuffix(key: keyof TokenProfileCapabilitySelection): string {
+  if (key === "writeMessages") return "WriteMessages";
+  if (key === "filesMetadata") return "FilesMetadata";
+  return key.charAt(0).toUpperCase() + key.slice(1);
 }
 
 function isProfileAction(action: ProfileAction | null, profileId: string, kind: ProfileAction["kind"]): boolean {

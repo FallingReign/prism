@@ -9,6 +9,7 @@ const profile = (status: NonNullable<TokenProfileSummary["developerToken"]>["sta
   intendedUse: "Local tool access",
   preset: "read_only",
   executionIdentity: "user",
+  capabilities: { read: true, search: true, writeMessages: false, reactions: false, filesMetadata: false, destructive: false },
   expiresAt: null,
   createdAt: "2026-01-01T00:00:00.000Z",
   developerToken: { status }

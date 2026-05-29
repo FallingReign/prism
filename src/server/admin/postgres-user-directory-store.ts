@@ -177,6 +177,7 @@ function toTokenProfileSummary(row: TokenProfileAdminRow): TokenProfileSummary {
     intendedUse: row.intended_use,
     preset: row.preset,
     executionIdentity: row.capability_map.executionIdentity,
+    capabilities: { ...row.capability_map.actions },
     expiresAt: row.expires_at ? toIso(row.expires_at) : null,
     status: row.status === "revoked" ? "revoked" : "active",
     createdAt: toIso(row.created_at),

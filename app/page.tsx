@@ -10,6 +10,7 @@ import { listTokenProfiles } from "../src/server/token-profiles/service";
 import { createPostgresTokenProfileStore } from "../src/server/token-profiles/store";
 import { ActivityAuditPanel } from "./activity-audit-panel";
 import { SlackStatusPanel, type SlackWebsiteStatus } from "./slack-status-panel";
+import { tokenProfilePolicyOptionsFromGlobalPolicy, type TokenProfilePolicyOptions } from "./token-profile-policy-options";
 import { toTokenProfileSummary, type TokenProfileSummary } from "./token-profile-summary";
 import { TokenProfilesPanel } from "./token-profiles-panel";
 import { LinkButton, Panel, StatusBadge } from "./ui";
@@ -25,7 +26,9 @@ async function HomeContent() {
   const cookieStore = await cookies();
   const sessionToken = cookieStore.get(prismSessionCookieName)?.value;
   const status = await readSlackWebsiteStatus(sessionToken);
-  const tokenProfiles = status.kind === "linked" ? await readTokenProfileSummaries(sessionToken) : [];
+  const globalPolicyStore = createPostgresGlobalTokenProfilePolicyStore(database);
+  const tokenProfiles = status.kind === "linked" ? await readTokenProfileSummaries(sessionToken, globalPolicyStore) : [];
+  const tokenProfilePolicyOptions = status.kind === "linked" ? await readTokenProfilePolicyOptions(globalPolicyStore) : undefined;
   const activity = status.kind === "linked" ? await readActivityAudit(sessionToken) : [];
   const overview = buildWebsiteOverview(status, tokenProfiles, activity);
   const slackActionLabel = status.kind === "linked" && status.status === "reauth_required" ? "Reconnect Slack" : "Connect Slack";
@@ -81,7 +84,7 @@ async function HomeContent() {
 
       <section className="grid gap-5" aria-label="Primary setup workspace">
         {status.kind === "linked" ? (
-          <TokenProfilesPanel slackStatus={status.status} initialProfiles={tokenProfiles} />
+          <TokenProfilesPanel slackStatus={status.status} initialProfiles={tokenProfiles} policyOptions={tokenProfilePolicyOptions} />
         ) : (
           <Panel
             title="Token profiles unlock after Slack is connected"
@@ -119,14 +122,21 @@ async function readSlackWebsiteStatus(sessionToken: string | undefined): Promise
   }
 }
 
-async function readTokenProfileSummaries(sessionToken: string | undefined): Promise<TokenProfileSummary[]> {
+async function readTokenProfileSummaries(
+  sessionToken: string | undefined,
+  globalPolicyStore: ReturnType<typeof createPostgresGlobalTokenProfilePolicyStore>
+): Promise<TokenProfileSummary[]> {
   const result = await listTokenProfiles({
     store: createPostgresTokenProfileStore(database),
-    globalPolicyStore: createPostgresGlobalTokenProfilePolicyStore(database),
+    globalPolicyStore,
     sessionToken
   });
   if (result.kind !== "profiles") return [];
   return result.profiles.map(toTokenProfileSummary);
+}
+
+async function readTokenProfilePolicyOptions(globalPolicyStore: ReturnType<typeof createPostgresGlobalTokenProfilePolicyStore>): Promise<TokenProfilePolicyOptions> {
+  return tokenProfilePolicyOptionsFromGlobalPolicy((await globalPolicyStore.readGlobalTokenProfilePolicy()).policy);
 }
 
 async function readActivityAudit(sessionToken: string | undefined): Promise<ActivityAuditSummary[]> {

@@ -9,6 +9,7 @@ const baseProfile: TokenProfileSummary = {
   intendedUse: "Read Slack context locally",
   preset: "read_only",
   executionIdentity: "automatic",
+  capabilities: { read: true, search: true, writeMessages: false, reactions: false, filesMetadata: false, destructive: false },
   expiresAt: null,
   createdAt: "2026-01-01T00:00:00.000Z",
   developerToken: { status: "active" }

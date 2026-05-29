@@ -28,6 +28,7 @@ describe("Prism website Token profiles", () => {
             intendedUse: "Read Slack context locally",
             preset: "read_only",
             executionIdentity: "automatic",
+            capabilities: { read: true, search: true, writeMessages: false, reactions: false, filesMetadata: false, destructive: false },
             expiresAt: null,
             createdAt: "2026-01-01T00:00:00.000Z",
             developerToken: {
@@ -64,6 +65,7 @@ describe("Prism website Token profiles", () => {
             intendedUse: "Post release notes",
             preset: "messages_only",
             executionIdentity: "user",
+            capabilities: { read: true, search: false, writeMessages: true, reactions: true, filesMetadata: false, destructive: false },
             expiresAt: "2026-04-01T00:00:00.000Z",
             status: "revoked",
             createdAt: "2026-01-01T00:00:00.000Z",
@@ -92,6 +94,7 @@ describe("Prism website Token profiles", () => {
             intendedUse: "Post release notes",
             preset: "messages_only",
             executionIdentity: "user",
+            capabilities: { read: true, search: false, writeMessages: true, reactions: true, filesMetadata: false, destructive: false },
             expiresAt: "2026-04-01T00:00:00.000Z",
             createdAt: "2026-01-01T00:00:00.000Z",
             developerToken: { status: "active", lastUsedAt: null }

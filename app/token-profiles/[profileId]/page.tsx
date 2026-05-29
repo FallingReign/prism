@@ -9,6 +9,7 @@ import { createPostgresGlobalTokenProfilePolicyStore } from "../../../src/server
 import { listTokenProfiles } from "../../../src/server/token-profiles/service";
 import { createPostgresTokenProfileStore } from "../../../src/server/token-profiles/store";
 import { TokenProfileDetailWorkspace } from "../../token-profile-detail-panel";
+import { tokenProfilePolicyOptionsFromGlobalPolicy } from "../../token-profile-policy-options";
 import { toTokenProfileSummary } from "../../token-profile-summary";
 import { LinkButton, Panel, StatusBadge } from "../../ui";
 
@@ -22,9 +23,10 @@ export default async function TokenProfileDetailPage({ params }: TokenProfileDet
   const { profileId } = await params;
   const cookieStore = await cookies();
   const sessionToken = cookieStore.get(prismSessionCookieName)?.value;
+  const globalPolicyStore = createPostgresGlobalTokenProfilePolicyStore(database);
   const profilesResult = await listTokenProfiles({
     store: createPostgresTokenProfileStore(database),
-    globalPolicyStore: createPostgresGlobalTokenProfilePolicyStore(database),
+    globalPolicyStore,
     sessionToken
   });
 
@@ -52,6 +54,7 @@ export default async function TokenProfileDetailPage({ params }: TokenProfileDet
     profileId: profile.id,
     limit: 20
   });
+  const policyOptions = tokenProfilePolicyOptionsFromGlobalPolicy((await globalPolicyStore.readGlobalTokenProfilePolicy()).policy);
 
   return (
     <main className="mx-auto grid w-full max-w-7xl gap-5 px-4 py-4 sm:px-6 lg:px-8 lg:py-6">
@@ -79,6 +82,7 @@ export default async function TokenProfileDetailPage({ params }: TokenProfileDet
       <TokenProfileDetailWorkspace
         initialProfile={toTokenProfileSummary(profile)}
         slackStatus={profilesResult.slackStatus}
+        policyOptions={policyOptions}
         activity={activity.map(toActivityAuditSummary)}
       />
     </main>
