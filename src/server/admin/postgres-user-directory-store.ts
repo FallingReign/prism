@@ -141,7 +141,8 @@ function activitySummarySelect(): string {
                  slack_user_id, slack_team_id, slack_enterprise_id, activity_type, endpoint,
                  slack_method, action_category, surface, object_type, object_id, execution_mode,
                  status, error_class, http_status, request_id, upstream_called, occurred_at,
-                 retention_expires_at
+                 retention_expires_at, admin_actor_prism_user_id, admin_actor_slack_user_id,
+                 admin_actor_slack_display_name, admin_reason
           from prism_activity_audit
           where prism_user_id = $1 and slack_connection_id = $2 and retention_expires_at > now()
           order by occurred_at desc`;
@@ -209,7 +210,11 @@ function toActivitySummary(row: ActivityAdminRow): ActivityAuditSummary {
     errorClass: row.error_class,
     httpStatus: row.http_status,
     upstreamCalled: row.upstream_called,
-    requestId: row.request_id
+    requestId: row.request_id,
+    adminActorPrismUserId: row.admin_actor_prism_user_id ?? null,
+    adminActorSlackUserId: row.admin_actor_slack_user_id ?? null,
+    adminActorSlackDisplayName: row.admin_actor_slack_display_name ?? null,
+    adminReason: row.admin_reason ?? null
   };
 }
 
@@ -295,4 +300,8 @@ type ActivityAdminRow = {
   upstream_called: boolean;
   occurred_at: Date | string;
   retention_expires_at: Date | string;
+  admin_actor_prism_user_id?: string | null;
+  admin_actor_slack_user_id?: string | null;
+  admin_actor_slack_display_name?: string | null;
+  admin_reason?: string | null;
 };

@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
+import { AdminTokenProfileActionForm } from "./admin-token-profile-actions";
 import { AdminUserDetailView, AdminUserDirectoryView } from "./admin-users";
 
 describe("Admin Prism user directory UI", () => {
@@ -65,6 +66,7 @@ describe("Admin Prism user directory UI", () => {
               intendedUse: "Read Slack locally",
               preset: "read_only",
               executionIdentity: "automatic",
+              capabilities: { read: true },
               expiresAt: null,
               status: "active",
               createdAt: "2026-02-01T12:00:00.000Z",
@@ -98,7 +100,29 @@ describe("Admin Prism user directory UI", () => {
     expect(html).toContain("Prism user detail");
     expect(html).toContain("Target [redacted] (U_TARGET)");
     expect(html).toContain("Profile [redacted]");
+    expect(html).toContain("Revoke access");
+    expect(html).toContain("Admin actions require typed confirmation and a required reason");
     expect(html).toContain("Recent Prism activity");
     expect(html).not.toMatch(/tokenHash|token_hash|prism_dev_|xox[bp]-|access_token|refresh_token|refreshToken|client_secret|pepper/i);
+  });
+
+  it("renders admin action dialog controls with typed confirmation and required reason gating", () => {
+    const blocked = renderToStaticMarkup(
+      <AdminTokenProfileActionForm action="revoke" expectedConfirmation="REVOKE" reason="" confirmation="REVOKE" cancelControl={<button type="button">Cancel</button>} />
+    );
+    const ready = renderToStaticMarkup(
+      <AdminTokenProfileActionForm action="delete" expectedConfirmation="DELETE" reason="Retired local tool" confirmation="DELETE" cancelControl={<button type="button">Cancel</button>} />
+    );
+
+    expect(blocked).toContain("Required admin audit reason");
+    expect(blocked).toContain("Reason");
+    expect(blocked).toContain("required=\"\"");
+    expect(blocked).toContain("maxLength=\"240\"");
+    expect(blocked).toContain("Type REVOKE to continue");
+    expect(blocked).toContain("disabled=\"\"");
+    expect(ready).toContain("Type DELETE to continue");
+    expect(ready).toContain("Delete Token profile");
+    expect(ready).not.toContain("disabled=\"\"");
+    expect(`${blocked}${ready}`).not.toMatch(/prism_dev_|xox[bp]-|access_token|refresh_token|refreshToken|client_secret|token_hash|pepper/i);
   });
 });

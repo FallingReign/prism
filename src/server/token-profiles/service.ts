@@ -1,5 +1,6 @@
 import "server-only";
 
+import type { ActivityType } from "../audit/activity";
 import type { DeveloperTokenConfig, DeveloperTokenVerifier } from "./developer-token";
 import { hashDeveloperToken, issueDeveloperToken } from "./developer-token";
 import {
@@ -67,6 +68,16 @@ export type TokenProfileOwner = {
   slackStatus: "healthy" | "reauth_required";
 };
 
+export type TokenProfileLifecycleAudit = {
+  endpoint: string;
+  requestId: string;
+  activityType?: Extract<ActivityType, "token_profile_revoked" | "token_profile_deleted" | "admin_token_profile_revoked" | "admin_token_profile_deleted">;
+  adminActorPrismUserId?: string | null;
+  adminActorSlackUserId?: string | null;
+  adminActorSlackDisplayName?: string | null;
+  adminReason?: string | null;
+};
+
 export type TokenProfileStore = {
   resolveOwner(input: { sessionToken: string; now: Date }): Promise<TokenProfileOwner | null>;
   listProfiles(owner: TokenProfileOwner): Promise<TokenProfileMetadata[]>;
@@ -88,7 +99,7 @@ export type TokenProfileStore = {
     slackConnectionId: string;
     profileId: string;
     now: Date;
-    audit?: { endpoint: string; requestId: string };
+    audit?: TokenProfileLifecycleAudit;
   }): Promise<{ kind: "revoked"; profile: TokenProfileMetadata } | { kind: "not_found" }>;
   rotateProfileDeveloperToken(input: {
     prismUserId: string;
@@ -117,7 +128,7 @@ export type TokenProfileStore = {
     slackConnectionId: string;
     profileId: string;
     now: Date;
-    audit?: { endpoint: string; requestId: string };
+    audit?: TokenProfileLifecycleAudit;
   }): Promise<{ kind: "deleted"; profile: TokenProfileMetadata } | { kind: "not_found" | "conflict" }>;
 };
 

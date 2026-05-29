@@ -95,7 +95,15 @@ describe("Admin Prism user directory", () => {
           developerToken: { status: "active", createdAt: "2026-02-01T12:00:00.000Z", expiresAt: null, lastUsedAt: null, revokedAt: null, overlapExpiresAt: null }
         }
       ],
-      activity: [activity({ objectId: "access_token-object", errorClass: "pepper_error", requestId: "req_refresh_token" })]
+      activity: [
+        activity({
+          objectId: "access_token-object",
+          errorClass: "pepper_error",
+          requestId: "req_refresh_token",
+          adminActorSlackDisplayName: "Admin client_secret",
+          adminReason: "Remove profile with refresh_token canary"
+        })
+      ]
     };
     const store = fakeStore({ users: [], detail });
 
@@ -147,6 +155,10 @@ function activity(overrides: Partial<ActivityAuditSummary>): ActivityAuditSummar
     httpStatus: 403,
     upstreamCalled: false,
     requestId: "req_1",
+    adminActorPrismUserId: null,
+    adminActorSlackUserId: null,
+    adminActorSlackDisplayName: null,
+    adminReason: null,
     ...overrides
   };
 }

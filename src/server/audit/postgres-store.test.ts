@@ -70,6 +70,80 @@ describe("Postgres activity audit store", () => {
     expect(query).toHaveBeenCalledTimes(1);
   });
 
+  it("persists and reads admin actor metadata on the existing activity audit table", async () => {
+    const query = vi.fn(async (sql: string, params?: unknown[]) => {
+      expect(sql).toContain("admin_actor_prism_user_id");
+      expect(sql).toContain("admin_actor_slack_user_id");
+      expect(sql).toContain("admin_actor_slack_display_name");
+      expect(sql).toContain("admin_reason");
+      expect(sql).not.toMatch(/payload|body|content|client_secret|\.token_hash|access_token|refresh_token/i);
+      if (sql.includes("insert into prism_activity_audit")) {
+        expect(params?.[23]).toBe("admin_user");
+        expect(params?.[24]).toBe("U_ADMIN");
+        expect(params?.[25]).toBe("Ada Admin");
+        expect(params?.[26]).toBe("Security review");
+        return {
+          rows: [
+            {
+              id: params?.[0],
+              prism_user_id: params?.[1],
+              slack_connection_id: params?.[2],
+              token_profile_id: params?.[3],
+              token_profile_name: params?.[4],
+              slack_user_id: params?.[5],
+              slack_team_id: params?.[6],
+              slack_enterprise_id: params?.[7],
+              activity_type: params?.[8],
+              endpoint: params?.[9],
+              slack_method: params?.[10],
+              action_category: params?.[11],
+              surface: params?.[12],
+              object_type: params?.[13],
+              object_id: params?.[14],
+              execution_mode: params?.[15],
+              status: params?.[16],
+              error_class: params?.[17],
+              http_status: params?.[18],
+              request_id: params?.[19],
+              upstream_called: params?.[20],
+              occurred_at: params?.[21],
+              retention_expires_at: params?.[22],
+              admin_actor_prism_user_id: params?.[23],
+              admin_actor_slack_user_id: params?.[24],
+              admin_actor_slack_display_name: params?.[25],
+              admin_reason: params?.[26]
+            }
+          ],
+          rowCount: 1
+        };
+      }
+      return emptyResult();
+    });
+    const store = createPostgresActivityAuditStore(fakeDatabase(query));
+
+    const record = await store.recordActivity({
+      prismUserId: "target_user",
+      slackConnectionId: "conn_1",
+      tokenProfileId: "profile_1",
+      tokenProfileName: "Target profile",
+      activityType: "admin_token_profile_revoked",
+      status: "revoked",
+      adminActorPrismUserId: "admin_user",
+      adminActorSlackUserId: "U_ADMIN",
+      adminActorSlackDisplayName: "Ada Admin",
+      adminReason: "Security review",
+      occurredAt: new Date("2026-01-01T00:00:00.000Z")
+    });
+
+    expect(record).toMatchObject({
+      activityType: "admin_token_profile_revoked",
+      adminActorPrismUserId: "admin_user",
+      adminActorSlackUserId: "U_ADMIN",
+      adminActorSlackDisplayName: "Ada Admin",
+      adminReason: "Security review"
+    });
+  });
+
   it("lists only current-session user activity that has not expired", async () => {
     const rows = [
       {

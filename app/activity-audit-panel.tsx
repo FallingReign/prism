@@ -65,6 +65,8 @@ export function ActivityAuditPanel({ activity }: { activity: ActivityAuditSummar
                 <Metadata label="HTTP" value={entry.httpStatus === null ? null : String(entry.httpStatus)} />
                 <Metadata label="Upstream" value={entry.upstreamCalled ? "Slack called" : "Prism handled"} />
                 <Metadata label="Error" value={entry.errorClass} />
+                <Metadata label="Admin" value={adminActorLabel(entry)} />
+                <Metadata label="Reason" value={entry.adminReason} />
               </dl>
             </article>
           ))}
@@ -82,6 +84,8 @@ function activityLabel(activityType: ActivityAuditSummary["activityType"]): stri
   if (activityType === "token_profile_policy_updated") return "Token profile policy updated";
   if (activityType === "token_profile_deleted") return "Token profile deleted";
   if (activityType === "slack_connection_removed") return "Slack connection removed";
+  if (activityType === "admin_token_profile_revoked") return "Admin revoked Token profile";
+  if (activityType === "admin_token_profile_deleted") return "Admin deleted Token profile";
   return "Slack method";
 }
 
@@ -106,6 +110,11 @@ function Metadata({ label, value }: { label: string; value: string | null }) {
 function objectLabel(entry: ActivityAuditSummary): string | null {
   if (entry.objectType && entry.objectId) return `${entry.objectType}:${entry.objectId}`;
   return entry.objectType ?? entry.objectId;
+}
+
+function adminActorLabel(entry: ActivityAuditSummary): string | null {
+  if (entry.adminActorSlackDisplayName && entry.adminActorSlackUserId) return `${entry.adminActorSlackDisplayName} (${entry.adminActorSlackUserId})`;
+  return entry.adminActorSlackUserId ?? entry.adminActorPrismUserId;
 }
 
 function formatStatus(status: ActivityAuditSummary["status"]): string {

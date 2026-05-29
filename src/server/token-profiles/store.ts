@@ -132,12 +132,16 @@ export function createPostgresTokenProfileStore(database: Database): TokenProfil
             slackConnectionId: input.slackConnectionId,
             tokenProfileId: row.id,
             tokenProfileName: row.name,
-            activityType: "token_profile_revoked",
+            activityType: input.audit.activityType ?? "token_profile_revoked",
             endpoint: input.audit.endpoint,
             status: "revoked",
             httpStatus: 200,
             requestId: input.audit.requestId,
-            upstreamCalled: false
+            upstreamCalled: false,
+            adminActorPrismUserId: input.audit.adminActorPrismUserId,
+            adminActorSlackUserId: input.audit.adminActorSlackUserId,
+            adminActorSlackDisplayName: input.audit.adminActorSlackDisplayName,
+            adminReason: input.audit.adminReason
           });
         }
 
@@ -188,12 +192,16 @@ export function createPostgresTokenProfileStore(database: Database): TokenProfil
             slackConnectionId: input.slackConnectionId,
             tokenProfileId: row.id,
             tokenProfileName: row.name,
-            activityType: "token_profile_deleted",
+            activityType: input.audit.activityType ?? "token_profile_deleted",
             endpoint: input.audit.endpoint,
             status: "deleted",
             httpStatus: 200,
             requestId: input.audit.requestId,
-            upstreamCalled: false
+            upstreamCalled: false,
+            adminActorPrismUserId: input.audit.adminActorPrismUserId,
+            adminActorSlackUserId: input.audit.adminActorSlackUserId,
+            adminActorSlackDisplayName: input.audit.adminActorSlackDisplayName,
+            adminReason: input.audit.adminReason
           });
         }
 

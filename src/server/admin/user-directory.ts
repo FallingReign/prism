@@ -140,7 +140,11 @@ function redactActivity(activity: ActivityAuditSummary): ActivityAuditSummary {
     objectId: redactOptional(activity.objectId),
     executionMode: redactOptional(activity.executionMode),
     errorClass: redactOptional(activity.errorClass),
-    requestId: redactOptional(activity.requestId)
+    requestId: redactOptional(activity.requestId),
+    adminActorPrismUserId: redactOptional(activity.adminActorPrismUserId),
+    adminActorSlackUserId: redactOptional(activity.adminActorSlackUserId),
+    adminActorSlackDisplayName: redactOptional(activity.adminActorSlackDisplayName),
+    adminReason: redactOptional(activity.adminReason)
   };
 }
 

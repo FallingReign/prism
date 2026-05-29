@@ -133,7 +133,11 @@ describe("Postgres admin user directory store", () => {
             request_id: "req_1",
             upstream_called: true,
             occurred_at: new Date("2026-02-01T12:02:00.000Z"),
-            retention_expires_at: new Date("2026-05-01T12:02:00.000Z")
+            retention_expires_at: new Date("2026-05-01T12:02:00.000Z"),
+            admin_actor_prism_user_id: "admin_user",
+            admin_actor_slack_user_id: "U_ADMIN",
+            admin_actor_slack_display_name: "Ada Admin",
+            admin_reason: "Security review"
           }
         ],
         rowCount: 1
@@ -150,7 +154,7 @@ describe("Postgres admin user directory store", () => {
     expect(detail).toMatchObject({
       user: { prismUserId: "target_user", slackConnection: { status: "reauth_required" } },
       profiles: [{ id: "profile_1", executionIdentity: "automatic", developerToken: { status: "active" } }],
-      activity: [{ id: "activity_1", slackMethod: "conversations.list" }]
+      activity: [{ id: "activity_1", slackMethod: "conversations.list", adminActorSlackUserId: "U_ADMIN", adminReason: "Security review" }]
     });
     expect(String(database.query.mock.calls[0]?.[0])).toContain("lc.team_id = $1");
     expect(database.query.mock.calls[0]?.[1]).toEqual(["T_TARGET", "target_user", 1]);

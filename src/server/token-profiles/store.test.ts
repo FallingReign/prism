@@ -230,6 +230,46 @@ describe("Postgres Token profile store lifecycle resolution", () => {
     expect(query.mock.calls.some(([sql]) => String(sql).includes("set status = 'revoked'"))).toBe(true);
   });
 
+  it("records admin revoke audit metadata in the same lifecycle transaction", async () => {
+    const now = new Date("2026-01-01T00:00:00.000Z");
+    const query = vi.fn(async (sql: string, params?: unknown[]) => {
+      expect(sql).not.toMatch(/access_token_envelope|refresh_token_envelope|xox[bp]-|client_secret|prism_dev_/i);
+      if (sql.includes("from token_profiles p")) {
+        return { rows: [tokenProfileRow({ preset: "read_only", capabilityMap: capabilityMap("read_only"), expiresAt: null, tokenExpiresAt: null })], rowCount: 1 };
+      }
+      if (sql.includes("update prism_developer_tokens")) return { rows: [], rowCount: 1 };
+      if (sql.includes("insert into prism_activity_audit")) {
+        expect(params?.[8]).toBe("admin_token_profile_revoked");
+        expect(params?.[23]).toBe("admin_user");
+        expect(params?.[24]).toBe("U_ADMIN");
+        expect(params?.[25]).toBe("Ada Admin");
+        expect(params?.[26]).toBe("Security review");
+        return { rows: [activityRowFromInsertParams(params)], rowCount: 1 };
+      }
+      if (sql.includes("update token_profiles")) return { rows: [], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    });
+
+    const store = createPostgresTokenProfileStore(fakeDatabase(query));
+    await expect(
+      store.revokeProfileDeveloperTokens({
+        prismUserId: "user_1",
+        slackConnectionId: "conn_1",
+        profileId: "profile_1",
+        now,
+        audit: {
+          endpoint: "/v1/prism/admin/users/user_1/token-profiles/profile_1/revoke",
+          requestId: "req_admin_revoke",
+          activityType: "admin_token_profile_revoked",
+          adminActorPrismUserId: "admin_user",
+          adminActorSlackUserId: "U_ADMIN",
+          adminActorSlackDisplayName: "Ada Admin",
+          adminReason: "Security review"
+        }
+      })
+    ).resolves.toMatchObject({ kind: "revoked", profile: { status: "revoked" } });
+  });
+
   it("deletes only inactive profiles and records a metadata-only deletion audit", async () => {
     const now = new Date("2026-01-01T00:00:00.000Z");
     const query = vi.fn(async (sql: string, params?: unknown[]) => {
@@ -366,7 +406,11 @@ function activityRowFromInsertParams(params: unknown[] = []) {
     request_id: params[19],
     upstream_called: params[20],
     occurred_at: params[21],
-    retention_expires_at: params[22]
+    retention_expires_at: params[22],
+    admin_actor_prism_user_id: params[23],
+    admin_actor_slack_user_id: params[24],
+    admin_actor_slack_display_name: params[25],
+    admin_reason: params[26]
   };
 }
 

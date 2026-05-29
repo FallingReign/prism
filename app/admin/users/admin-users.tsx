@@ -4,6 +4,7 @@ import { ActivityAuditPanel } from "../../activity-audit-panel";
 import { formatUtcDate, formatUtcDateTime } from "../../date-format";
 import { displayNameWithId, safeConnectionText } from "../../slack-connection-display";
 import { LinkButton, Panel, StatusBadge, SummaryMetric } from "../../ui";
+import { AdminTokenProfileActions } from "./admin-token-profile-actions";
 
 export function AdminUserDirectoryView({ scope, users }: { scope: AdminScope; users: AdminUserDirectoryRow[] }) {
   return (
@@ -87,6 +88,7 @@ export function AdminUserDetailView({ scope, detail }: { scope: AdminScope; deta
                   <Metadata label="Created" value={formatUtcDate(profile.createdAt)} />
                   <Metadata label="Last used" value={formatUtcDateTime(profile.developerToken?.lastUsedAt ?? null) ?? "Not used"} />
                 </dl>
+                <AdminTokenProfileActions userId={user.prismUserId} profile={profile} />
               </article>
             ))}
           </div>

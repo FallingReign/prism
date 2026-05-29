@@ -17,6 +17,10 @@ export type ActivityAuditSummary = {
   httpStatus: number | null;
   upstreamCalled: boolean;
   requestId: string | null;
+  adminActorPrismUserId: string | null;
+  adminActorSlackUserId: string | null;
+  adminActorSlackDisplayName: string | null;
+  adminReason: string | null;
 };
 
 export function toActivityAuditSummary(record: ActivityAuditRecord): ActivityAuditSummary {
@@ -36,6 +40,10 @@ export function toActivityAuditSummary(record: ActivityAuditRecord): ActivityAud
     errorClass: record.errorClass,
     httpStatus: record.httpStatus,
     upstreamCalled: record.upstreamCalled,
-    requestId: record.requestId
+    requestId: record.requestId,
+    adminActorPrismUserId: record.adminActorPrismUserId,
+    adminActorSlackUserId: record.adminActorSlackUserId,
+    adminActorSlackDisplayName: record.adminActorSlackDisplayName,
+    adminReason: record.adminReason
   };
 }

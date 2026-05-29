@@ -95,6 +95,44 @@ describe("Prism website activity audit panel", () => {
     expect(html).not.toMatch(/prism_dev_|tokenHash|xox[bp]-|refresh-secret|client_secret|access_token/i);
   });
 
+  it("labels admin Token profile actions with actor and reason metadata", () => {
+    const html = renderToStaticMarkup(
+      <ActivityAuditPanel
+        activity={[
+          {
+            id: "audit_admin_revoke",
+            occurredAt: "2026-01-04T00:00:00.000Z",
+            activityType: "admin_token_profile_revoked",
+            status: "revoked",
+            tokenProfileId: "profile_1",
+            tokenProfileName: "Local MCP",
+            slackMethod: null,
+            actionCategory: null,
+            surface: null,
+            objectType: null,
+            objectId: null,
+            executionMode: null,
+            errorClass: null,
+            httpStatus: 200,
+            upstreamCalled: false,
+            requestId: "req_admin",
+            adminActorPrismUserId: "admin_user",
+            adminActorSlackUserId: "U_ADMIN",
+            adminActorSlackDisplayName: "Ada Admin",
+            adminReason: "Security review"
+          }
+        ]}
+      />
+    );
+
+    expect(html).toContain("Admin revoked Token profile");
+    expect(html).toContain("Admin:");
+    expect(html).toContain("Ada Admin (U_ADMIN)");
+    expect(html).toContain("Reason:");
+    expect(html).toContain("Security review");
+    expect(html).not.toMatch(/prism_dev_|tokenHash|xox[bp]-|refresh-secret|client_secret|access_token/i);
+  });
+
   it("redacts credential-shaped canaries from visible audit metadata", () => {
     const html = renderToStaticMarkup(
       <ActivityAuditPanel

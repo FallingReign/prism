@@ -62,7 +62,8 @@ export function createPostgresActivityAuditStore(database: Database): ActivityAu
                 a.slack_user_id, a.slack_team_id, a.slack_enterprise_id, a.activity_type, a.endpoint,
                 a.slack_method, a.action_category, a.surface, a.object_type, a.object_id, a.execution_mode,
                 a.status, a.error_class, a.http_status, a.request_id, a.upstream_called, a.occurred_at,
-                a.retention_expires_at
+                a.retention_expires_at, a.admin_actor_prism_user_id, a.admin_actor_slack_user_id,
+                a.admin_actor_slack_display_name, a.admin_reason
          from prism_sessions s
          join prism_activity_audit a on a.prism_user_id = s.prism_user_id
          where s.session_token_hash = $1
@@ -84,7 +85,8 @@ export function createPostgresActivityAuditStore(database: Database): ActivityAu
                 a.slack_user_id, a.slack_team_id, a.slack_enterprise_id, a.activity_type, a.endpoint,
                 a.slack_method, a.action_category, a.surface, a.object_type, a.object_id, a.execution_mode,
                 a.status, a.error_class, a.http_status, a.request_id, a.upstream_called, a.occurred_at,
-                a.retention_expires_at
+                a.retention_expires_at, a.admin_actor_prism_user_id, a.admin_actor_slack_user_id,
+                a.admin_actor_slack_display_name, a.admin_reason
          from prism_sessions s
          join prism_activity_audit a on a.prism_user_id = s.prism_user_id
          where s.session_token_hash = $1
@@ -109,15 +111,17 @@ export async function insertActivityAuditRecord(database: Database, input: Activ
           slack_user_id, slack_team_id, slack_enterprise_id, activity_type, endpoint,
           slack_method, action_category, surface, object_type, object_id, execution_mode,
           status, error_class, http_status, request_id, upstream_called, occurred_at,
-          retention_expires_at)
+          retention_expires_at, admin_actor_prism_user_id, admin_actor_slack_user_id,
+          admin_actor_slack_display_name, admin_reason)
        values
          ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16,
-          $17, $18, $19, $20, $21, $22, $23)
+          $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
        returning id, prism_user_id, slack_connection_id, token_profile_id, token_profile_name,
                  slack_user_id, slack_team_id, slack_enterprise_id, activity_type, endpoint,
                  slack_method, action_category, surface, object_type, object_id, execution_mode,
                  status, error_class, http_status, request_id, upstream_called, occurred_at,
-                 retention_expires_at`,
+                 retention_expires_at, admin_actor_prism_user_id, admin_actor_slack_user_id,
+                 admin_actor_slack_display_name, admin_reason`,
       [
         record.id,
         record.prismUserId,
@@ -141,7 +145,11 @@ export async function insertActivityAuditRecord(database: Database, input: Activ
         record.requestId,
         record.upstreamCalled,
         record.occurredAt,
-        record.retentionExpiresAt
+        record.retentionExpiresAt,
+        record.adminActorPrismUserId,
+        record.adminActorSlackUserId,
+        record.adminActorSlackDisplayName,
+        record.adminReason
       ]
     );
     const row = result.rows[0];
@@ -179,7 +187,8 @@ async function updateActivityAuditOutcome(
                  slack_user_id, slack_team_id, slack_enterprise_id, activity_type, endpoint,
                  slack_method, action_category, surface, object_type, object_id, execution_mode,
                  status, error_class, http_status, request_id, upstream_called, occurred_at,
-                 retention_expires_at`,
+                 retention_expires_at, admin_actor_prism_user_id, admin_actor_slack_user_id,
+                 admin_actor_slack_display_name, admin_reason`,
       [id, outcome.status, outcome.errorClass ?? null, outcome.httpStatus ?? null, outcome.upstreamCalled ?? false]
     );
     const row = result.rows[0];
@@ -216,6 +225,10 @@ type ActivityAuditRow = {
   upstream_called: boolean;
   occurred_at: Date;
   retention_expires_at: Date;
+  admin_actor_prism_user_id?: string | null;
+  admin_actor_slack_user_id?: string | null;
+  admin_actor_slack_display_name?: string | null;
+  admin_reason?: string | null;
 };
 
 function toActivityAuditRecord(row: ActivityAuditRow): ActivityAuditRecord {
@@ -241,6 +254,10 @@ function toActivityAuditRecord(row: ActivityAuditRow): ActivityAuditRecord {
     httpStatus: row.http_status,
     requestId: row.request_id,
     upstreamCalled: row.upstream_called,
+    adminActorPrismUserId: row.admin_actor_prism_user_id ?? null,
+    adminActorSlackUserId: row.admin_actor_slack_user_id ?? null,
+    adminActorSlackDisplayName: row.admin_actor_slack_display_name ?? null,
+    adminReason: row.admin_reason ?? null,
     occurredAt: row.occurred_at,
     retentionExpiresAt: row.retention_expires_at
   };

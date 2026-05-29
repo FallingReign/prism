@@ -36,7 +36,11 @@ describe("/v1/prism/activity", () => {
           request_id: "req_1",
           upstream_called: true,
           occurred_at: new Date("2026-01-01T00:00:00.000Z"),
-          retention_expires_at: new Date("2026-04-01T00:00:00.000Z")
+          retention_expires_at: new Date("2026-04-01T00:00:00.000Z"),
+          admin_actor_prism_user_id: null,
+          admin_actor_slack_user_id: null,
+          admin_actor_slack_display_name: null,
+          admin_reason: null
         }
       ],
       rowCount: 1
@@ -68,7 +72,11 @@ describe("/v1/prism/activity", () => {
         errorClass: null,
         httpStatus: 200,
         upstreamCalled: true,
-        requestId: "req_1"
+        requestId: "req_1",
+        adminActorPrismUserId: null,
+        adminActorSlackUserId: null,
+        adminActorSlackDisplayName: null,
+        adminReason: null
       }
     ]);
     expect(JSON.stringify(body)).not.toMatch(/text|blocks|query|content|prism_dev_|tokenHash|pepper|xox[bp]-|client_secret/i);

@@ -77,4 +77,38 @@ describe("metadata-only activity audit", () => {
     expect(extractSlackObjectMetadata("files.info", { file: "xoxb-sensitive-canary" })).toEqual({});
     expect(extractSlackObjectMetadata("users.info", { user: "client_secret_canary" })).toEqual({});
   });
+
+  it("builds admin action records with separate actor metadata and bounded reason text", () => {
+    const record = buildActivityAuditRecord(
+      {
+        prismUserId: "target_user",
+        slackConnectionId: "conn_1",
+        tokenProfileId: "profile_1",
+        tokenProfileName: "Target profile",
+        activityType: "admin_token_profile_revoked",
+        status: "revoked",
+        adminActorPrismUserId: "admin_user",
+        adminActorSlackUserId: "U_ADMIN",
+        adminActorSlackDisplayName: "Ada Admin",
+        adminReason: `  ${"review ".repeat(80)}  `,
+        contentCanaries: {
+          developerToken: "prism_dev_sensitivecanary",
+          slackAccessToken: "xoxb-sensitive-canary",
+          clientSecret: "client_secret_canary"
+        }
+      },
+      { now, randomId: () => "audit_1" }
+    );
+
+    expect(record).toMatchObject({
+      prismUserId: "target_user",
+      slackUserId: null,
+      adminActorPrismUserId: "admin_user",
+      adminActorSlackUserId: "U_ADMIN",
+      adminActorSlackDisplayName: "Ada Admin",
+      adminReason: expect.stringMatching(/^review review/)
+    });
+    expect(record.adminReason).toHaveLength(240);
+    expect(JSON.stringify(record)).not.toMatch(/prism_dev_|xoxb-|client_secret_canary/i);
+  });
 });

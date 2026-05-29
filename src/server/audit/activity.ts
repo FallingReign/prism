@@ -11,7 +11,9 @@ export type ActivityType =
   | "token_profile_policy_updated"
   | "token_profile_deleted"
   | "slack_connection_removed"
-  | "global_token_profile_policy_updated";
+  | "global_token_profile_policy_updated"
+  | "admin_token_profile_revoked"
+  | "admin_token_profile_deleted";
 
 export type ActivityStatus =
   | "attempted"
@@ -51,6 +53,10 @@ export type ActivityAuditInput = {
   httpStatus?: number | null;
   requestId?: string | null;
   upstreamCalled?: boolean;
+  adminActorPrismUserId?: string | null;
+  adminActorSlackUserId?: string | null;
+  adminActorSlackDisplayName?: string | null;
+  adminReason?: string | null;
   occurredAt?: Date;
   retentionDays?: number;
   // Deliberately ignored. Tests pass canaries here to prove the public builder
@@ -80,6 +86,10 @@ export type ActivityAuditRecord = {
   httpStatus: number | null;
   requestId: string | null;
   upstreamCalled: boolean;
+  adminActorPrismUserId: string | null;
+  adminActorSlackUserId: string | null;
+  adminActorSlackDisplayName: string | null;
+  adminReason: string | null;
   occurredAt: Date;
   retentionExpiresAt: Date;
 };
@@ -118,6 +128,10 @@ export function buildActivityAuditRecord(
     httpStatus: input.httpStatus ?? null,
     requestId: truncate(nullableText(input.requestId), 120),
     upstreamCalled: input.upstreamCalled ?? false,
+    adminActorPrismUserId: truncate(nullableText(input.adminActorPrismUserId), 120),
+    adminActorSlackUserId: truncate(nullableText(input.adminActorSlackUserId), 120),
+    adminActorSlackDisplayName: truncate(nullableText(input.adminActorSlackDisplayName), 120),
+    adminReason: truncate(nullableText(input.adminReason), 240),
     occurredAt,
     retentionExpiresAt: addDays(occurredAt, retentionDays)
   };
