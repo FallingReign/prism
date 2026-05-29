@@ -30,6 +30,13 @@ export type TokenProfilePolicyOptions = {
   };
 };
 
+export const executionIdentityOptions: Array<{ value: TokenProfileExecutionIdentity; label: string }> = [
+  { value: "automatic", label: "Automatic" },
+  { value: "user", label: "User-backed" },
+  { value: "bot", label: "Bot-backed" },
+  { value: "selectable", label: "Selectable by request" }
+];
+
 type GlobalTokenProfilePolicyLike = {
   presets: TokenProfilePolicyOptions["presets"];
   executionIdentities: TokenProfilePolicyOptions["executionIdentities"];
@@ -91,6 +98,22 @@ export function tokenProfilePolicyOptionsFromGlobalPolicy(policy: GlobalTokenPro
       default: policy.expiry.defaultExperimentTtl
     }
   };
+}
+
+export function executionIdentityLabel(identity: TokenProfileExecutionIdentity): string {
+  return executionIdentityOptions.find((option) => option.value === identity)?.label ?? identity;
+}
+
+export function executionIdentitySelectOptions(
+  options: TokenProfilePolicyOptions,
+  current?: TokenProfileExecutionIdentity
+): Array<{ value: TokenProfileExecutionIdentity; label: string; disabled: boolean }> {
+  const allowed = new Set(options.executionIdentities.allowed);
+  const allowedOptions = executionIdentityOptions
+    .filter((option) => allowed.has(option.value))
+    .map((option) => ({ ...option, disabled: false }));
+  if (!current || allowed.has(current)) return allowedOptions;
+  return [{ value: current, label: `${executionIdentityLabel(current)} (current, outside global policy)`, disabled: false }, ...allowedOptions];
 }
 
 export function presetAvailability(

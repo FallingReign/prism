@@ -51,6 +51,22 @@ describe("Token profile form request bodies", () => {
     });
   });
 
+  it("serializes the create modal execution identity from the selected policy option", () => {
+    const form = new FormData();
+    form.set("name", "Local MCP read");
+    form.set("intendedUse", "Read Slack context locally");
+    form.set("preset", "read_only");
+    form.set("executionIdentity", "user");
+
+    expect(buildCreateTokenProfileModalRequestBody(form)).toEqual({
+      name: "Local MCP read",
+      intendedUse: "Read Slack context locally",
+      preset: "read_only",
+      executionIdentity: "user",
+      destructive: false
+    });
+  });
+
   it("serializes visible create modal custom checkboxes when manual edits select Custom", () => {
     const form = new FormData();
     form.set("name", "Local MCP custom");

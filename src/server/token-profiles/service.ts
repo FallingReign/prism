@@ -368,11 +368,39 @@ export async function updateTokenProfilePolicy({
   const nextPolicy = sameCapabilityPolicy(current.capabilityMap, requestedPolicy.capabilityMap)
     ? { ...requestedPolicy, expiresAt: current.expiresAt }
     : requestedPolicy;
-  const change = classifyPolicyChange(current.capabilityMap, current.expiresAt, nextPolicy.capabilityMap, nextPolicy.expiresAt);
+  let change = classifyPolicyChange(current.capabilityMap, current.expiresAt, nextPolicy.capabilityMap, nextPolicy.expiresAt);
   const currentGlobalStatus = classifyGlobalTokenProfilePolicyStatus(toGlobalPolicyCandidate(current), globalPolicy);
   if (currentGlobalStatus.kind === "outside") {
+    const changedExecutionIdentity = current.capabilityMap.executionIdentity !== nextPolicy.capabilityMap.executionIdentity;
+    const currentExecutionIdentityAllowed = globalPolicy.executionIdentities.allowed.includes(current.capabilityMap.executionIdentity);
+    const nextExecutionIdentityAllowed = globalPolicy.executionIdentities.allowed.includes(nextPolicy.capabilityMap.executionIdentity);
     if (change !== "narrowing") {
-      return outsideGlobalPolicyBlocked(currentGlobalStatus.reasons);
+      const nonIdentityChange = changedExecutionIdentity
+        ? classifyPolicyChangeIgnoringExecutionIdentity(current.capabilityMap, current.expiresAt, nextPolicy.capabilityMap, nextPolicy.expiresAt)
+        : change;
+      const broadensIdentity =
+        changedExecutionIdentity && broadensExecutionIdentity(current.capabilityMap.executionIdentity, nextPolicy.capabilityMap.executionIdentity);
+      if (changedExecutionIdentity && !currentExecutionIdentityAllowed && nextExecutionIdentityAllowed && nonIdentityChange !== "broadening") {
+        if (broadensIdentity) {
+          change = "broadening";
+        } else {
+          change = nonIdentityChange === "unchanged" ? "narrowing" : nonIdentityChange;
+        }
+      } else {
+        return outsideGlobalPolicyBlocked(currentGlobalStatus.reasons);
+      }
+    }
+    if (changedExecutionIdentity && !nextExecutionIdentityAllowed) {
+      const nextGlobalValidation = validateRequestedTokenProfilePolicy({
+        input: parsed.input,
+        capabilityMap: nextPolicy.capabilityMap,
+        expiresAt: nextPolicy.expiresAt,
+        policyEffectiveAt: now,
+        policy: globalPolicy
+      });
+      if (nextGlobalValidation.kind === "blocked") {
+        return { kind: nextGlobalValidation.code, message: nextGlobalValidation.message, reasons: nextGlobalValidation.reasons };
+      }
     }
   } else {
     const nextGlobalValidation = validateRequestedTokenProfilePolicy({
@@ -522,6 +550,10 @@ function sameCapabilityPolicy(current: CapabilityMap, next: CapabilityMap): bool
   );
 }
 
+function classifyPolicyChangeIgnoringExecutionIdentity(current: CapabilityMap, currentExpiresAt: Date | null, next: CapabilityMap, nextExpiresAt: Date | null): "narrowing" | "broadening" | "unchanged" {
+  return classifyPolicyChange(current, currentExpiresAt, { ...next, executionIdentity: current.executionIdentity }, nextExpiresAt);
+}
+
 function sameBooleanMap<T extends Record<string, boolean>>(left: T, right: T): boolean {
   const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
   for (const key of keys) {
@@ -532,9 +564,17 @@ function sameBooleanMap<T extends Record<string, boolean>>(left: T, right: T): b
 
 function classifyExecutionIdentityChange(current: ExecutionIdentity, next: ExecutionIdentity): "narrowing" | "broadening" | "unchanged" {
   if (current === next) return "unchanged";
-  const rank: Record<ExecutionIdentity, number> = { user: 1, bot: 1, automatic: 2, selectable: 3 };
-  if (rank[next] < rank[current]) return "narrowing";
+  if (executionIdentityScopeRank(next) < executionIdentityScopeRank(current)) return "narrowing";
   return "broadening";
+}
+
+function broadensExecutionIdentity(current: ExecutionIdentity, next: ExecutionIdentity): boolean {
+  return executionIdentityScopeRank(next) > executionIdentityScopeRank(current);
+}
+
+function executionIdentityScopeRank(identity: ExecutionIdentity): number {
+  const rank: Record<ExecutionIdentity, number> = { user: 1, bot: 1, automatic: 2, selectable: 3 };
+  return rank[identity];
 }
 
 function classifyExpiryChange(current: Date | null, next: Date | null): "narrowing" | "broadening" | "unchanged" {

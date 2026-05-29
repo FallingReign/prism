@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useId, useState } from "react";
 import Link from "next/link";
 
 import { Checkbox } from "@/components/ui/checkbox";
@@ -8,14 +8,18 @@ import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, Di
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 
 import { buildCreateTokenProfileModalRequestBody } from "./token-profile-form";
 import {
   capabilityTemplateForPreset,
   defaultTokenProfilePolicyOptions,
+  executionIdentityLabel,
+  executionIdentitySelectOptions,
   presetAvailability,
   type TokenProfileCapabilitySelection,
+  type TokenProfileExecutionIdentity,
   type TokenProfilePolicyOptions,
   type TokenProfilePolicyPreset
 } from "./token-profile-policy-options";
@@ -54,6 +58,7 @@ export function TokenProfilesPanel({
   const initialCreatePreset = policyOptions.presets.default;
   const [createPreset, setCreatePreset] = useState<TokenProfilePolicyPreset>(initialCreatePreset);
   const [createCapabilities, setCreateCapabilities] = useState<TokenProfileCapabilitySelection>(() => initialCapabilitiesForPreset(initialCreatePreset, policyOptions));
+  const [createExecutionIdentity, setCreateExecutionIdentity] = useState<TokenProfileExecutionIdentity>(policyOptions.executionIdentities.default);
   const [developerToken, setDeveloperToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -94,6 +99,7 @@ export function TokenProfilesPanel({
     const nextPreset = policyOptions.presets.default;
     setCreatePreset(nextPreset);
     setCreateCapabilities(initialCapabilitiesForPreset(nextPreset, policyOptions));
+    setCreateExecutionIdentity(policyOptions.executionIdentities.default);
   }
 
   function onCreatePresetChange(value: string) {
@@ -302,8 +308,16 @@ export function TokenProfilesPanel({
                       })}
                     </div>
                   </fieldset>
+                  <SelectField
+                    name="executionIdentity"
+                    label="Execution identity"
+                    value={createExecutionIdentity}
+                    onValueChange={(value) => setCreateExecutionIdentity(value as TokenProfileExecutionIdentity)}
+                    options={executionIdentitySelectOptions(policyOptions)}
+                    help={`Global policy default: ${executionIdentityLabel(policyOptions.executionIdentities.default)}.`}
+                  />
                   <Notice title="Safe defaults" tone="info">
-                    Prism uses automatic execution identity and no experiment expiry. Configure advanced policy after creation.
+                    Prism starts with {executionIdentityLabel(createExecutionIdentity)} execution identity and no experiment expiry. Configure advanced policy after creation.
                   </Notice>
                   {error ? (
                     <p className="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm font-medium text-destructive" role="alert">
@@ -485,6 +499,43 @@ function CapabilityCheckboxField({
         </Label>
         {help ? <span className={helperClass}>{help}</span> : null}
       </div>
+    </div>
+  );
+}
+
+function SelectField({
+  name,
+  label,
+  value,
+  onValueChange,
+  options,
+  help
+}: {
+  name: string;
+  label: string;
+  value: string;
+  onValueChange: (value: string) => void;
+  options: Array<{ value: string; label: string; disabled?: boolean }>;
+  help?: string;
+}) {
+  const id = `${name}-${useId()}`;
+
+  return (
+    <div className={fieldClass}>
+      <Label htmlFor={id}>{label}</Label>
+      <Select name={name} value={value} onValueChange={onValueChange}>
+        <SelectTrigger id={id} className="w-full">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((option) => (
+            <SelectItem key={option.value} value={option.value} disabled={option.disabled}>
+              {option.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {help ? <span className={helperClass}>{help}</span> : null}
     </div>
   );
 }

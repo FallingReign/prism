@@ -40,7 +40,7 @@ export function buildCreateTokenProfileModalRequestBody(form: FormData): TokenPr
     name: formString(form, "name"),
     intendedUse: formString(form, "intendedUse"),
     preset,
-    executionIdentity: "automatic",
+    executionIdentity: formString(form, "executionIdentity", "automatic"),
     destructive: form.get("destructive") === "on",
     custom: preset === "custom" ? customCapabilities(form) : undefined
   });

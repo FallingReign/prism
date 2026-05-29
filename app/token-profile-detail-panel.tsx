@@ -16,6 +16,8 @@ import { buildPolicyUpdateRequestBody } from "./token-profile-form";
 import {
   capabilityTemplateForPreset,
   defaultTokenProfilePolicyOptions,
+  executionIdentityLabel,
+  executionIdentitySelectOptions,
   presetAvailability,
   type TokenProfileCapabilitySelection,
   type TokenProfilePolicyOptions,
@@ -32,12 +34,6 @@ const helperClass = "text-xs leading-5 text-muted-foreground";
 const checkboxLabelClass =
   "flex min-h-11 items-center gap-3 rounded-lg bg-muted/35 px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted/55";
 const actionCardClass = "grid gap-3 rounded-xl bg-muted/35 p-4";
-const executionIdentityOptions = [
-  { value: "automatic", label: "Automatic" },
-  { value: "user", label: "User-backed" },
-  { value: "bot", label: "Bot-backed" },
-  { value: "selectable", label: "Selectable by request" }
-];
 const policyExperimentOptions = [
   { value: "none", label: "Policy default" },
   { value: "24h", label: "24 hours" },
@@ -394,7 +390,13 @@ export function TokenProfileDetailWorkspace({
                 onValueChange={onPolicyPresetChange}
                 options={presetOptions.map((option) => ({ ...option, disabled: !presetAvailability(option.value as TokenProfilePolicyPreset, policyOptions).allowed }))}
               />
-              <SelectField name="policyExecutionIdentity" label="Execution identity" defaultValue={profile.executionIdentity} options={executionIdentityOptions} />
+              <SelectField
+                name="policyExecutionIdentity"
+                label="Execution identity"
+                defaultValue={profile.executionIdentity}
+                options={executionIdentitySelectOptions(policyOptions, profile.executionIdentity)}
+                help={executionIdentityHelp(policyOptions, profile.executionIdentity)}
+              />
               <SelectField name="policyExperiment" label="Expiry" defaultValue="none" options={policyExperimentOptions} help="Use only for short-lived experiment profiles." />
             </div>
             <fieldset className="grid gap-3 rounded-xl bg-muted/30 p-4">
@@ -589,18 +591,26 @@ function presetLabel(preset: TokenProfileSummary["preset"]): string {
   return "Custom";
 }
 
-function executionIdentityLabel(identity: TokenProfileSummary["executionIdentity"]): string {
-  if (identity === "user") return "User-backed";
-  if (identity === "bot") return "Bot-backed";
-  if (identity === "selectable") return "Selectable by request";
-  return "Automatic";
-}
-
 function developerTokenStatusLabel(status: NonNullable<TokenProfileSummary["developerToken"]>["status"] | undefined): string {
   if (status === "expired") return "Expired";
   if (status === "revoked") return "Revoked";
   if (status === "missing") return "Missing";
   return "Active";
+}
+
+function executionIdentityHelp(policyOptions: TokenProfilePolicyOptions, current: TokenProfileSummary["executionIdentity"]): string {
+  const allowedLabels = policyOptions.executionIdentities.allowed.map(executionIdentityLabel);
+  const allowed = joinLabels(allowedLabels);
+  if (!policyOptions.executionIdentities.allowed.includes(current)) {
+    return `Current execution identity is outside the Global Token profile policy. Choose ${allowed} to narrow it.`;
+  }
+  return `Global policy allows ${allowed}.`;
+}
+
+function joinLabels(labels: string[]): string {
+  if (labels.length <= 1) return labels[0] ?? "";
+  if (labels.length === 2) return `${labels[0]} or ${labels[1]}`;
+  return `${labels.slice(0, -1).join(", ")}, or ${labels[labels.length - 1]}`;
 }
 
 function developerTokenStatusTone(status: NonNullable<TokenProfileSummary["developerToken"]>["status"] | undefined): "success" | "warning" | "neutral" {

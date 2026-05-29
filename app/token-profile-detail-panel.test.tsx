@@ -175,4 +175,43 @@ describe("Token profile detail workspace", () => {
     expect(html).toContain("Global policy blocks adding Write messages.");
     expect(html).toContain("Global policy blocks adding Reactions.");
   });
+
+  it("explains policy-filtered execution identities while preserving the current outside-policy identity", () => {
+    const html = renderToStaticMarkup(
+      <TokenProfileDetailWorkspace
+        slackStatus="healthy"
+        policyOptions={{
+          ...defaultTokenProfilePolicyOptions,
+          executionIdentities: {
+            allowed: ["user", "bot"],
+            default: "user"
+          }
+        }}
+        profile={{
+          id: "profile_1",
+          name: "Read context",
+          intendedUse: "Read Slack context",
+          preset: "read_only",
+          executionIdentity: "automatic",
+          capabilities: {
+            read: true,
+            search: true,
+            writeMessages: false,
+            reactions: false,
+            filesMetadata: false,
+            destructive: false
+          },
+          expiresAt: null,
+          createdAt: "2026-01-01T00:00:00.000Z",
+          developerToken: { status: "active", lastUsedAt: null },
+          globalPolicyStatus: { kind: "outside", reasons: [{ code: "execution_identity_disallowed", message: "Execution identity blocked." }] }
+        }}
+        activity={[]}
+      />
+    );
+
+    expect(html).toContain("Execution identity");
+    expect(html).toContain("Current execution identity is outside the Global Token profile policy.");
+    expect(html).toContain("Choose User-backed or Bot-backed to narrow it.");
+  });
 });

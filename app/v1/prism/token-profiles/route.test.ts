@@ -189,6 +189,125 @@ describe("/v1/prism/token-profiles", () => {
     expect(JSON.stringify(body)).not.toMatch(/prism_dev_|tokenHash|pepper-secret-canary|xox[bp]-|access_token|refresh_token/i);
   });
 
+  it("applies the Global Token profile policy default execution identity when creation omits it", async () => {
+    persistedGlobalPolicy = buildCurrentGlobalTokenProfilePolicy({ executionIdentities: { allowed: ["user"], default: "user" } });
+    const { POST } = await import("./route");
+    const response = await POST(
+      new NextRequest("http://localhost:3732/v1/prism/token-profiles", {
+        method: "POST",
+        headers: { cookie: "prism_session=session-token", "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "Local MCP read",
+          intendedUse: "Read Slack context locally",
+          preset: "read_only"
+        })
+      })
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(insertedCapabilityMap().executionIdentity).toBe("user");
+    expect(JSON.stringify(body)).not.toMatch(/tokenHash|pepper-secret-canary|xox[bp]-|access_token|refresh_token/i);
+  });
+
+  it("rejects Token profile creation when the Global Token profile policy disallows the requested execution identity", async () => {
+    persistedGlobalPolicy = buildCurrentGlobalTokenProfilePolicy({ executionIdentities: { allowed: ["user"], default: "user" } });
+    const { POST } = await import("./route");
+    const response = await POST(
+      new NextRequest("http://localhost:3732/v1/prism/token-profiles", {
+        method: "POST",
+        headers: { cookie: "prism_session=session-token", "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "Local MCP read",
+          intendedUse: "Read Slack context locally",
+          preset: "read_only",
+          executionIdentity: "automatic"
+        })
+      })
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body).toMatchObject({ error: "global_policy_violation", reasons: [{ code: "execution_identity_disallowed" }] });
+    expect(mockDb.query.mock.calls.some(([sql]) => String(sql).includes("insert into token_profiles"))).toBe(false);
+    expect(JSON.stringify(body)).not.toMatch(/prism_dev_|tokenHash|pepper-secret-canary|xox[bp]-|access_token|refresh_token/i);
+  });
+
+  it("rejects Outside global policy updates that change to another disallowed execution identity", async () => {
+    persistedCapabilityMap = capabilityMapFor("read_only", "automatic");
+    persistedGlobalPolicy = buildCurrentGlobalTokenProfilePolicy({ executionIdentities: { allowed: ["user"], default: "user" } });
+    const { POST } = await import("./[profileId]/policy/route");
+    const response = await POST(
+      new NextRequest("http://localhost:3732/v1/prism/token-profiles/profile_1/policy", {
+        method: "POST",
+        headers: { cookie: "prism_session=session-token", "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "Local MCP read",
+          intendedUse: "Read Slack context locally",
+          preset: "read_only",
+          executionIdentity: "bot"
+        })
+      }),
+      { params: Promise.resolve({ profileId: "profile_1" }) }
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(400);
+    expect(body).toMatchObject({ error: "global_policy_violation", reasons: [{ code: "execution_identity_disallowed" }] });
+    expect(mockDb.query.mock.calls.some(([sql]) => String(sql).includes("update token_profiles") && String(sql).includes("set preset"))).toBe(false);
+    expect(JSON.stringify(body)).not.toMatch(/prism_dev_|tokenHash|pepper-secret-canary|xox[bp]-|access_token|refresh_token/i);
+  });
+
+  it("allows Outside global policy updates that remediate to an allowed concrete execution identity", async () => {
+    persistedCapabilityMap = capabilityMapFor("read_only", "bot");
+    persistedGlobalPolicy = buildCurrentGlobalTokenProfilePolicy({ executionIdentities: { allowed: ["user"], default: "user" } });
+    const { POST } = await import("./[profileId]/policy/route");
+    const response = await POST(
+      new NextRequest("http://localhost:3732/v1/prism/token-profiles/profile_1/policy", {
+        method: "POST",
+        headers: { cookie: "prism_session=session-token", "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "Local MCP read",
+          intendedUse: "Read Slack context locally",
+          preset: "read_only",
+          executionIdentity: "user"
+        })
+      }),
+      { params: Promise.resolve({ profileId: "profile_1" }) }
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body).toMatchObject({ change: "narrowing", profile: { globalPolicyStatus: { kind: "inside" } } });
+    expect(updatedCapabilityMap().executionIdentity).toBe("user");
+    expect(JSON.stringify(body)).not.toMatch(/prism_dev_|tokenHash|pepper-secret-canary|xox[bp]-|access_token|refresh_token/i);
+  });
+
+  it("requires rotation before Outside global policy updates remediate to a broader allowed execution identity", async () => {
+    persistedCapabilityMap = capabilityMapFor("read_only", "automatic");
+    persistedGlobalPolicy = buildCurrentGlobalTokenProfilePolicy({ executionIdentities: { allowed: ["selectable"], default: "selectable" } });
+    const { POST } = await import("./[profileId]/policy/route");
+    const response = await POST(
+      new NextRequest("http://localhost:3732/v1/prism/token-profiles/profile_1/policy", {
+        method: "POST",
+        headers: { cookie: "prism_session=session-token", "content-type": "application/json" },
+        body: JSON.stringify({
+          name: "Local MCP read",
+          intendedUse: "Read Slack context locally",
+          preset: "read_only",
+          executionIdentity: "selectable"
+        })
+      }),
+      { params: Promise.resolve({ profileId: "profile_1" }) }
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body).toMatchObject({ error: "rotation_required", change: "broadening" });
+    expect(mockDb.query.mock.calls.some(([sql]) => String(sql).includes("update token_profiles") && String(sql).includes("set preset"))).toBe(false);
+    expect(JSON.stringify(body)).not.toMatch(/prism_dev_|tokenHash|pepper-secret-canary|xox[bp]-|access_token|refresh_token/i);
+  });
+
   it("lists Token profile metadata without making developer tokens retrievable", async () => {
     const { GET } = await import("./route");
     const response = await GET(new NextRequest("http://localhost:3732/v1/prism/token-profiles", { headers: { cookie: "prism_session=session-token" } }));
@@ -380,7 +499,7 @@ function updatedCapabilityMap() {
   return JSON.parse(String((update?.[1] as unknown[])[2]));
 }
 
-function capabilityMapFor(preset: "read_only" | "messages_only") {
+function capabilityMapFor(preset: "read_only" | "messages_only", executionIdentity: "automatic" | "user" | "bot" | "selectable" = "automatic") {
   const messagesOnly = preset === "messages_only";
   return {
     version: 1,
@@ -398,7 +517,7 @@ function capabilityMapFor(preset: "read_only" | "messages_only") {
       future: false
     },
     actions: { read: true, search: !messagesOnly, writeMessages: messagesOnly, reactions: messagesOnly, filesMetadata: false, destructive: false },
-    executionIdentity: "automatic",
+    executionIdentity,
     experiment: { enabled: false, ttl: null },
     mutation: { destructiveOptIn: false, narrowingAppliesImmediately: true, broadeningRequiresRotation: true },
     deferred: { admin: false, fileTransfer: false, events: false, slashCommands: false, interactivity: false, canvases: false, lists: false }
