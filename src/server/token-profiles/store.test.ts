@@ -119,7 +119,7 @@ describe("Postgres Token profile store lifecycle resolution", () => {
         };
       }
       if (sql.includes("update token_profiles")) {
-        expect(params).toEqual(["profile_1", "messages_only", JSON.stringify(capabilityMap("messages_only")), expiresAt, now]);
+        expect(params).toEqual(["profile_1", "messages_only", JSON.stringify(capabilityMap("messages_only")), expiresAt, now, now]);
         return { rows: [], rowCount: 1 };
       }
       if (sql.includes("update prism_developer_tokens")) {
@@ -152,6 +152,7 @@ describe("Postgres Token profile store lifecycle resolution", () => {
       preset: "messages_only",
       capabilityMap: capabilityMap("messages_only"),
       expiresAt,
+      policyEffectiveAt: now,
       now,
       rotation: { verifier: { tokenHash: "new-token-hash", algorithm: "hmac-sha256", pepperId: "pepper-v1" } },
       audit: { endpoint: "/v1/prism/token-profiles/profile_1/policy", requestId: "req_policy" }
@@ -329,6 +330,7 @@ function tokenProfileRow({
     capability_map: capabilityMap,
     expires_at: expiresAt,
     status,
+    policy_effective_at: new Date("2026-01-01T00:00:00.000Z"),
     created_at: new Date("2025-12-01T00:00:00.000Z"),
     updated_at: new Date("2026-01-01T00:00:00.000Z"),
     developer_token_created_at: new Date("2025-12-01T00:00:00.000Z"),

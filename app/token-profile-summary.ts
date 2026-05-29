@@ -8,6 +8,10 @@ export type TokenProfileSummary = {
   executionIdentity: "user" | "bot" | "automatic" | "selectable";
   expiresAt: string | null;
   status?: "active" | "revoked";
+  globalPolicyStatus?: {
+    kind: "inside" | "outside";
+    reasons: Array<{ code: string; message: string }>;
+  };
   createdAt: string;
   developerToken?: {
     status: "active" | "expired" | "revoked" | "missing";
@@ -28,6 +32,7 @@ export function toTokenProfileSummary(profile: TokenProfileMetadata): TokenProfi
     executionIdentity: profile.capabilityMap.executionIdentity,
     expiresAt: profile.expiresAt?.toISOString() ?? null,
     status: profile.status,
+    globalPolicyStatus: profile.globalPolicyStatus,
     createdAt: profile.createdAt.toISOString(),
     developerToken: profile.developerToken
       ? {

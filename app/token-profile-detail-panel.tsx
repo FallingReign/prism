@@ -69,6 +69,7 @@ export function TokenProfileDetailWorkspace({
   const [profileAction, setProfileAction] = useState<ProfileAction | null>(null);
   const accessStatus = accessStatusForProfile(profile, slackStatus);
   const inactive = isInactiveTokenProfile(profile);
+  const outsideGlobalPolicy = profile.globalPolicyStatus?.kind === "outside";
   const actionStatus = profileActionStatus(profileAction);
 
   async function onRotate(event: FormEvent<HTMLFormElement>) {
@@ -179,6 +180,11 @@ export function TokenProfileDetailWorkspace({
         badge={<StatusBadge tone={accessStatus.tone}>{accessStatus.label}</StatusBadge>}
       >
         <p className="max-w-2xl text-sm leading-6 text-muted-foreground">{profile.intendedUse}</p>
+        {outsideGlobalPolicy ? (
+          <Notice title="Outside global policy" tone="warning">
+            This existing profile keeps its current token until normal expiry or revocation, but Prism blocks rotation and broadening until the policy is narrowed.
+          </Notice>
+        ) : null}
         <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <Metadata label="Preset" value={presetLabel(profile.preset)} />
           <Metadata label="Execution identity" value={executionIdentityLabel(profile.executionIdentity)} />
@@ -210,7 +216,12 @@ export function TokenProfileDetailWorkspace({
               </p>
               <form className="grid gap-3" onSubmit={onRotate}>
                 <SelectField name="overlap" label="Overlap window" defaultValue="none" options={overlapOptions} />
-                <Button type="submit" disabled={Boolean(profileAction)}>
+                {outsideGlobalPolicy ? (
+                  <Notice title="Rotation blocked" tone="warning">
+                    Narrow this profile inside the Global Token profile policy before issuing replacement developer tokens.
+                  </Notice>
+                ) : null}
+                <Button type="submit" disabled={Boolean(profileAction) || outsideGlobalPolicy}>
                   {profileAction?.kind === "rotate" ? "Rotating..." : "Rotate developer token"}
                 </Button>
               </form>
@@ -324,7 +335,9 @@ export function TokenProfileDetailWorkspace({
         <p className="text-sm leading-6 text-muted-foreground">
           {inactive
             ? "This inactive profile is preserved for review. Delete it permanently when its retained metadata is no longer needed."
-            : "Narrowing takes effect immediately. Broadening capabilities requires explicit confirmation and returns a replacement token once."}
+            : outsideGlobalPolicy
+              ? "Narrow this profile back inside the Global Token profile policy before rotating or broadening developer-token access."
+              : "Narrowing takes effect immediately. Broadening capabilities requires explicit confirmation and returns a replacement token once."}
         </p>
         {inactive ? (
           <Notice title="Policy locked" tone="neutral">
@@ -439,7 +452,8 @@ function toSummary(profile: TokenProfileSummary & { capabilityMap?: { executionI
     expiresAt: profile.expiresAt,
     status: profile.status,
     createdAt: profile.createdAt,
-    developerToken: profile.developerToken
+    developerToken: profile.developerToken,
+    globalPolicyStatus: profile.globalPolicyStatus
   };
 }
 

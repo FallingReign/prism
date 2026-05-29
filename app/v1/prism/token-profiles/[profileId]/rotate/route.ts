@@ -6,6 +6,7 @@ import { isActivityAuditUnavailableError } from "../../../../../../src/server/au
 import { getDeveloperTokenConfig, isSetupRequiredError } from "../../../../../../src/server/config";
 import { database } from "../../../../../../src/server/db";
 import { prismSessionCookieName } from "../../../../../../src/server/slack/oauth-flow";
+import { createPostgresGlobalTokenProfilePolicyStore } from "../../../../../../src/server/token-profiles/global-policy-store";
 import { rotateTokenProfile, type TokenRotationOverlap } from "../../../../../../src/server/token-profiles/service";
 import { createPostgresTokenProfileStore } from "../../../../../../src/server/token-profiles/store";
 
@@ -22,6 +23,7 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
   try {
     const result = await rotateTokenProfile({
       store: createPostgresTokenProfileStore(database),
+      globalPolicyStore: createPostgresGlobalTokenProfilePolicyStore(database),
       sessionToken: request.cookies.get(prismSessionCookieName)?.value,
       profileId,
       overlap: input.overlap,
@@ -31,6 +33,8 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
     if (result.kind === "rotated") {
       return noStoreJson({ profile: result.profile, developerToken: result.developerToken, slackStatus: result.slackStatus }, 200, requestId);
     }
+    if (result.kind === "outside_global_policy") return noStoreJson({ error: result.kind, message: result.message, reasons: result.reasons }, 409, requestId);
+    if (result.kind === "validation_error") return noStoreJson({ error: result.kind, message: result.message }, 400, requestId);
     return noStoreJson({ error: result.kind, message: result.message }, result.kind === "not_found" ? 404 : 401, requestId);
   } catch (error) {
     if (isSetupRequiredError(error)) return noStoreJson({ error: "setup_required" }, 503, requestId);

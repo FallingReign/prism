@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 
+import { buildCurrentGlobalTokenProfilePolicy, type GlobalTokenProfilePolicy } from "./global-policy";
 import { createTokenProfile, deleteTokenProfile, listTokenProfiles, revokeTokenProfile, rotateTokenProfile, updateTokenProfilePolicy, type TokenProfileStore } from "./service";
 
 const now = new Date("2026-01-01T00:00:00.000Z");
 
 function createMemoryStore(): TokenProfileStore & {
   rows: {
-    profiles: unknown[];
-    verifiers: unknown[];
+    profiles: any[];
+    verifiers: any[];
   };
 } {
   const rows = {
@@ -21,16 +22,31 @@ function createMemoryStore(): TokenProfileStore & {
       return { prismUserId: "user_1", slackConnectionId: "conn_1", slackStatus: "healthy" };
     },
     async listProfiles() {
-      return rows.profiles.map(({ tokenHash, ...profile }) => profile);
+      return rows.profiles.map((profile) => {
+        const verifier = rows.verifiers.find((candidate) => candidate.tokenProfileId === profile.id && candidate.isCurrent !== false);
+        return {
+          ...profile,
+          developerToken: verifier
+            ? {
+                status: verifier.revokedAt ? "revoked" : verifier.expiresAt && verifier.expiresAt <= now ? "expired" : "active",
+                createdAt: verifier.createdAt ?? now,
+                expiresAt: verifier.expiresAt ?? null,
+                lastUsedAt: verifier.lastUsedAt ?? null,
+                revokedAt: verifier.revokedAt ?? null,
+                overlapExpiresAt: verifier.overlapExpiresAt ?? null
+              }
+            : { status: "missing" }
+        };
+      });
     },
     async insertProfileWithVerifier(input) {
       if (rows.profiles.some((profile) => profile.prismUserId === input.prismUserId && profile.nameNormalized === input.nameNormalized)) {
         return { kind: "duplicate_name" };
       }
       const { verifier, ...profileInput } = input;
-      const profile = { id: `profile_${rows.profiles.length + 1}`, ...profileInput, createdAt: now, updatedAt: now };
+      const profile = { id: `profile_${rows.profiles.length + 1}`, ...profileInput, policyEffectiveAt: now, createdAt: now, updatedAt: now };
       rows.profiles.push(profile);
-      rows.verifiers.push({ tokenProfileId: profile.id, ...verifier });
+      rows.verifiers.push({ tokenProfileId: profile.id, ...verifier, expiresAt: input.expiresAt, isCurrent: true, createdAt: now });
       return { kind: "created", profile };
     },
     async revokeProfileDeveloperTokens(input) {
@@ -87,6 +103,8 @@ function createMemoryStore(): TokenProfileStore & {
       profile.preset = input.preset;
       profile.capabilityMap = input.capabilityMap;
       profile.expiresAt = input.expiresAt;
+      profile.policyEffectiveAt = input.policyEffectiveAt;
+      profile.updatedAt = input.now;
       if (input.rotation) {
         for (const verifier of rows.verifiers.filter((candidate) => candidate.tokenProfileId === profile.id && !candidate.revokedAt)) {
           verifier.revokedAt = input.now;
@@ -364,4 +382,305 @@ describe("Token profile service", () => {
     expect(JSON.stringify(store.rows)).not.toContain(broadened.developerToken);
     expect(JSON.stringify(store.rows)).not.toContain("pepper-canary");
   });
+
+  it("rejects Token profile creation that exceeds the Global Token profile policy", async () => {
+    const store = createMemoryStore();
+    const result = await createTokenProfile({
+      store,
+      globalPolicyStore: policyReader(
+        buildCurrentGlobalTokenProfilePolicy({
+          presets: { allowed: ["read_only"], default: "read_only" },
+          capabilities: {
+            maximum: {
+              actions: { read: true, search: true, writeMessages: false, reactions: false, filesMetadata: false, destructive: false },
+              surfaces: {
+                publicChannels: true,
+                privateChannels: true,
+                directMessages: true,
+                groupDirectMessages: true,
+                search: true,
+                filesMetadata: false,
+                canvases: false,
+                lists: false,
+                future: false
+              }
+            }
+          }
+        })
+      ),
+      sessionToken: "session-token",
+      developerTokenConfig: { pepper: "pepper-canary", pepperId: "local-pepper" },
+      input: {
+        name: "Message writer",
+        intendedUse: "Post approved messages from a local CLI",
+        preset: "messages_only",
+        executionIdentity: "automatic"
+      },
+      now,
+      randomBytes: () => Buffer.alloc(32, 8)
+    });
+
+    expect(result).toMatchObject({
+      kind: "global_policy_violation",
+      message: "Requested Token profile policy exceeds the Global Token profile policy.",
+      reasons: [
+        { code: "preset_disallowed" },
+        { code: "action_write_messages_exceeds_maximum" },
+        { code: "action_reactions_exceeds_maximum" }
+      ]
+    });
+    expect(store.rows.profiles).toHaveLength(0);
+    expect(store.rows.verifiers).toHaveLength(0);
+    expect(JSON.stringify(result)).not.toMatch(/prism_dev_|tokenHash|pepper-canary/i);
+  });
+
+  it("flags existing profiles Outside global policy without revoking current token metadata", async () => {
+    const store = createMemoryStore();
+    const created = await createTokenProfile({
+      store,
+      sessionToken: "session-token",
+      developerTokenConfig: { pepper: "pepper-canary", pepperId: "local-pepper" },
+      input: {
+        name: "Message writer",
+        intendedUse: "Post approved messages from a local CLI",
+        preset: "messages_only",
+        executionIdentity: "automatic"
+      },
+      now,
+      randomBytes: () => Buffer.alloc(32, 8)
+    });
+    if (created.kind !== "created") throw new Error("expected created profile");
+
+    const listed = await listTokenProfiles({
+      store,
+      globalPolicyStore: policyReader(buildCurrentGlobalTokenProfilePolicy({ presets: { allowed: ["read_only"], default: "read_only" } })),
+      sessionToken: "session-token",
+      now
+    });
+
+    expect(listed).toMatchObject({
+      kind: "profiles",
+      profiles: [
+        {
+          id: created.profile.id,
+          developerToken: { status: "active" },
+          globalPolicyStatus: { kind: "outside", reasons: [{ code: "preset_disallowed" }] }
+        }
+      ]
+    });
+    expect(store.rows.verifiers).toEqual([expect.objectContaining({ tokenProfileId: created.profile.id, isCurrent: true })]);
+  });
+
+  it("blocks rotation for Outside global policy profiles until they are narrowed", async () => {
+    const store = createMemoryStore();
+    const created = await createTokenProfile({
+      store,
+      sessionToken: "session-token",
+      developerTokenConfig: { pepper: "pepper-canary", pepperId: "local-pepper" },
+      input: {
+        name: "Message writer",
+        intendedUse: "Post approved messages from a local CLI",
+        preset: "messages_only",
+        executionIdentity: "automatic"
+      },
+      now,
+      randomBytes: () => Buffer.alloc(32, 8)
+    });
+    if (created.kind !== "created") throw new Error("expected created profile");
+    const tightenedPolicy = policyReader(
+      buildCurrentGlobalTokenProfilePolicy({
+        presets: { allowed: ["read_only", "custom"], default: "read_only" },
+        capabilities: {
+          defaults: {
+            actions: { read: true, search: false, writeMessages: false, reactions: false, filesMetadata: false, destructive: false },
+            surfaces: {
+              publicChannels: true,
+              privateChannels: true,
+              directMessages: true,
+              groupDirectMessages: true,
+              search: false,
+              filesMetadata: false,
+              canvases: false,
+              lists: false,
+              future: false
+            }
+          },
+          maximum: {
+            actions: { read: true, search: false, writeMessages: false, reactions: false, filesMetadata: false, destructive: false },
+            surfaces: {
+              publicChannels: true,
+              privateChannels: true,
+              directMessages: true,
+              groupDirectMessages: true,
+              search: false,
+              filesMetadata: false,
+              canvases: false,
+              lists: false,
+              future: false
+            }
+          }
+        }
+      })
+    );
+
+    const blocked = await rotateTokenProfile({
+      store,
+      globalPolicyStore: tightenedPolicy,
+      sessionToken: "session-token",
+      profileId: created.profile.id,
+      overlap: "none",
+      developerTokenConfig: { pepper: "pepper-canary", pepperId: "local-pepper" },
+      now,
+      randomBytes: () => Buffer.alloc(32, 9)
+    });
+    const narrowed = await updateTokenProfilePolicy({
+      store,
+      globalPolicyStore: tightenedPolicy,
+      sessionToken: "session-token",
+      profileId: created.profile.id,
+      input: {
+        name: "Message writer",
+        intendedUse: "Post approved messages from a local CLI",
+        preset: "custom",
+        executionIdentity: "automatic",
+        custom: { read: true, search: false, writeMessages: false, reactions: false, filesMetadata: false, destructive: false }
+      },
+      now
+    });
+
+    expect(blocked).toMatchObject({
+      kind: "outside_global_policy",
+      message: "Narrow this Token profile inside the Global Token profile policy before rotating or broadening it."
+    });
+    expect(narrowed).toMatchObject({ kind: "updated", change: "narrowing", profile: { globalPolicyStatus: { kind: "inside" } } });
+    expect(store.rows.verifiers).toHaveLength(1);
+  });
+
+  it("does not let unrelated profile updates reset expiry compliance", async () => {
+    const store = createMemoryStore();
+    const created = await createTokenProfile({
+      store,
+      sessionToken: "session-token",
+      developerTokenConfig: { pepper: "pepper-canary", pepperId: "local-pepper" },
+      input: {
+        name: "Message writer",
+        intendedUse: "Post approved messages from a local CLI",
+        preset: "messages_only",
+        executionIdentity: "automatic"
+      },
+      now,
+      randomBytes: () => Buffer.alloc(32, 8)
+    });
+    if (created.kind !== "created") throw new Error("expected created profile");
+    store.rows.profiles[0]!.updatedAt = new Date("2026-03-20T00:00:00.000Z");
+
+    const listed = await listTokenProfiles({
+      store,
+      globalPolicyStore: policyReader(buildCurrentGlobalTokenProfilePolicy({ expiry: { maximumDays: { readOnly: null, nonDestructive: 30, destructive: 30 } } })),
+      sessionToken: "session-token",
+      now: new Date("2026-03-20T00:00:00.000Z")
+    });
+
+    expect(listed).toMatchObject({
+      kind: "profiles",
+      profiles: [
+        {
+          id: created.profile.id,
+          globalPolicyStatus: { kind: "outside", reasons: [{ code: "expiry_exceeds_maximum" }] }
+        }
+      ]
+    });
+  });
+
+  it("allows Outside global policy profiles to apply narrowing without resetting unchanged expiry compliance", async () => {
+    const store = createMemoryStore();
+    const created = await createTokenProfile({
+      store,
+      sessionToken: "session-token",
+      developerTokenConfig: { pepper: "pepper-canary", pepperId: "local-pepper" },
+      input: {
+        name: "Read-only context",
+        intendedUse: "Read approved Slack context from a local CLI",
+        preset: "read_only",
+        executionIdentity: "selectable"
+      },
+      now,
+      randomBytes: () => Buffer.alloc(32, 8)
+    });
+    if (created.kind !== "created") throw new Error("expected created profile");
+    const updateNow = new Date("2026-02-01T00:00:00.000Z");
+
+    const narrowed = await updateTokenProfilePolicy({
+      store,
+      globalPolicyStore: policyReader(buildCurrentGlobalTokenProfilePolicy({ expiry: { allowNoExpiryForReadOnly: false } })),
+      sessionToken: "session-token",
+      profileId: created.profile.id,
+      input: {
+        name: "Read-only context",
+        intendedUse: "Read approved Slack context from a local CLI",
+        preset: "read_only",
+        executionIdentity: "automatic"
+      },
+      now: updateNow
+    });
+
+    expect(narrowed).toMatchObject({
+      kind: "updated",
+      change: "narrowing",
+      profile: {
+        globalPolicyStatus: { kind: "outside", reasons: [{ code: "no_expiry_disallowed" }] }
+      }
+    });
+    expect(store.rows.profiles[0]!.policyEffectiveAt).toEqual(now);
+  });
+
+  it("uses the current policy effective timestamp for expiry compliance instead of original profile age", async () => {
+    const store = createMemoryStore();
+    const created = await createTokenProfile({
+      store,
+      sessionToken: "session-token",
+      developerTokenConfig: { pepper: "pepper-canary", pepperId: "local-pepper" },
+      input: {
+        name: "Message writer",
+        intendedUse: "Post approved messages from a local CLI",
+        preset: "messages_only",
+        executionIdentity: "automatic"
+      },
+      now,
+      randomBytes: () => Buffer.alloc(32, 8)
+    });
+
+    if (created.kind !== "created") throw new Error("expected created profile");
+    store.rows.profiles[0]!.policyEffectiveAt = new Date("2026-03-15T00:00:00.000Z");
+    store.rows.profiles[0]!.updatedAt = new Date("2026-03-20T00:00:00.000Z");
+
+    const listed = await listTokenProfiles({
+      store,
+      globalPolicyStore: policyReader(buildCurrentGlobalTokenProfilePolicy({ expiry: { maximumDays: { readOnly: null, nonDestructive: 30, destructive: 30 } } })),
+      sessionToken: "session-token",
+      now: new Date("2026-03-20T00:00:00.000Z")
+    });
+
+    expect(listed).toMatchObject({
+      kind: "profiles",
+      profiles: [
+        {
+          id: created.profile.id,
+          globalPolicyStatus: { kind: "inside" }
+        }
+      ]
+    });
+  });
 });
+
+function dateTime(value: Date | null | undefined): number | null {
+  return value instanceof Date ? value.getTime() : null;
+}
+
+function policyReader(policy: GlobalTokenProfilePolicy) {
+  return {
+    async readGlobalTokenProfilePolicy() {
+      return { policy, version: 1, updatedByPrismUserId: null, updatedAt: null };
+    }
+  };
+}

@@ -5,6 +5,7 @@ import { toActivityAuditSummary, type ActivityAuditSummary } from "../src/server
 import { database } from "../src/server/db";
 import { prismSessionCookieName } from "../src/server/slack/oauth-flow";
 import { getSlackLinkStatusWithDisplayNameEnrichment } from "../src/server/slack/connection-status";
+import { createPostgresGlobalTokenProfilePolicyStore } from "../src/server/token-profiles/global-policy-store";
 import { listTokenProfiles } from "../src/server/token-profiles/service";
 import { createPostgresTokenProfileStore } from "../src/server/token-profiles/store";
 import { ActivityAuditPanel } from "./activity-audit-panel";
@@ -121,6 +122,7 @@ async function readSlackWebsiteStatus(sessionToken: string | undefined): Promise
 async function readTokenProfileSummaries(sessionToken: string | undefined): Promise<TokenProfileSummary[]> {
   const result = await listTokenProfiles({
     store: createPostgresTokenProfileStore(database),
+    globalPolicyStore: createPostgresGlobalTokenProfilePolicyStore(database),
     sessionToken
   });
   if (result.kind !== "profiles") return [];

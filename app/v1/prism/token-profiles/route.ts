@@ -5,6 +5,7 @@ import { createPostgresActivityAuditStore, isActivityAuditUnavailableError } fro
 import { getDeveloperTokenConfig, isSetupRequiredError } from "../../../../src/server/config";
 import { database } from "../../../../src/server/db";
 import { prismSessionCookieName } from "../../../../src/server/slack/oauth-flow";
+import { createPostgresGlobalTokenProfilePolicyStore } from "../../../../src/server/token-profiles/global-policy-store";
 import { createTokenProfile, listTokenProfiles, type CreateTokenProfileInput } from "../../../../src/server/token-profiles/service";
 import { createPostgresTokenProfileStore } from "../../../../src/server/token-profiles/store";
 
@@ -15,6 +16,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const store = createPostgresTokenProfileStore(database);
   const result = await listTokenProfiles({
     store,
+    globalPolicyStore: createPostgresGlobalTokenProfilePolicyStore(database),
     sessionToken: request.cookies.get(prismSessionCookieName)?.value
   });
   if (result.kind !== "profiles") {
@@ -41,6 +43,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   try {
     const result = await createTokenProfile({
       store: createPostgresTokenProfileStore(database),
+      globalPolicyStore: createPostgresGlobalTokenProfilePolicyStore(database),
       sessionToken: request.cookies.get(prismSessionCookieName)?.value,
       developerTokenConfig: getDeveloperTokenConfig(),
       input,
@@ -59,6 +62,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       );
     }
     if (result.kind === "validation_error") return noStoreJson({ error: result.kind, message: result.message }, 400, requestId);
+    if (result.kind === "global_policy_violation") return noStoreJson({ error: result.kind, message: result.message, reasons: result.reasons }, 400, requestId);
     if (result.kind === "duplicate_name") return noStoreJson({ error: result.kind }, 409, requestId);
     return noStoreJson({ error: result.kind }, 401, requestId);
   } catch (error) {

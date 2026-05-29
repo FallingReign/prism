@@ -2,6 +2,17 @@ import "server-only";
 
 import type { DeveloperTokenConfig, DeveloperTokenVerifier } from "./developer-token";
 import { hashDeveloperToken, issueDeveloperToken } from "./developer-token";
+import {
+  applyGlobalTokenProfilePolicyDefaults,
+  buildCurrentGlobalTokenProfilePolicy,
+  classifyGlobalTokenProfilePolicyStatus,
+  validateRequestedTokenProfilePolicy,
+  validateRotationOverlap,
+  type GlobalPolicyReason,
+  type GlobalPolicyStatus,
+  type GlobalTokenProfilePolicy
+} from "./global-policy";
+import type { GlobalTokenProfilePolicyStore } from "./global-policy-store";
 import { buildTokenProfilePolicy, type CapabilityMap, type ExecutionIdentity, type ExperimentTtl, type TokenProfilePreset } from "./presets";
 
 export type CreateTokenProfileInput = {
@@ -35,6 +46,8 @@ export type TokenProfileMetadata = {
   expiresAt: Date | null;
   status: "active" | "revoked";
   developerToken?: TokenProfileDeveloperTokenMetadata;
+  globalPolicyStatus: GlobalPolicyStatus;
+  policyEffectiveAt: Date;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -94,6 +107,7 @@ export type TokenProfileStore = {
     preset: TokenProfilePreset;
     capabilityMap: CapabilityMap;
     expiresAt: Date | null;
+    policyEffectiveAt: Date;
     now: Date;
     rotation?: { verifier: DeveloperTokenVerifier };
     audit?: { endpoint: string; requestId: string };
@@ -107,8 +121,11 @@ export type TokenProfileStore = {
   }): Promise<{ kind: "deleted"; profile: TokenProfileMetadata } | { kind: "not_found" | "conflict" }>;
 };
 
+type GlobalPolicyReader = Pick<GlobalTokenProfilePolicyStore, "readGlobalTokenProfilePolicy">;
+
 export async function createTokenProfile({
   store,
+  globalPolicyStore,
   sessionToken,
   developerTokenConfig,
   input,
@@ -117,6 +134,7 @@ export async function createTokenProfile({
   randomBytes
 }: {
   store: TokenProfileStore;
+  globalPolicyStore?: GlobalPolicyReader;
   sessionToken: string | undefined;
   developerTokenConfig: DeveloperTokenConfig;
   input: CreateTokenProfileInput;
@@ -126,15 +144,28 @@ export async function createTokenProfile({
 }): Promise<
   | { kind: "created"; profile: TokenProfileMetadata; developerToken: string; slackStatus: TokenProfileOwner["slackStatus"] }
   | { kind: "unauthenticated" | "not_linked" | "duplicate_name" }
+  | { kind: "global_policy_violation"; message: string; reasons: GlobalPolicyReason[] }
   | { kind: "validation_error"; message: string }
 > {
   const owner = await resolveOwner(store, sessionToken, now);
   if (owner.kind !== "owner") return owner;
 
-  const parsed = validateInput(input);
+  const globalPolicy = await readGlobalPolicy(globalPolicyStore);
+  const parsed = validateInput(applyGlobalTokenProfilePolicyDefaults(input, globalPolicy));
   if (parsed.kind === "validation_error") return parsed;
 
   const policy = buildTokenProfilePolicy(parsed.input, now);
+  const globalValidation = validateRequestedTokenProfilePolicy({
+    input: parsed.input,
+    capabilityMap: policy.capabilityMap,
+    expiresAt: policy.expiresAt,
+    policyEffectiveAt: now,
+    policy: globalPolicy
+  });
+  if (globalValidation.kind === "blocked") {
+    return { kind: globalValidation.code, message: globalValidation.message, reasons: globalValidation.reasons };
+  }
+
   const developerToken = issueDeveloperToken({ randomBytes });
   const verifier = hashDeveloperToken(developerToken, developerTokenConfig);
   const result = await store.insertProfileWithVerifier({
@@ -152,15 +183,17 @@ export async function createTokenProfile({
   });
 
   if (result.kind === "duplicate_name") return { kind: "duplicate_name" };
-  return { kind: "created", profile: result.profile, developerToken, slackStatus: owner.owner.slackStatus };
+  return { kind: "created", profile: withGlobalPolicyStatus(result.profile, globalPolicy), developerToken, slackStatus: owner.owner.slackStatus };
 }
 
 export async function listTokenProfiles({
   store,
+  globalPolicyStore,
   sessionToken,
   now = new Date()
 }: {
   store: TokenProfileStore;
+  globalPolicyStore?: GlobalPolicyReader;
   sessionToken: string | undefined;
   now?: Date;
 }): Promise<
@@ -168,7 +201,13 @@ export async function listTokenProfiles({
 > {
   const owner = await resolveOwner(store, sessionToken, now);
   if (owner.kind !== "owner") return owner;
-  return { kind: "profiles", owner: owner.owner, profiles: await store.listProfiles(owner.owner), slackStatus: owner.owner.slackStatus };
+  const globalPolicy = await readGlobalPolicy(globalPolicyStore);
+  return {
+    kind: "profiles",
+    owner: owner.owner,
+    profiles: (await store.listProfiles(owner.owner)).map((profile) => withGlobalPolicyStatus(profile, globalPolicy)),
+    slackStatus: owner.owner.slackStatus
+  };
 }
 
 export async function revokeTokenProfile({
@@ -225,6 +264,7 @@ export async function deleteTokenProfile({
 
 export async function rotateTokenProfile({
   store,
+  globalPolicyStore,
   sessionToken,
   profileId,
   overlap,
@@ -234,6 +274,7 @@ export async function rotateTokenProfile({
   randomBytes
 }: {
   store: TokenProfileStore;
+  globalPolicyStore?: GlobalPolicyReader;
   sessionToken: string | undefined;
   profileId: string;
   overlap: TokenRotationOverlap;
@@ -244,9 +285,18 @@ export async function rotateTokenProfile({
 }): Promise<
   | { kind: "rotated"; profile: TokenProfileMetadata; developerToken: string; slackStatus: TokenProfileOwner["slackStatus"] }
   | { kind: "unauthenticated" | "not_linked" | "not_found" | "validation_error"; message?: string }
+  | { kind: "outside_global_policy"; message: string; reasons: GlobalPolicyReason[] }
 > {
   const owner = await resolveOwner(store, sessionToken, now);
   if (owner.kind !== "owner") return owner;
+  const globalPolicy = await readGlobalPolicy(globalPolicyStore);
+  const current = (await store.listProfiles(owner.owner)).find((profile) => profile.id === profileId);
+  if (!current || current.status !== "active") return { kind: "not_found" };
+  const currentGlobalStatus = classifyGlobalTokenProfilePolicyStatus(toGlobalPolicyCandidate(current), globalPolicy);
+  if (currentGlobalStatus.kind === "outside") return outsideGlobalPolicyBlocked(currentGlobalStatus.reasons);
+  const overlapValidation = validateRotationOverlap(overlap, globalPolicy);
+  if (overlapValidation.kind === "blocked") return { kind: "validation_error", message: overlapValidation.message };
+
   const overlapExpiresAt = rotationOverlapExpiresAt(overlap, now);
   const developerToken = issueDeveloperToken({ randomBytes });
   const verifier = hashDeveloperToken(developerToken, developerTokenConfig);
@@ -261,11 +311,12 @@ export async function rotateTokenProfile({
     audit
   });
   if (result.kind === "not_found") return result;
-  return { kind: "rotated", profile: result.profile, developerToken, slackStatus: owner.owner.slackStatus };
+  return { kind: "rotated", profile: withGlobalPolicyStatus(result.profile, globalPolicy), developerToken, slackStatus: owner.owner.slackStatus };
 }
 
 export async function updateTokenProfilePolicy({
   store,
+  globalPolicyStore,
   sessionToken,
   profileId,
   input,
@@ -276,6 +327,7 @@ export async function updateTokenProfilePolicy({
   randomBytes
 }: {
   store: TokenProfileStore;
+  globalPolicyStore?: GlobalPolicyReader;
   sessionToken: string | undefined;
   profileId: string;
   input: CreateTokenProfileInput;
@@ -288,11 +340,14 @@ export async function updateTokenProfilePolicy({
   | { kind: "updated"; change: "narrowing" | "broadening" | "unchanged"; profile: TokenProfileMetadata; developerToken?: string; slackStatus: TokenProfileOwner["slackStatus"] }
   | { kind: "rotation_required"; change: "broadening"; message: string }
   | { kind: "validation_error"; message: string }
+  | { kind: "global_policy_violation"; message: string; reasons: GlobalPolicyReason[] }
+  | { kind: "outside_global_policy"; message: string; reasons: GlobalPolicyReason[] }
   | { kind: "unauthenticated" | "not_linked" | "not_found" }
 > {
   const owner = await resolveOwner(store, sessionToken, now);
   if (owner.kind !== "owner") return owner;
-  const parsed = validateInput(input);
+  const globalPolicy = await readGlobalPolicy(globalPolicyStore);
+  const parsed = validateInput(applyGlobalTokenProfilePolicyDefaults(input, globalPolicy));
   if (parsed.kind === "validation_error") return parsed;
   const currentProfiles = await store.listProfiles(owner.owner);
   const current = currentProfiles.find((profile) => profile.id === profileId);
@@ -300,6 +355,23 @@ export async function updateTokenProfilePolicy({
 
   const nextPolicy = buildTokenProfilePolicy(parsed.input, now);
   const change = classifyPolicyChange(current.capabilityMap, current.expiresAt, nextPolicy.capabilityMap, nextPolicy.expiresAt);
+  const currentGlobalStatus = classifyGlobalTokenProfilePolicyStatus(toGlobalPolicyCandidate(current), globalPolicy);
+  if (currentGlobalStatus.kind === "outside") {
+    if (change !== "narrowing") {
+      return outsideGlobalPolicyBlocked(currentGlobalStatus.reasons);
+    }
+  } else {
+    const nextGlobalValidation = validateRequestedTokenProfilePolicy({
+      input: parsed.input,
+      capabilityMap: nextPolicy.capabilityMap,
+      expiresAt: nextPolicy.expiresAt,
+      policyEffectiveAt: now,
+      policy: globalPolicy
+    });
+    if (nextGlobalValidation.kind === "blocked") {
+      return { kind: nextGlobalValidation.code, message: nextGlobalValidation.message, reasons: nextGlobalValidation.reasons };
+    }
+  }
   if (change === "broadening" && !confirmBroadening) {
     return { kind: "rotation_required", change, message: "Capability broadening requires token rotation." };
   }
@@ -317,12 +389,13 @@ export async function updateTokenProfilePolicy({
     preset: parsed.input.preset,
     capabilityMap: nextPolicy.capabilityMap,
     expiresAt: nextPolicy.expiresAt,
+    policyEffectiveAt: sameDateTime(current.expiresAt, nextPolicy.expiresAt) ? current.policyEffectiveAt : now,
     now,
     rotation,
     audit
   });
   if (result.kind === "not_found") return result;
-  return { kind: "updated", change, profile: result.profile, developerToken, slackStatus: owner.owner.slackStatus };
+  return { kind: "updated", change, profile: withGlobalPolicyStatus(result.profile, globalPolicy), developerToken, slackStatus: owner.owner.slackStatus };
 }
 
 async function resolveOwner(
@@ -350,6 +423,34 @@ function validateInput(input: CreateTokenProfileInput): { kind: "valid"; input: 
     return { kind: "validation_error", message: "Choose a supported experiment expiry." };
   }
   return { kind: "valid", input: { ...input, name, intendedUse } };
+}
+
+async function readGlobalPolicy(store: GlobalPolicyReader | undefined): Promise<GlobalTokenProfilePolicy> {
+  return store ? (await store.readGlobalTokenProfilePolicy()).policy : buildCurrentGlobalTokenProfilePolicy();
+}
+
+function withGlobalPolicyStatus(profile: TokenProfileMetadata, policy: GlobalTokenProfilePolicy): TokenProfileMetadata {
+  return {
+    ...profile,
+    globalPolicyStatus: classifyGlobalTokenProfilePolicyStatus(toGlobalPolicyCandidate(profile), policy)
+  };
+}
+
+function toGlobalPolicyCandidate(profile: TokenProfileMetadata) {
+  return {
+    preset: profile.preset,
+    capabilityMap: profile.capabilityMap,
+    expiresAt: profile.expiresAt,
+    policyEffectiveAt: profile.policyEffectiveAt
+  };
+}
+
+function outsideGlobalPolicyBlocked(reasons: GlobalPolicyReason[]): { kind: "outside_global_policy"; message: string; reasons: GlobalPolicyReason[] } {
+  return {
+    kind: "outside_global_policy",
+    message: "Narrow this Token profile inside the Global Token profile policy before rotating or broadening it.",
+    reasons
+  };
 }
 
 function normalizeName(name: string): string {
@@ -407,4 +508,9 @@ function classifyExpiryChange(current: Date | null, next: Date | null): "narrowi
   if (next.getTime() < current.getTime()) return "narrowing";
   if (next.getTime() > current.getTime()) return "broadening";
   return "unchanged";
+}
+
+function sameDateTime(left: Date | null, right: Date | null): boolean {
+  if (left === null || right === null) return left === right;
+  return left.getTime() === right.getTime();
 }

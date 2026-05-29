@@ -253,6 +253,7 @@ export function TokenProfilesPanel({
                   </Link>
                   <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                     <StatusBadge tone={accessStatus.tone}>{accessStatus.label}</StatusBadge>
+                    {profile.globalPolicyStatus?.kind === "outside" ? <StatusBadge tone="warning">Outside global policy</StatusBadge> : null}
                     {inactive ? null : (
                       <>
                         <Button type="button" variant="danger" onClick={() => setRemoveProfileId(profile.id)}>
@@ -369,7 +370,8 @@ function toSummary(profile: TokenProfileSummary & { capabilityMap?: { executionI
     expiresAt: profile.expiresAt,
     status: profile.status,
     createdAt: profile.createdAt,
-    developerToken: profile.developerToken
+    developerToken: profile.developerToken,
+    globalPolicyStatus: profile.globalPolicyStatus
   };
 }
 

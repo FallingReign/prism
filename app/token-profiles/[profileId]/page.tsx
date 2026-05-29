@@ -5,6 +5,7 @@ import { createPostgresActivityAuditStore } from "../../../src/server/audit/post
 import { toActivityAuditSummary } from "../../../src/server/audit/presentation";
 import { database } from "../../../src/server/db";
 import { prismSessionCookieName } from "../../../src/server/slack/oauth-flow";
+import { createPostgresGlobalTokenProfilePolicyStore } from "../../../src/server/token-profiles/global-policy-store";
 import { listTokenProfiles } from "../../../src/server/token-profiles/service";
 import { createPostgresTokenProfileStore } from "../../../src/server/token-profiles/store";
 import { TokenProfileDetailWorkspace } from "../../token-profile-detail-panel";
@@ -23,6 +24,7 @@ export default async function TokenProfileDetailPage({ params }: TokenProfileDet
   const sessionToken = cookieStore.get(prismSessionCookieName)?.value;
   const profilesResult = await listTokenProfiles({
     store: createPostgresTokenProfileStore(database),
+    globalPolicyStore: createPostgresGlobalTokenProfilePolicyStore(database),
     sessionToken
   });
 

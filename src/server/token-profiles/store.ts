@@ -48,10 +48,10 @@ export function createPostgresTokenProfileStore(database: Database): TokenProfil
 
           const profile = await tx.query<TokenProfileRow>(
             `insert into token_profiles
-               (id, prism_user_id, slack_connection_id, name, name_normalized, intended_use, preset, capability_map, expires_at, status)
-             values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10)
+                (id, prism_user_id, slack_connection_id, name, name_normalized, intended_use, preset, capability_map, expires_at, status, policy_effective_at)
+              values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9, $10, now())
              returning id, prism_user_id, slack_connection_id, name, name_normalized, intended_use, preset,
-                       capability_map, expires_at, status, created_at, updated_at`,
+                        capability_map, expires_at, status, policy_effective_at, created_at, updated_at`,
             [
               randomUUID(),
               input.prismUserId,
@@ -306,9 +306,10 @@ export function createPostgresTokenProfileStore(database: Database): TokenProfil
            set preset = $2,
                capability_map = $3::jsonb,
                expires_at = $4,
-               updated_at = $5
+               policy_effective_at = $5,
+               updated_at = $6
            where id = $1`,
-          [input.profileId, input.preset, JSON.stringify(input.capabilityMap), input.expiresAt, input.now]
+          [input.profileId, input.preset, JSON.stringify(input.capabilityMap), input.expiresAt, input.policyEffectiveAt, input.now]
         );
 
         if (input.rotation) {
@@ -434,6 +435,7 @@ type TokenProfileRow = {
   capability_map: CapabilityMap;
   expires_at: Date | null;
   status: "active" | "bootstrap" | "revoked";
+  policy_effective_at?: Date | null;
   created_at: Date;
   updated_at: Date;
   developer_token_created_at?: Date | null;
@@ -481,6 +483,8 @@ function toTokenProfileMetadata(row: TokenProfileRow): TokenProfileMetadata {
     expiresAt: row.expires_at,
     status: row.status === "revoked" ? "revoked" : "active",
     developerToken: toDeveloperTokenMetadata(row),
+    globalPolicyStatus: { kind: "inside", reasons: [] },
+    policyEffectiveAt: row.policy_effective_at ?? row.updated_at ?? row.created_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -554,6 +558,7 @@ function tokenProfileMetadataSelect(): string {
             p.capability_map,
             p.expires_at,
             p.status,
+            p.policy_effective_at,
             p.created_at,
             p.updated_at,
             t.created_at as developer_token_created_at,
