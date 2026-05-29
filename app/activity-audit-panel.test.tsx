@@ -133,6 +133,45 @@ describe("Prism website activity audit panel", () => {
     expect(html).not.toMatch(/prism_dev_|tokenHash|xox[bp]-|refresh-secret|client_secret|access_token/i);
   });
 
+  it("labels admin Slack connection removal with actor and reason metadata", () => {
+    const html = renderToStaticMarkup(
+      <ActivityAuditPanel
+        activity={[
+          {
+            id: "audit_admin_remove",
+            occurredAt: "2026-01-05T00:00:00.000Z",
+            activityType: "admin_slack_connection_removed",
+            status: "deleted",
+            tokenProfileId: null,
+            tokenProfileName: null,
+            slackMethod: null,
+            actionCategory: null,
+            surface: null,
+            objectType: "slack_connection",
+            objectId: "conn_1",
+            executionMode: null,
+            errorClass: null,
+            httpStatus: 200,
+            upstreamCalled: false,
+            requestId: "req_admin_remove",
+            adminActorPrismUserId: "admin_user",
+            adminActorSlackUserId: "U_ADMIN",
+            adminActorSlackDisplayName: "Ada Admin",
+            adminReason: "Security offboarding refresh_token"
+          }
+        ]}
+      />
+    );
+
+    expect(html).toContain("Admin removed Slack connection");
+    expect(html).toContain("Admin:");
+    expect(html).toContain("Ada Admin (U_ADMIN)");
+    expect(html).toContain("Reason:");
+    expect(html).toContain("Security offboarding [redacted]");
+    expect(html).toContain("Prism handled");
+    expect(html).not.toMatch(/prism_dev_|tokenHash|xox[bp]-|refresh-secret|client_secret|access_token|refresh_token/i);
+  });
+
   it("redacts credential-shaped canaries from visible audit metadata", () => {
     const html = renderToStaticMarkup(
       <ActivityAuditPanel

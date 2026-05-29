@@ -54,7 +54,7 @@ describe("Postgres admin user directory store", () => {
     const sql = String(database.query.mock.calls[0]?.[0]);
     const params = database.query.mock.calls[0]?.[1];
     expect(sql).toContain("latest_connection");
-    expect(sql).toContain("lc.enterprise_id = $1");
+    expect(sql).toContain("coalesce(lc.enterprise_id, lsa.slack_enterprise_id, u.slack_enterprise_id) = $1");
     expect(sql).toContain("limit $2");
     expect(sql).not.toMatch(/slack_credentials|access_token_envelope|refresh_token_envelope|token_hash|pepper_id|payload|body|content/i);
     expect(params).toEqual(["E_TARGET", 25]);
@@ -156,7 +156,7 @@ describe("Postgres admin user directory store", () => {
       profiles: [{ id: "profile_1", executionIdentity: "automatic", developerToken: { status: "active" } }],
       activity: [{ id: "activity_1", slackMethod: "conversations.list", adminActorSlackUserId: "U_ADMIN", adminReason: "Security review" }]
     });
-    expect(String(database.query.mock.calls[0]?.[0])).toContain("lc.team_id = $1");
+    expect(String(database.query.mock.calls[0]?.[0])).toContain("coalesce(lc.team_id, lsa.slack_team_id, u.slack_team_id) = $1");
     expect(database.query.mock.calls[0]?.[1]).toEqual(["T_TARGET", "target_user", 1]);
     expect(String(database.query.mock.calls[1]?.[0])).not.toMatch(/token_hash|pepper_id|access_token_envelope|refresh_token_envelope/i);
     expect(String(database.query.mock.calls[1]?.[0])).toContain("limit $3");
@@ -173,6 +173,98 @@ describe("Postgres admin user directory store", () => {
         activityLimit: 5
       })
     ).resolves.toBeNull();
+  });
+
+  it("keeps disconnected Prism users visible in scope from retained metadata and loads their audit by user", async () => {
+    const database = databaseWithResults([
+      {
+        rows: [
+          {
+            prism_user_id: "target_user",
+            slack_user_id: "U_TARGET",
+            slack_user_display_name: null,
+            team_id: "T_TARGET",
+            team_name: null,
+            enterprise_id: null,
+            enterprise_name: null,
+            slack_connection_id: null,
+            slack_connection_status: "not_linked",
+            slack_connection_last_error_class: null,
+            slack_connection_updated_at: null,
+            token_profile_active_count: 0,
+            token_profile_revoked_count: 0,
+            active_developer_token_count: 0,
+            expired_developer_token_count: 0,
+            revoked_developer_token_count: 0,
+            latest_activity_at: new Date("2026-02-02T12:05:00.000Z")
+          }
+        ],
+        rowCount: 1
+      },
+      { rows: [], rowCount: 0 },
+      {
+        rows: [
+          {
+            id: "activity_admin_remove",
+            prism_user_id: "target_user",
+            slack_connection_id: null,
+            token_profile_id: null,
+            token_profile_name: null,
+            slack_user_id: "U_TARGET",
+            slack_team_id: "T_TARGET",
+            slack_enterprise_id: null,
+            activity_type: "admin_slack_connection_removed",
+            endpoint: "/v1/prism/admin/users/target_user/slack-connection",
+            slack_method: null,
+            action_category: null,
+            surface: null,
+            object_type: "slack_connection",
+            object_id: "conn_1",
+            execution_mode: null,
+            status: "deleted",
+            error_class: null,
+            http_status: 200,
+            request_id: "req_admin_remove",
+            upstream_called: false,
+            occurred_at: new Date("2026-02-02T12:05:00.000Z"),
+            retention_expires_at: new Date("2026-05-02T12:05:00.000Z"),
+            admin_actor_prism_user_id: "admin_user",
+            admin_actor_slack_user_id: "U_ADMIN",
+            admin_actor_slack_display_name: "Ada Admin",
+            admin_reason: "Security offboarding"
+          }
+        ],
+        rowCount: 1
+      }
+    ]);
+
+    const detail = await createPostgresAdminUserDirectoryStore(database).getUserDetail({
+      scope: { kind: "team", teamId: "T_TARGET" },
+      userId: "target_user",
+      profileLimit: 10,
+      activityLimit: 5
+    });
+
+    expect(detail).toMatchObject({
+      user: {
+        prismUserId: "target_user",
+        slackUser: { id: "U_TARGET", displayName: null },
+        team: { id: "T_TARGET", name: null },
+        slackConnection: { id: null, status: "not_linked", updatedAt: null },
+        tokenProfiles: { activeCount: 0, activeDeveloperTokenCount: 0 }
+      },
+      profiles: [],
+      activity: [{ id: "activity_admin_remove", activityType: "admin_slack_connection_removed", adminReason: "Security offboarding" }]
+    });
+
+    const directorySql = String(database.query.mock.calls[0]?.[0]);
+    expect(directorySql).toContain("left join latest_connection");
+    expect(directorySql).toContain("coalesce(lc.team_id, lsa.slack_team_id, u.slack_team_id) = $1");
+    expect(database.query.mock.calls[0]?.[1]).toEqual(["T_TARGET", "target_user", 1]);
+    expect(String(database.query.mock.calls[1]?.[0])).toContain("limit $3");
+    expect(database.query.mock.calls[1]?.[1]).toEqual(["target_user", null, 10]);
+    expect(String(database.query.mock.calls[2]?.[0])).toContain("($2::text is null or slack_connection_id = $2)");
+    expect(database.query.mock.calls[2]?.[1]).toEqual(["target_user", null, 5]);
   });
 });
 

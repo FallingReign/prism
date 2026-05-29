@@ -112,6 +112,10 @@ _Avoid_: Deleted profile, revoked Prism token
 The Prism website action that hard-deletes Prism's local Slack connection after explicit warning, including server-held Slack credentials, dependent Token profiles, and local-tool access, so the user starts again from a fresh Slack authorization. It does not uninstall the Slack app or imply Slack-admin removal.
 _Avoid_: Reauth, temporary disable, remove one Token profile, uninstall Slack app
 
+**Disconnected Prism user**:
+A Prism user whose local Slack connection has been removed while the Prism user record and session owner remain. Prism admins can still see the user in scoped admin directory/detail surfaces when retained Slack identity metadata or Admin action audit metadata places the user inside the admin's scope.
+_Avoid_: Deleted user, anonymous orphan, unscoped audit subject
+
 **Expand Slack connection**:
 The Prism website action, labelled as changing Slack authorization, that sends the user back through Slack authorization to choose a broader installation target, such as another workspace or an Enterprise Grid org-wide installation, without treating it as a delete/reset flow.
 _Avoid_: Disconnect, delete connection, change Token profile policy
@@ -132,6 +136,7 @@ _Avoid_: Disconnect, delete connection, change Token profile policy
 - **Remove Slack connection** is a destructive local Prism reset and starts the Slack link over; **Expand Slack connection** is a Slack-owned reauthorization path for broader Slack installation scope.
 - A **Prism admin** is identified by Slack identity for Prism authorization purposes; being a **Prism admin** does not imply Slack administration authority.
 - A **Prism admin** may revoke or delete another **Prism user**'s visible retained Token profiles and remove that user's current local Slack connection only through explicit confirmation and **Admin action audit**.
+- Removing a **Prism user**'s local Slack connection produces a **Disconnected Prism user**, not a deleted user, when retained Prism metadata still proves admin scope.
 
 ## Example dialogue
 

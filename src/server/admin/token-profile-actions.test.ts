@@ -107,6 +107,22 @@ describe("admin Token profile actions", () => {
   });
 
   it("returns generic not_found for missing, out-of-scope, or invisible target profiles", async () => {
+    const disconnectedTokenStore = fakeTokenStore({});
+    await expect(
+      deleteAdminTokenProfile({
+        decision: admin,
+        directoryStore: directoryWithDisconnectedProfile(),
+        tokenStore: disconnectedTokenStore,
+        userId: "target_user",
+        profileId: "profile_1",
+        reason: "Already disconnected",
+        confirmation: "DELETE",
+        audit: { endpoint: "/admin", requestId: "req_admin_delete" },
+        now
+      })
+    ).resolves.toEqual({ kind: "not_found" });
+    expect(disconnectedTokenStore.lastDeleteInput).toBeUndefined();
+
     await expect(
       revokeAdminTokenProfile({
         decision: admin,
@@ -199,6 +215,30 @@ function directoryWithProfile({ status, tokenStatus }: { status: "active" | "rev
           }
         ],
         activity: []
+      };
+    }
+  };
+}
+
+function directoryWithDisconnectedProfile(): AdminUserDirectoryStore {
+  return {
+    async listUsers() {
+      return [];
+    },
+    async getUserDetail() {
+      const detail = await directoryWithProfile({ status: "revoked", tokenStatus: "revoked" }).getUserDetail({
+        scope: { kind: "team", teamId: "T_ADMIN" },
+        userId: "target_user",
+        profileLimit: 100,
+        activityLimit: 1
+      });
+      if (!detail) throw new Error("expected detail");
+      return {
+        ...detail,
+        user: {
+          ...detail.user,
+          slackConnection: { id: null, status: "not_linked", lastErrorClass: null, updatedAt: null }
+        }
       };
     }
   };

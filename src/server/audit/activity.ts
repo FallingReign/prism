@@ -13,7 +13,8 @@ export type ActivityType =
   | "slack_connection_removed"
   | "global_token_profile_policy_updated"
   | "admin_token_profile_revoked"
-  | "admin_token_profile_deleted";
+  | "admin_token_profile_deleted"
+  | "admin_slack_connection_removed";
 
 export type ActivityStatus =
   | "attempted"

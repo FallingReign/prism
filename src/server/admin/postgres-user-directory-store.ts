@@ -40,15 +40,15 @@ function scopedUsersQuery(scope: AdminScope, limit: number, userId?: string): { 
   const userPredicate = userId ? ` and u.id = $${params.push(userId)}` : "";
   const limitParameter = `$${params.push(limit)}`;
   return {
-    sql: `${directorySelect()} where ${scopeFilter.sql}${userPredicate} order by coalesce(la.latest_activity_at, lc.updated_at) desc limit ${limitParameter}`,
+    sql: `${directorySelect()} where ${scopeFilter.sql}${userPredicate} order by coalesce(la.latest_activity_at, lau.latest_activity_at, lc.updated_at, u.updated_at, u.created_at) desc limit ${limitParameter}`,
     params
   };
 }
 
 function scopePredicate(scope: AdminScope): { sql: string; params: unknown[] } {
   if (scope.kind === "global") return { sql: "true", params: [] };
-  if (scope.kind === "enterprise") return { sql: "lc.enterprise_id = $1", params: [scope.enterpriseId] };
-  return { sql: "lc.team_id = $1", params: [scope.teamId] };
+  if (scope.kind === "enterprise") return { sql: "coalesce(lc.enterprise_id, lsa.slack_enterprise_id, u.slack_enterprise_id) = $1", params: [scope.enterpriseId] };
+  return { sql: "coalesce(lc.team_id, lsa.slack_team_id, u.slack_team_id) = $1", params: [scope.teamId] };
 }
 
 function directorySelect(): string {
@@ -84,16 +84,34 @@ function directorySelect(): string {
             from prism_activity_audit
             where retention_expires_at > now()
             group by prism_user_id, slack_connection_id
+          ),
+          latest_activity_by_user as (
+            select prism_user_id, max(occurred_at) as latest_activity_at
+            from prism_activity_audit
+            where retention_expires_at > now()
+            group by prism_user_id
+          ),
+          latest_scope_activity as (
+            select distinct on (prism_user_id)
+                   prism_user_id,
+                   nullif(slack_user_id, '') as slack_user_id,
+                   nullif(slack_team_id, '') as slack_team_id,
+                   nullif(slack_enterprise_id, '') as slack_enterprise_id
+            from prism_activity_audit
+            where retention_expires_at > now()
+              and slack_user_id is not null
+              and (slack_team_id is not null or slack_enterprise_id is not null)
+            order by prism_user_id, occurred_at desc
           )
           select u.id as prism_user_id,
-                 lc.authed_user_id as slack_user_id,
+                 coalesce(lc.authed_user_id, lsa.slack_user_id, u.slack_user_id) as slack_user_id,
                  lc.authed_user_display_name as slack_user_display_name,
-                 lc.team_id,
+                 coalesce(lc.team_id, lsa.slack_team_id, u.slack_team_id) as team_id,
                  lc.team_name,
-                 lc.enterprise_id,
+                 coalesce(lc.enterprise_id, lsa.slack_enterprise_id, u.slack_enterprise_id) as enterprise_id,
                  lc.enterprise_name,
                  lc.id as slack_connection_id,
-                 lc.status as slack_connection_status,
+                 coalesce(lc.status, 'not_linked') as slack_connection_status,
                  lc.last_error_class as slack_connection_last_error_class,
                  lc.updated_at as slack_connection_updated_at,
                  coalesce(tpc.token_profile_active_count, 0)::int as token_profile_active_count,
@@ -101,11 +119,13 @@ function directorySelect(): string {
                  coalesce(tpc.active_developer_token_count, 0)::int as active_developer_token_count,
                  coalesce(tpc.expired_developer_token_count, 0)::int as expired_developer_token_count,
                  coalesce(tpc.revoked_developer_token_count, 0)::int as revoked_developer_token_count,
-                 la.latest_activity_at
+                 coalesce(la.latest_activity_at, lau.latest_activity_at) as latest_activity_at
           from prism_users u
-          join latest_connection lc on lc.prism_user_id = u.id
+          left join latest_connection lc on lc.prism_user_id = u.id
+          left join latest_scope_activity lsa on lsa.prism_user_id = u.id
           left join token_profile_counts tpc on tpc.prism_user_id = u.id and tpc.slack_connection_id = lc.id
-          left join latest_activity la on la.prism_user_id = u.id and la.slack_connection_id = lc.id`;
+          left join latest_activity la on la.prism_user_id = u.id and la.slack_connection_id = lc.id
+          left join latest_activity_by_user lau on lau.prism_user_id = u.id`;
 }
 
 function profileSummarySelect(): string {
@@ -144,7 +164,7 @@ function activitySummarySelect(): string {
                  retention_expires_at, admin_actor_prism_user_id, admin_actor_slack_user_id,
                  admin_actor_slack_display_name, admin_reason
           from prism_activity_audit
-          where prism_user_id = $1 and slack_connection_id = $2 and retention_expires_at > now()
+          where prism_user_id = $1 and ($2::text is null or slack_connection_id = $2) and retention_expires_at > now()
           order by occurred_at desc`;
 }
 
@@ -158,7 +178,7 @@ function toDirectoryRow(row: AdminUserRow): AdminUserDirectoryRow {
       id: row.slack_connection_id,
       status: row.slack_connection_status,
       lastErrorClass: row.slack_connection_last_error_class,
-      updatedAt: toIso(row.slack_connection_updated_at)
+      updatedAt: row.slack_connection_updated_at ? toIso(row.slack_connection_updated_at) : null
     },
     tokenProfiles: {
       activeCount: toNumber(row.token_profile_active_count),
@@ -246,10 +266,10 @@ type AdminUserRow = {
   team_name: string | null;
   enterprise_id: string | null;
   enterprise_name: string | null;
-  slack_connection_id: string;
-  slack_connection_status: "healthy" | "reauth_required";
+  slack_connection_id: string | null;
+  slack_connection_status: "healthy" | "reauth_required" | "not_linked";
   slack_connection_last_error_class: string | null;
-  slack_connection_updated_at: Date | string;
+  slack_connection_updated_at: Date | string | null;
   token_profile_active_count: number | string;
   token_profile_revoked_count: number | string;
   active_developer_token_count: number | string;

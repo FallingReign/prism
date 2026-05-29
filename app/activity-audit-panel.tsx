@@ -86,6 +86,7 @@ function activityLabel(activityType: ActivityAuditSummary["activityType"]): stri
   if (activityType === "slack_connection_removed") return "Slack connection removed";
   if (activityType === "admin_token_profile_revoked") return "Admin revoked Token profile";
   if (activityType === "admin_token_profile_deleted") return "Admin deleted Token profile";
+  if (activityType === "admin_slack_connection_removed") return "Admin removed Slack connection";
   return "Slack method";
 }
 

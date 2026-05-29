@@ -4,6 +4,7 @@ import { ActivityAuditPanel } from "../../activity-audit-panel";
 import { formatUtcDate, formatUtcDateTime } from "../../date-format";
 import { displayNameWithId, safeConnectionText } from "../../slack-connection-display";
 import { LinkButton, Panel, StatusBadge, SummaryMetric } from "../../ui";
+import { AdminSlackConnectionActions } from "./admin-slack-connection-actions";
 import { AdminTokenProfileActions } from "./admin-token-profile-actions";
 
 export function AdminUserDirectoryView({ scope, users }: { scope: AdminScope; users: AdminUserDirectoryRow[] }) {
@@ -21,7 +22,7 @@ export function AdminUserDirectoryView({ scope, users }: { scope: AdminScope; us
           <div className="rounded-2xl bg-muted/35 p-4">
             <h3 className="text-base font-semibold tracking-tight text-foreground">No Prism users in this admin scope</h3>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              Prism only lists Slack-authenticated users whose current local Slack connection is inside your active admin scope.
+              Prism lists Slack-authenticated users whose current or retained local metadata is inside your active admin scope.
             </p>
           </div>
         ) : (
@@ -59,15 +60,22 @@ export function AdminUserDetailView({ scope, detail }: { scope: AdminScope; deta
         titleId="admin-user-detail-title"
         eyebrow="Scoped target"
         accent="primary"
-        badge={<StatusBadge tone={user.slackConnection.status === "healthy" ? "success" : "warning"}>{connectionStatusLabel(user)}</StatusBadge>}
+        badge={<StatusBadge tone={connectionStatusTone(user)}>{connectionStatusLabel(user)}</StatusBadge>}
         actions={<LinkButton href="/admin/users" variant="secondary">Back to directory</LinkButton>}
       >
         <div className="grid gap-3 sm:grid-cols-3">
-          <SummaryMetric label="Slack user" value={slackUserLabel(user)} detail="Safe Slack identity from the current local connection." tone="primary" />
-          <SummaryMetric label="Scope" value={scopeLabelForUser(user)} detail="Current Slack workspace or organization visibility." tone="info" />
+          <SummaryMetric label="Slack user" value={slackUserLabel(user)} detail={user.slackConnection.status === "not_linked" ? "Safe Slack identity retained after local disconnection." : "Safe Slack identity from the current local connection."} tone="primary" />
+          <SummaryMetric label="Scope" value={scopeLabelForUser(user)} detail={user.slackConnection.status === "not_linked" ? "Retained Slack workspace or organization visibility." : "Current Slack workspace or organization visibility."} tone="info" />
           <SummaryMetric label="Token profiles" value={`${user.tokenProfiles.activeCount} active`} detail={`${user.tokenProfiles.revokedCount} removed profiles retained for review.`} tone="neutral" />
         </div>
         {user.slackConnection.lastErrorClass ? <p className="text-sm text-muted-foreground">Last connection error: {safeConnectionText(user.slackConnection.lastErrorClass)}</p> : null}
+        {user.slackConnection.id ? (
+          <AdminSlackConnectionActions userId={user.prismUserId} slackUserLabel={slackUserLabel(user)} />
+        ) : (
+          <p className="rounded-xl border border-border bg-muted/35 px-3 py-2 text-sm leading-6 text-muted-foreground">
+            No current Slack connection is linked for this retained Prism user. Admin removal is unavailable until the user reconnects Slack.
+          </p>
+        )}
       </Panel>
 
       <Panel title="Visible retained Token profiles" titleId="admin-user-token-profiles-title" eyebrow="Read-only access review" accent="warning">
@@ -154,5 +162,13 @@ function scopeLabelForUser(user: AdminUserDirectoryRow): string {
 }
 
 function connectionStatusLabel(user: AdminUserDirectoryRow): string {
-  return user.slackConnection.status === "healthy" ? "Connected" : "Needs reauth";
+  if (user.slackConnection.status === "healthy") return "Connected";
+  if (user.slackConnection.status === "not_linked") return "Disconnected";
+  return "Needs reauth";
+}
+
+function connectionStatusTone(user: AdminUserDirectoryRow): "success" | "warning" | "neutral" {
+  if (user.slackConnection.status === "healthy") return "success";
+  if (user.slackConnection.status === "not_linked") return "neutral";
+  return "warning";
 }

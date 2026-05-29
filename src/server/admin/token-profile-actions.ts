@@ -100,6 +100,8 @@ async function resolveAdminActionContext(
     activityLimit: 1
   });
   if (detail.kind !== "detail") return { kind: detail.kind };
+  const slackConnectionId = detail.detail.user.slackConnection.id;
+  if (!slackConnectionId) return { kind: "not_found" };
 
   const profile = detail.detail.profiles.find((candidate) => candidate.id === input.profileId);
   if (!profile) return { kind: "not_found" };
@@ -109,7 +111,7 @@ async function resolveAdminActionContext(
     admin: input.decision,
     scope: detail.scope,
     prismUserId: detail.detail.user.prismUserId,
-    slackConnectionId: detail.detail.user.slackConnection.id,
+    slackConnectionId,
     profile,
     reason: validation.reason
   };

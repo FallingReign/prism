@@ -15,10 +15,10 @@ export type AdminSlackScopeSummary = {
 };
 
 export type AdminSlackConnectionSummary = {
-  id: string;
-  status: "healthy" | "reauth_required";
+  id: string | null;
+  status: "healthy" | "reauth_required" | "not_linked";
   lastErrorClass: string | null;
-  updatedAt: string;
+  updatedAt: string | null;
 };
 
 export type AdminTokenProfileCounts = {

@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
+import { AdminSlackConnectionActionForm } from "./admin-slack-connection-actions";
 import { AdminTokenProfileActionForm } from "./admin-token-profile-actions";
 import { AdminUserDetailView, AdminUserDirectoryView } from "./admin-users";
 
@@ -100,10 +101,70 @@ describe("Admin Prism user directory UI", () => {
     expect(html).toContain("Prism user detail");
     expect(html).toContain("Target [redacted] (U_TARGET)");
     expect(html).toContain("Profile [redacted]");
+    expect(html).toContain("Prism-local Slack connection removal");
+    expect(html).toContain("Remove Slack connection");
+    expect(html).toContain("does not revoke Slack authorization");
     expect(html).toContain("Revoke access");
     expect(html).toContain("Admin actions require typed confirmation and a required reason");
     expect(html).toContain("Recent Prism activity");
     expect(html).not.toMatch(/tokenHash|token_hash|prism_dev_|xox[bp]-|access_token|refresh_token|refreshToken|client_secret|pepper/i);
+  });
+
+  it("renders disconnected retained users without an admin removal trigger", () => {
+    const html = renderToStaticMarkup(
+      <AdminUserDetailView
+        scope={{ kind: "team", teamId: "T_TARGET" }}
+        detail={{
+          user: {
+            prismUserId: "target_user",
+            slackUser: { id: "U_TARGET", displayName: null },
+            team: { id: "T_TARGET", name: null },
+            enterprise: null,
+            slackConnection: { id: null, status: "not_linked", lastErrorClass: null, updatedAt: null },
+            tokenProfiles: {
+              activeCount: 0,
+              revokedCount: 0,
+              activeDeveloperTokenCount: 0,
+              expiredDeveloperTokenCount: 0,
+              revokedDeveloperTokenCount: 0
+            },
+            latestActivityAt: "2026-02-02T12:05:00.000Z"
+          },
+          profiles: [],
+          activity: [
+            {
+              id: "activity_admin_remove",
+              occurredAt: "2026-02-02T12:05:00.000Z",
+              activityType: "admin_slack_connection_removed",
+              status: "deleted",
+              tokenProfileId: null,
+              tokenProfileName: null,
+              slackMethod: null,
+              actionCategory: null,
+              surface: null,
+              objectType: "slack_connection",
+              objectId: "conn_1",
+              executionMode: null,
+              errorClass: null,
+              httpStatus: 200,
+              upstreamCalled: false,
+              requestId: "req_admin_remove",
+              adminActorPrismUserId: "admin_user",
+              adminActorSlackUserId: "U_ADMIN",
+              adminActorSlackDisplayName: "Ada Admin",
+              adminReason: "Security offboarding"
+            }
+          ]
+        }}
+      />
+    );
+
+    expect(html).toContain("Disconnected");
+    expect(html).toContain("No current Slack connection is linked");
+    expect(html).toContain("Admin removed Slack connection");
+    expect(html).not.toContain("Prism-local Slack connection removal");
+    expect(html).not.toContain("Remove Slack connection");
+    expect(html).not.toMatch(/prism_dev_|xox[bp]-|access_token|refresh_token|refreshToken|client_secret|token_hash|pepper/i);
   });
 
   it("renders admin action dialog controls with typed confirmation and required reason gating", () => {
@@ -122,6 +183,20 @@ describe("Admin Prism user directory UI", () => {
     expect(blocked).toContain("disabled=\"\"");
     expect(ready).toContain("Type DELETE to continue");
     expect(ready).toContain("Delete Token profile");
+    expect(ready).not.toContain("disabled=\"\"");
+    expect(`${blocked}${ready}`).not.toMatch(/prism_dev_|xox[bp]-|access_token|refresh_token|refreshToken|client_secret|token_hash|pepper/i);
+  });
+
+  it("renders admin Slack connection removal controls with typed REMOVE and required reason gating", () => {
+    const blocked = renderToStaticMarkup(<AdminSlackConnectionActionForm reason="" confirmation="REMOVE" cancelControl={<button type="button">Cancel</button>} />);
+    const ready = renderToStaticMarkup(<AdminSlackConnectionActionForm reason="Security offboarding" confirmation="REMOVE" cancelControl={<button type="button">Cancel</button>} />);
+
+    expect(blocked).toContain("Required admin audit reason");
+    expect(blocked).toContain("Type REMOVE to continue");
+    expect(blocked).toContain("required=\"\"");
+    expect(blocked).toContain("maxLength=\"240\"");
+    expect(blocked).toContain("disabled=\"\"");
+    expect(ready).toContain("Remove Slack connection");
     expect(ready).not.toContain("disabled=\"\"");
     expect(`${blocked}${ready}`).not.toMatch(/prism_dev_|xox[bp]-|access_token|refresh_token|refreshToken|client_secret|token_hash|pepper/i);
   });
