@@ -10,9 +10,17 @@ const mockDb = vi.hoisted(() => ({
   transaction: vi.fn()
 }));
 const mockCookies = vi.hoisted(() => vi.fn());
+const mockRedirect = vi.hoisted(() =>
+  vi.fn((href: string) => {
+    const error = new Error("NEXT_REDIRECT") as Error & { digest: string };
+    error.digest = `NEXT_REDIRECT;replace;${href};307;`;
+    throw error;
+  })
+);
 
 vi.mock("../../../../src/server/db", () => ({ database: mockDb }));
 vi.mock("next/headers", () => ({ cookies: mockCookies }));
+vi.mock("next/navigation", () => ({ redirect: mockRedirect }));
 
 const tempDirs: string[] = [];
 
@@ -21,6 +29,7 @@ describe("/admin/users/[userId] page", () => {
     vi.resetModules();
     mockDb.query.mockReset();
     mockCookies.mockReset();
+    mockRedirect.mockClear();
     mockCookies.mockResolvedValue({ get: () => ({ value: "session-token" }) });
     delete process.env.PRISM_ADMIN_ALLOWLIST_PATH;
     mockDb.query.mockImplementation(async (sql: string) => {
@@ -48,21 +57,48 @@ describe("/admin/users/[userId] page", () => {
     expect(html).not.toMatch(/prism_dev_|tokenHash|xox[bp]-|access_token|refresh_token|client_secret|pepper|allowlist/i);
   });
 
-  it("renders the same generic denial for non-admin and missing targets", async () => {
+  it("renders admin access unavailable for non-admin sessions", async () => {
     process.env.PRISM_ADMIN_ALLOWLIST_PATH = await writeAllowlist([{ slackUserId: "U_OTHER", scope: { kind: "global" } }]);
     const { default: AdminUserDetailPage } = await import("./page");
     const forbidden = renderToStaticMarkup(await AdminUserDetailPage({ params: Promise.resolve({ userId: "target_user" }) }));
-    expect(forbidden).toContain("Admin access unavailable");
 
+    expect(forbidden).toContain("Admin access unavailable");
+    expect(forbidden).not.toMatch(/U_OTHER|allowlist|config|json|path/i);
+  });
+
+  it("redirects missing or out-of-scope target users to the generic not-found route", async () => {
     process.env.PRISM_ADMIN_ALLOWLIST_PATH = await writeAllowlist([{ slackUserId: "U_ADMIN", scope: { kind: "global" } }]);
+    const { default: AdminUserDetailPage } = await import("./page");
     mockDb.query.mockImplementation(async (sql: string) => {
       if (sql.includes("from prism_sessions s")) return { rows: [adminIdentityRow()], rowCount: 1 };
       if (sql.includes("latest_connection")) return { rows: [], rowCount: 0 };
       return { rows: [], rowCount: 0 };
     });
-    const missing = renderToStaticMarkup(await AdminUserDetailPage({ params: Promise.resolve({ userId: "missing" }) }));
-    expect(missing).toContain("Admin access unavailable");
-    expect(missing).not.toMatch(/U_OTHER|allowlist|config|json|path/i);
+    await expect(AdminUserDetailPage({ params: Promise.resolve({ userId: "missing" }) })).rejects.toMatchObject({
+      digest: "NEXT_REDIRECT;replace;/admin/users/not-found;307;"
+    });
+    expect(mockRedirect).toHaveBeenCalledWith("/admin/users/not-found");
+  });
+
+  it("renders a generic static not-found page without the requested target identifier", async () => {
+    process.env.PRISM_ADMIN_ALLOWLIST_PATH = await writeAllowlist([{ slackUserId: "U_ADMIN", scope: { kind: "global" } }]);
+    const { default: AdminUserNotFoundPage } = await import("../not-found/page");
+    const missing = renderToStaticMarkup(await AdminUserNotFoundPage());
+
+    expect(missing).toContain("Prism user not found");
+    expect(missing).toContain("The requested Prism user does not exist or is outside your admin scope.");
+    expect(missing).not.toContain("Admin access unavailable");
+    expect(missing).not.toMatch(/missing|U_OTHER|allowlist|config|json|path/i);
+  });
+
+  it("keeps the generic not-found route behind admin authorization", async () => {
+    process.env.PRISM_ADMIN_ALLOWLIST_PATH = await writeAllowlist([{ slackUserId: "U_OTHER", scope: { kind: "global" } }]);
+    const { default: AdminUserNotFoundPage } = await import("../not-found/page");
+    const html = renderToStaticMarkup(await AdminUserNotFoundPage());
+
+    expect(html).toContain("Admin access unavailable");
+    expect(html).not.toContain("Prism user not found");
+    expect(html).not.toMatch(/U_OTHER|allowlist|config|json|path/i);
   });
 });
 

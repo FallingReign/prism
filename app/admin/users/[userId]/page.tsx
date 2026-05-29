@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 
 import { AdminAllowlistUnavailableError, loadAdminAllowlist } from "../../../../src/server/admin/allowlist";
 import { resolvePrismAdmin } from "../../../../src/server/admin/authorization";
@@ -27,6 +28,7 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
       profileLimit: 100,
       activityLimit: 20
     });
+    if (result.kind === "not_found") redirect("/admin/users/not-found");
     if (result.kind !== "detail") return <AdminAccessDenied />;
     return <AdminUserDetailView scope={result.scope} detail={result.detail} />;
   } catch (error) {

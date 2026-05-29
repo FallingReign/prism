@@ -28,6 +28,11 @@ describe("Prism admin console shell", () => {
 
       expect(html).toContain("Prism admin console");
       expect(html).toContain("Active scope");
+      expect(html).toContain("User directory");
+      expect(html).toContain("Global policy");
+      expect(html).toContain("Audited admin actions");
+      expect(html).not.toContain("Admin surfaces unlock in the next slices");
+      expect(html).not.toContain("Destructive admin actions remain separate");
       expect(html).toContain(scope.kind);
       expect(html).toContain('href="/"');
       expect(html).not.toMatch(/prism_user_secret_internal|prism_dev_|tokenHash|xox[bp]-|access_token|refresh_token|client_secret|allowlist/i);

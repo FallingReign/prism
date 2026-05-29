@@ -364,7 +364,10 @@ export async function updateTokenProfilePolicy({
   const current = currentProfiles.find((profile) => profile.id === profileId);
   if (!current) return { kind: "not_found" };
 
-  const nextPolicy = buildTokenProfilePolicy(parsed.input, now);
+  const requestedPolicy = buildTokenProfilePolicy(parsed.input, now);
+  const nextPolicy = sameCapabilityPolicy(current.capabilityMap, requestedPolicy.capabilityMap)
+    ? { ...requestedPolicy, expiresAt: current.expiresAt }
+    : requestedPolicy;
   const change = classifyPolicyChange(current.capabilityMap, current.expiresAt, nextPolicy.capabilityMap, nextPolicy.expiresAt);
   const currentGlobalStatus = classifyGlobalTokenProfilePolicyStatus(toGlobalPolicyCandidate(current), globalPolicy);
   if (currentGlobalStatus.kind === "outside") {
@@ -503,6 +506,28 @@ function classifyPolicyChange(
   if (broadened) return "broadening";
   if (narrowed) return "narrowing";
   return "unchanged";
+}
+
+function sameCapabilityPolicy(current: CapabilityMap, next: CapabilityMap): boolean {
+  return (
+    current.preset === next.preset &&
+    current.executionIdentity === next.executionIdentity &&
+    current.experiment.enabled === next.experiment.enabled &&
+    current.experiment.ttl === next.experiment.ttl &&
+    sameBooleanMap(current.actions, next.actions) &&
+    sameBooleanMap(current.surfaces, next.surfaces) &&
+    current.mutation.destructiveOptIn === next.mutation.destructiveOptIn &&
+    current.mutation.broadeningRequiresRotation === next.mutation.broadeningRequiresRotation &&
+    current.mutation.narrowingAppliesImmediately === next.mutation.narrowingAppliesImmediately
+  );
+}
+
+function sameBooleanMap<T extends Record<string, boolean>>(left: T, right: T): boolean {
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+  for (const key of keys) {
+    if (left[key] !== right[key]) return false;
+  }
+  return true;
 }
 
 function classifyExecutionIdentityChange(current: ExecutionIdentity, next: ExecutionIdentity): "narrowing" | "broadening" | "unchanged" {

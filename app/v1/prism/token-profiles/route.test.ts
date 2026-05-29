@@ -136,6 +136,7 @@ describe("/v1/prism/token-profiles", () => {
     expect(body.profile).toMatchObject({ name: "Local MCP read", preset: "read_only" });
     expect(response.headers.get("x-prism-request-id")).toBeTruthy();
     expect(mockDb.query.mock.calls.some(([sql]) => String(sql).includes("insert into prism_activity_audit"))).toBe(true);
+    expect(insertedCapabilityMap().experiment).toEqual({ enabled: false, ttl: null });
     expect(JSON.stringify(body)).not.toContain("tokenHash");
     expect(JSON.stringify(mockDb.query.mock.calls)).not.toContain(body.developerToken);
     expect(JSON.stringify(mockDb.query.mock.calls)).not.toContain("pepper-secret-canary");
@@ -324,6 +325,7 @@ describe("/v1/prism/token-profiles", () => {
     expect(confirmedBody).toMatchObject({ change: "broadening", profile: { id: "profile_1", preset: "messages_only" }, slackStatus: "healthy" });
     expect(confirmedBody.developerToken).toMatch(/^prism_dev_/);
     expect(mockDb.query.mock.calls.some(([, params]) => Array.isArray(params) && params.includes("token_profile_policy_updated"))).toBe(true);
+    expect(updatedCapabilityMap().experiment).toEqual({ enabled: false, ttl: null });
     expect(JSON.stringify(mockDb.query.mock.calls)).not.toContain(confirmedBody.developerToken);
     expect(JSON.stringify(mockDb.query.mock.calls)).not.toMatch(/pepper-secret-canary|access_token_envelope|refresh_token_envelope|xox[bp]-|client_secret/i);
   });
@@ -364,6 +366,18 @@ function settingRow(policy: unknown, version = 1) {
     updated_by_prism_user_id: null,
     updated_at: new Date("2026-01-01T00:00:00.000Z")
   };
+}
+
+function insertedCapabilityMap() {
+  const insert = mockDb.query.mock.calls.find(([sql]) => String(sql).includes("insert into token_profiles"));
+  expect(insert?.[1]).toBeDefined();
+  return JSON.parse(String((insert?.[1] as unknown[])[7]));
+}
+
+function updatedCapabilityMap() {
+  const update = mockDb.query.mock.calls.find(([sql]) => String(sql).includes("update token_profiles") && String(sql).includes("set preset"));
+  expect(update?.[1]).toBeDefined();
+  return JSON.parse(String((update?.[1] as unknown[])[2]));
 }
 
 function capabilityMapFor(preset: "read_only" | "messages_only") {

@@ -47,7 +47,8 @@ export function AdminConsoleShell({ decision }: { decision: AuthorizedAdminDecis
           Prism admin console
         </h1>
         <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
-          Review your server-resolved admin scope before using future Prism user directory, global policy, and audited access controls.
+          Review your server-resolved admin scope, inspect Prism users, govern Global Token profile policy, and perform audited
+          local Prism access actions without administering Slack.
         </p>
       </section>
 
@@ -59,10 +60,10 @@ export function AdminConsoleShell({ decision }: { decision: AuthorizedAdminDecis
         </div>
       </Panel>
 
-      <Panel title="Admin surfaces unlock in the next slices" eyebrow="Coming next" accent="info">
+      <Panel title="Audited admin actions" titleId="admin-actions-title" eyebrow="Admin console" accent="info">
         <p>
-          The scoped Prism user directory and Global Token profile policy are available now. Destructive admin actions remain separate
-          gated slices.
+          Use the scoped Prism user directory, Global Token profile policy, and typed-confirmation admin actions to manage Prism-owned
+          local access while preserving metadata-only audit.
         </p>
         <LinkButton href="/admin/users" variant="secondary">
           Open user directory
@@ -70,6 +71,26 @@ export function AdminConsoleShell({ decision }: { decision: AuthorizedAdminDecis
         <LinkButton href="/admin/token-profile-policy" variant="secondary">
           Open global policy
         </LinkButton>
+      </Panel>
+    </main>
+  );
+}
+
+export function AdminUserNotFound() {
+  return (
+    <main className="mx-auto grid min-h-screen w-full max-w-3xl place-items-center px-4 py-10 sm:px-6">
+      <Panel
+        title="Prism user not found"
+        titleId="admin-user-not-found-title"
+        eyebrow="Prism admin"
+        accent="warning"
+        actions={
+          <LinkButton href="/admin/users" variant="secondary">
+            Return to user directory
+          </LinkButton>
+        }
+      >
+        <p>The requested Prism user does not exist or is outside your admin scope.</p>
       </Panel>
     </main>
   );

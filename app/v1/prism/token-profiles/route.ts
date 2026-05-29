@@ -87,7 +87,7 @@ async function readCreateInput(request: NextRequest): Promise<CreateTokenProfile
     preset: stringValue(body.preset) as CreateTokenProfileInput["preset"],
     executionIdentity: stringValue(body.executionIdentity) as CreateTokenProfileInput["executionIdentity"],
     destructive: booleanValue(body.destructive),
-    experiment: stringValue(body.experiment) as CreateTokenProfileInput["experiment"],
+    experiment: optionalStringValue(body.experiment) as CreateTokenProfileInput["experiment"],
     custom: custom
       ? {
           read: booleanValue(custom.read),
@@ -114,6 +114,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function stringValue(value: unknown): string {
   return typeof value === "string" ? value : "";
+}
+
+function optionalStringValue(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 function booleanValue(value: unknown): boolean | undefined {

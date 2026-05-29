@@ -592,6 +592,45 @@ describe("Token profile service", () => {
     });
   });
 
+  it("does not treat a same-policy template edit as expiry broadening", async () => {
+    const store = createMemoryStore();
+    const created = await createTokenProfile({
+      store,
+      sessionToken: "session-token",
+      developerTokenConfig: { pepper: "pepper-canary", pepperId: "local-pepper" },
+      input: {
+        name: "Custom reader",
+        intendedUse: "Read approved Slack context from a local CLI",
+        preset: "custom",
+        executionIdentity: "automatic",
+        custom: { read: true, search: true, writeMessages: false, reactions: false, filesMetadata: false, destructive: false }
+      },
+      now,
+      randomBytes: () => Buffer.alloc(32, 8)
+    });
+    if (created.kind !== "created") throw new Error("expected created profile");
+    const originalExpiry = created.profile.expiresAt;
+
+    const updated = await updateTokenProfilePolicy({
+      store,
+      sessionToken: "session-token",
+      profileId: created.profile.id,
+      input: {
+        name: "Custom reader",
+        intendedUse: "Read approved Slack context from a local CLI",
+        preset: "custom",
+        executionIdentity: "automatic",
+        custom: { read: true, search: true, writeMessages: false, reactions: false, filesMetadata: false, destructive: false }
+      },
+      now: new Date("2026-01-01T01:00:00.000Z")
+    });
+
+    expect(updated).toMatchObject({ kind: "updated", change: "unchanged" });
+    expect(store.rows.profiles[0]!.expiresAt).toEqual(originalExpiry);
+    expect(store.rows.profiles[0]!.policyEffectiveAt).toEqual(now);
+    expect(store.rows.verifiers).toHaveLength(1);
+  });
+
   it("allows Outside global policy profiles to apply narrowing without resetting unchanged expiry compliance", async () => {
     const store = createMemoryStore();
     const created = await createTokenProfile({
