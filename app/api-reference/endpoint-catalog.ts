@@ -10,6 +10,7 @@ export type ApiEndpoint = {
   summary: string;
   details: string[];
   example?: string;
+  docsLinks?: readonly { label: string; href: string }[];
 };
 
 export type ApiEndpointGroup = {
@@ -61,7 +62,11 @@ export const apiEndpointGroups = [
           "The method name remains Slack-shaped, for example users.info.",
           "Prism evaluates Method registry policy, execution identity, rate limits, and metadata-only audit before forwarding."
         ],
-        example: "curl -H \"Authorization: Bearer prism_dev_...\" \"$PRISM_BASE_URL/v1/slack/api/users.info?user=<slack-user-id>\""
+        example: "curl -H \"Authorization: Bearer prism_dev_...\" \"$PRISM_BASE_URL/v1/slack/api/users.info?user=<slack-user-id>\"",
+        docsLinks: [
+          { label: "Slack Web API reference", href: "https://docs.slack.dev/apis/web-api/" },
+          { label: "Slack users.info documentation", href: "https://docs.slack.dev/reference/methods/users.info/" }
+        ]
       },
       {
         method: "POST",
@@ -74,7 +79,11 @@ export const apiEndpointGroups = [
           "Prism removes local token fields before upstream calls and records only metadata, not Slack payload content."
         ],
         example:
-          "curl -X POST -H \"Authorization: Bearer prism_dev_...\" -H \"Content-Type: application/json\" \"$PRISM_BASE_URL/v1/slack/api/chat.postMessage\" -d '{\"channel\":\"<channel-id>\",\"text\":\"<message>\"}'"
+          "curl -X POST -H \"Authorization: Bearer prism_dev_...\" -H \"Content-Type: application/json\" \"$PRISM_BASE_URL/v1/slack/api/chat.postMessage\" -d '{\"channel\":\"<channel-id>\",\"text\":\"<message>\"}'",
+        docsLinks: [
+          { label: "Slack Web API reference", href: "https://docs.slack.dev/apis/web-api/" },
+          { label: "Slack chat.postMessage documentation", href: "https://docs.slack.dev/reference/methods/chat.postMessage/" }
+        ]
       }
     ]
   },
@@ -137,7 +146,8 @@ export const apiEndpointGroups = [
         authModel: "websiteSession",
         surface: "website-session",
         summary: "Start or change Slack authorization for the website session.",
-        details: ["Redirects to Slack OAuth.", "Slack credential custody remains server-side."]
+        details: ["Redirects to Slack OAuth.", "Slack credential custody remains server-side."],
+        docsLinks: [{ label: "Slack OAuth documentation", href: "https://docs.slack.dev/authentication/installing-with-oauth/" }]
       },
       {
         method: "GET",
@@ -145,7 +155,8 @@ export const apiEndpointGroups = [
         authModel: "websiteSession",
         surface: "website-session",
         summary: "Complete Slack OAuth and establish the Prism website session.",
-        details: ["Consumes Slack OAuth response data server-side.", "The browser receives a Prism session cookie, not Slack credentials."]
+        details: ["Consumes Slack OAuth response data server-side.", "The browser receives a Prism session cookie, not Slack credentials."],
+        docsLinks: [{ label: "Slack OAuth documentation", href: "https://docs.slack.dev/authentication/installing-with-oauth/" }]
       },
       {
         method: "DELETE",

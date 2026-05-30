@@ -60,7 +60,11 @@ export default function ApiReferencePage() {
           <p>
             Slack-compatible forwarding can include <code>X-Prism-Surface</code>, <code>X-Prism-Workspace-ID</code>,{" "}
             <code>X-Prism-Execution-Mode</code>, <code>X-Prism-Request-ID</code>, and <code>X-Prism-Upstream-Called</code>.
-            Prism-side rate limit and upstream Slack rate limit responses preserve <code>Retry-After</code> when available.
+            Prism-side rate limit and upstream Slack rate limit responses preserve <code>Retry-After</code> when available; compare with{" "}
+            <a className="font-medium text-primary underline-offset-4 hover:underline" href="https://docs.slack.dev/apis/web-api/rate-limits/">
+              Slack rate limit documentation
+            </a>
+            .
           </p>
           <p>Common local-tool failures include policy denied, unsupported method, reauth required, and rate-limited responses.</p>
         </Panel>
@@ -124,6 +128,15 @@ function EndpointCard({ endpoint }: { endpoint: ApiEndpoint }) {
         <pre className="overflow-x-auto rounded-xl bg-muted/70 p-3 text-xs leading-5 text-foreground">
           <code>{endpoint.example}</code>
         </pre>
+      ) : null}
+      {endpoint.docsLinks?.length ? (
+        <p className="flex flex-wrap gap-x-3 gap-y-1 text-sm">
+          {endpoint.docsLinks.map((link) => (
+            <a className="font-medium text-primary underline-offset-4 hover:underline" href={link.href} key={link.href}>
+              {link.label}
+            </a>
+          ))}
+        </p>
       ) : null}
     </article>
   );

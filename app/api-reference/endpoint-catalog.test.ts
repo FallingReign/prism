@@ -30,6 +30,10 @@ describe("Prism API endpoint catalog", () => {
     );
 
     expect(catalogText()).toContain("Admin operations live in the Prism admin console");
+    expect(catalogText()).toContain("https://docs.slack.dev/apis/web-api/");
+    expect(catalogText()).toContain("https://docs.slack.dev/reference/methods/users.info/");
+    expect(catalogText()).toContain("https://docs.slack.dev/reference/methods/chat.postMessage/");
+    expect(catalogText()).toContain("https://docs.slack.dev/authentication/installing-with-oauth/");
     expect(catalogText()).not.toMatch(/\/v1\/prism\/admin\/(?:users|session|token-profile-policy)/);
   });
 
