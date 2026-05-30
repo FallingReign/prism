@@ -21,6 +21,7 @@ describe("Prism published docs", () => {
       "Metadata-only audit",
       "Reauth required",
       "PRISM_BASE_URL",
+      "/api-reference",
       "Authorization: Bearer",
       "/v1/prism/health",
       "/v1/prism/status",

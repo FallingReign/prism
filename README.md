@@ -32,11 +32,12 @@ No Supabase, Auth, PostgREST, ORM, or migration framework is required for this s
 ## Self-serve setup
 
 - Local tool and API setup: [`docs/setup.md`](docs/setup.md)
+- Website API reference: `/api-reference`
 - Security review notes and token-risk guidance: [`docs/security.md`](docs/security.md)
 - Slack app review artefacts: [`docs/slack/`](docs/slack/)
 - Reference MCP adapter: [`examples/prism-mcp-adapter`](examples/prism-mcp-adapter/)
 
-The current self-serve docs are repository Markdown. The Prism website is the product surface for Slack linking, Token profile management, and Metadata-only audit review; it does not yet host a separate docs route.
+The repository Markdown remains the setup and security reference. The Prism website is the product surface for Slack linking, Token profile management, Metadata-only audit review, and the in-product API reference.
 
 ## Slack app setup
 

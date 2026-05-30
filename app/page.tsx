@@ -1,5 +1,8 @@
 import { cookies } from "next/headers";
 
+import { AdminAllowlistUnavailableError, loadAdminAllowlist } from "../src/server/admin/allowlist";
+import { resolvePrismAdmin } from "../src/server/admin/authorization";
+import { createPostgresAdminIdentityStore } from "../src/server/admin/postgres-store";
 import { createPostgresActivityAuditStore } from "../src/server/audit/postgres-store";
 import { toActivityAuditSummary, type ActivityAuditSummary } from "../src/server/audit/presentation";
 import { database } from "../src/server/db";
@@ -18,14 +21,15 @@ import { buildWebsiteOverview } from "./website-overview";
 
 export const dynamic = "force-dynamic";
 
-export default function Home() {
-  return <HomeContent />;
+export default async function Home() {
+  return await HomeContent();
 }
 
 async function HomeContent() {
   const cookieStore = await cookies();
   const sessionToken = cookieStore.get(prismSessionCookieName)?.value;
   const status = await readSlackWebsiteStatus(sessionToken);
+  const canUseAdminConsole = await readAdminConsoleVisibility(sessionToken);
   const globalPolicyStore = createPostgresGlobalTokenProfilePolicyStore(database);
   const tokenProfiles = status.kind === "linked" ? await readTokenProfileSummaries(sessionToken, globalPolicyStore) : [];
   const tokenProfilePolicyOptions = status.kind === "linked" ? await readTokenProfilePolicyOptions(globalPolicyStore) : undefined;
@@ -55,9 +59,21 @@ async function HomeContent() {
           <a className="inline-flex min-h-11 items-center rounded-full px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground" href="#activity-audit-title">
             Metadata audit
           </a>
+          <a
+            aria-label="API reference (opens reference page)"
+            className="inline-flex min-h-11 items-center rounded-full px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground"
+            href="/api-reference"
+          >
+            API reference
+          </a>
         </nav>
         <div className="flex flex-wrap items-center gap-2 sm:justify-end">
           <StatusBadge tone={overview.slack.tone}>{overview.slack.label}</StatusBadge>
+          {canUseAdminConsole ? (
+            <LinkButton href="/admin" variant="quiet">
+              Admin console
+            </LinkButton>
+          ) : null}
           {status.kind !== "linked" || status.status === "reauth_required" ? (
             <LinkButton href="/v1/slack/oauth/start" variant="secondary">
               {slackActionLabel}
@@ -119,6 +135,21 @@ async function readSlackWebsiteStatus(sessionToken: string | undefined): Promise
     return await getSlackLinkStatusWithDisplayNameEnrichment({ database, sessionToken });
   } catch {
     return { kind: "not_linked" };
+  }
+}
+
+async function readAdminConsoleVisibility(sessionToken: string | undefined): Promise<boolean> {
+  if (!sessionToken) return false;
+  try {
+    const decision = await resolvePrismAdmin({
+      store: createPostgresAdminIdentityStore(database),
+      allowlist: await loadAdminAllowlist(),
+      sessionToken
+    });
+    return decision.kind === "authorized";
+  } catch (error) {
+    if (error instanceof AdminAllowlistUnavailableError) return false;
+    return false;
   }
 }
 
