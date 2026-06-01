@@ -1,7 +1,7 @@
 {
   "admins": [
     {
-      "slackUserId": "U_FAKE_GLOBAL_ADMIN",
+      "slackUserId": "U_FAKE_USER",
       "scope": {
         "kind": "global"
       }
