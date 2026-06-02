@@ -13,6 +13,17 @@ npm run dev
 curl -i http://localhost:3732/v1/prism/health
 ```
 
+## Docker Compose startup (automatic migrations)
+
+```bash
+cp .env.example .env.local
+# Fill .env.local with local values (do not commit it).
+docker compose up --build
+```
+
+Compose startup now waits for Postgres, runs `npm run db:migrate` automatically, and then starts the Next.js server on port `3732`.
+If `.env.local` is missing required values or still contains `replace-with-*` placeholders for required Prism server secrets, startup fails fast with a clear error.
+
 The local development server uses port `3732` to avoid common default-port conflicts and binds to `0.0.0.0` so the pilot host VM can receive Slack OAuth redirects.
 
 The health endpoint returns only fixed service/database status values, for example:

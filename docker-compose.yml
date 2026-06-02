@@ -1,10 +1,8 @@
 services:
   postgres:
     image: postgres:17-alpine
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-prism}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-prism_local_password}
-      POSTGRES_DB: ${POSTGRES_DB:-prism}
+    env_file:
+      - .env.local
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     healthcheck:
@@ -14,6 +12,28 @@ services:
       retries: 10
     volumes:
       - prism-postgres-data:/var/lib/postgresql/data
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env.local
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      NODE_ENV: production
+    ports:
+      - "3732:3732"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"fetch('http://localhost:3732/v1/prism/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
 volumes:
   prism-postgres-data:
