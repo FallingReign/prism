@@ -137,9 +137,10 @@ function actionsFor(input: TokenProfilePolicyInput): CapabilityMap["actions"] {
 function expiryFor(input: TokenProfilePolicyInput, destructive: boolean, now: Date): Date | null {
   if (input.experiment === "24h") return addDays(now, 1);
   if (input.experiment === "7d") return addDays(now, 7);
+  // Destructive capabilities require 30-day expiry for safety
   if (destructive) return addDays(now, 30);
-  if (input.preset === "read_only") return null;
-  return addDays(now, 90);
+  // Non-destructive tokens never expire
+  return null;
 }
 
 function addDays(date: Date, days: number): Date {

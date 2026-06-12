@@ -36,13 +36,17 @@ const choiceClass =
   "flex min-h-20 gap-3 rounded-xl bg-muted/35 p-4 text-sm transition-colors hover:bg-muted/55";
 const checkboxLabelClass =
   "flex min-h-11 items-start gap-3 rounded-lg bg-muted/35 px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted/55";
-const capabilityOptions: Array<{ key: keyof TokenProfileCapabilitySelection; label: string }> = [
+const capabilityOptions: Array<{ key: keyof TokenProfileCapabilitySelection; label: string; description?: string }> = [
   { key: "read", label: "Read" },
   { key: "search", label: "Search" },
   { key: "writeMessages", label: "Write messages" },
   { key: "reactions", label: "Reactions" },
   { key: "filesMetadata", label: "Files metadata" },
-  { key: "destructive", label: "Destructive methods" }
+  { 
+    key: "destructive", 
+    label: "Destructive methods",
+    description: "Allows chat.delete to permanently delete messages. Tokens with this capability expire after 30 days. Non-destructive tokens never expire."
+  }
 ];
 
 export function TokenProfilesPanel({
@@ -294,6 +298,9 @@ export function TokenProfilesPanel({
                         const allowed = policyOptions.capabilities.maximum[option.key];
                         const checked = createCapabilities[option.key];
                         const canToggle = allowed && (policyOptions.presets.allowed.includes("custom") || (option.key === "destructive" && createPreset === "full_slack_bridge"));
+                        const helpText = !allowed 
+                          ? `Global policy blocks adding ${option.label}.`
+                          : option.description;
                         return (
                           <CapabilityCheckboxField
                             key={option.key}
@@ -301,7 +308,7 @@ export function TokenProfilesPanel({
                             label={option.label}
                             checked={checked}
                             disabled={!canToggle}
-                            help={!allowed ? `Global policy blocks adding ${option.label}.` : undefined}
+                            help={helpText}
                             onCheckedChange={(nextChecked) => onCreateCapabilityChange(option.key, nextChecked)}
                           />
                         );

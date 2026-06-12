@@ -45,13 +45,17 @@ const presetOptions = [
   { value: "full_slack_bridge", label: "Full Slack bridge" },
   { value: "custom", label: "Custom" }
 ];
-const capabilityOptions: Array<{ key: keyof TokenProfileCapabilitySelection; label: string }> = [
+const capabilityOptions: Array<{ key: keyof TokenProfileCapabilitySelection; label: string; description?: string }> = [
   { key: "read", label: "Read" },
   { key: "search", label: "Search" },
   { key: "writeMessages", label: "Write messages" },
   { key: "reactions", label: "Reactions" },
   { key: "filesMetadata", label: "Files metadata" },
-  { key: "destructive", label: "Destructive methods" }
+  { 
+    key: "destructive", 
+    label: "Destructive methods",
+    description: "Allows chat.delete to permanently delete messages. Tokens with this capability expire after 30 days. Non-destructive tokens never expire."
+  }
 ];
 const overlapOptions = [
   { value: "none", label: "No overlap" },
@@ -408,6 +412,9 @@ export function TokenProfileDetailWorkspace({
                 {capabilityOptions.map((option) => {
                   const allowed = policyOptions.capabilities.maximum[option.key];
                   const checked = policyCapabilities[option.key];
+                  const helpText = !allowed 
+                    ? `Global policy blocks adding ${option.label}.`
+                    : option.description;
                   return (
                     <CheckboxField
                       key={option.key}
@@ -415,7 +422,7 @@ export function TokenProfileDetailWorkspace({
                       label={option.label}
                       checked={checked}
                       disabled={!allowed && !checked}
-                      help={!allowed ? `Global policy blocks adding ${option.label}.` : undefined}
+                      help={helpText}
                       onCheckedChange={(nextChecked) => onPolicyCapabilityChange(option.key, nextChecked)}
                     />
                   );
