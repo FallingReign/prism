@@ -23,7 +23,7 @@ export type GlobalTokenProfilePolicy = {
     allowNoExpiryForReadOnly: boolean;
     maximumDays: {
       readOnly: number | null;
-      nonDestructive: number;
+      nonDestructive: number | null;  // Can be null to allow unlimited non-destructive tokens
       destructive: number;
     };
     allowedExperimentTtls: ExperimentTtl[];
@@ -116,7 +116,7 @@ export function buildCurrentGlobalTokenProfilePolicy(overrides: PolicyOverrides 
       allowNoExpiryForReadOnly: true,
       maximumDays: {
         readOnly: null,
-        nonDestructive: 90,
+        nonDestructive: null,  // Non-destructive tokens never expire
         destructive: 30
       },
       allowedExperimentTtls: [...EXPERIMENT_TTLS],
@@ -265,7 +265,12 @@ export function parseGlobalTokenProfilePolicy(value: unknown): { kind: "valid"; 
 
 function classifyExpiry(candidate: TokenProfilePolicyCandidate, policy: GlobalTokenProfilePolicy): GlobalPolicyReasonCode | null {
   if (candidate.expiresAt === null) {
-    return candidate.preset === "read_only" && policy.expiry.allowNoExpiryForReadOnly ? null : "no_expiry_disallowed";
+    // Allow no expiry for read-only when explicitly allowed
+    if (candidate.preset === "read_only" && policy.expiry.allowNoExpiryForReadOnly) return null;
+    // Allow no expiry for non-destructive tokens
+    if (!candidate.capabilityMap.actions.destructive) return null;
+    // Destructive tokens must have expiry
+    return "no_expiry_disallowed";
   }
 
   const maximumDays = candidate.capabilityMap.actions.destructive
@@ -370,13 +375,13 @@ function parseExpiry(value: unknown): GlobalTokenProfilePolicy["expiry"] | null 
   const readOnly = value.maximumDays.readOnly;
   const nonDestructive = value.maximumDays.nonDestructive;
   const destructive = value.maximumDays.destructive;
-  if (!(readOnly === null || isPositiveInteger(readOnly)) || !isPositiveInteger(nonDestructive) || !isPositiveInteger(destructive)) return null;
+  if (!(readOnly === null || isPositiveInteger(readOnly)) || !(nonDestructive === null || isPositiveInteger(nonDestructive)) || !isPositiveInteger(destructive)) return null;
   const allowedExperimentTtls = value.allowedExperimentTtls.filter((item): item is ExperimentTtl => typeof item === "string" && EXPERIMENT_TTLS.includes(item as ExperimentTtl));
   if (allowedExperimentTtls.length !== value.allowedExperimentTtls.length) return null;
   if (!(value.defaultExperimentTtl === null || EXPERIMENT_TTLS.includes(value.defaultExperimentTtl as ExperimentTtl))) return null;
   return {
     allowNoExpiryForReadOnly: value.allowNoExpiryForReadOnly,
-    maximumDays: { readOnly: readOnly as number | null, nonDestructive: nonDestructive as number, destructive: destructive as number },
+    maximumDays: { readOnly: readOnly as number | null, nonDestructive: nonDestructive as number | null, destructive: destructive as number },
     allowedExperimentTtls: [...new Set(allowedExperimentTtls)],
     defaultExperimentTtl: value.defaultExperimentTtl as ExperimentTtl | null
   };
