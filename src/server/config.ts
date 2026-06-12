@@ -60,37 +60,10 @@ export function getSlackOAuthConfig(env: NodeJS.ProcessEnv = process.env): Slack
     clientSecret,
     redirectUri,
     publicBaseUrl,
-    botScopes: parseScopes(env.SLACK_BOT_SCOPES) ?? [
-      "channels:read",
-      "channels:history",
-      "groups:read",
-      "groups:history",
-      "im:read",
-      "im:history",
-      "mpim:read",
-      "mpim:history",
-      "chat:write",
-      "reactions:read",
-      "reactions:write",
-      "files:read",
-      "users:read"
-    ],
-    userScopes: parseScopes(env.SLACK_USER_SCOPES) ?? [
-      "channels:read",
-      "channels:history",
-      "groups:read",
-      "groups:history",
-      "im:read",
-      "im:history",
-      "mpim:read",
-      "mpim:history",
-      "chat:write",
-      "reactions:read",
-      "reactions:write",
-      "search:read",
-      "files:read",
-      "users:read"
-    ],
+    // Scopes are defined in the Slack app manifest, not in environment variables.
+    // Leave these empty to use manifest-defined scopes. Only override if testing specific scope combinations.
+    botScopes: parseScopes(env.SLACK_BOT_SCOPES) ?? [],
+    userScopes: parseScopes(env.SLACK_USER_SCOPES) ?? [],
     mockOAuth: env.PRISM_SLACK_OAUTH_MOCK === "1" && env.NODE_ENV !== "production"
   };
 }

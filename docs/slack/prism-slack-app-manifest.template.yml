@@ -27,23 +27,8 @@ oauth_config:
     # Alternative hosted placeholder if the organization reserves an internal domain pattern.
     - https://prism.<internal-domain>/v1/slack/oauth/callback
   scopes:
-    bot:
-      # Candidate non-admin bot scopes for v1 bot-backed execution.
-      - channels:read
-      - channels:history
-      - groups:read
-      - groups:history
-      - im:read
-      - im:history
-      - mpim:read
-      - mpim:history
-      - chat:write
-      - reactions:read
-      - reactions:write
-      - files:read
-      - users:read
+    # User scopes are REQUIRED - app acts on behalf of individual users
     user:
-      # Candidate non-admin user scopes for v1 user-backed execution and search.
       - channels:read
       - channels:history
       - groups:read
@@ -56,6 +41,22 @@ oauth_config:
       - reactions:read
       - reactions:write
       - search:read
+      - files:read
+      - users:read
+    # Bot scopes are OPTIONAL - only needed for workspace-wide capabilities
+    # Comment out or remove bot section if not needed
+    bot:
+      - channels:read
+      - channels:history
+      - groups:read
+      - groups:history
+      - im:read
+      - im:history
+      - mpim:read
+      - mpim:history
+      - chat:write
+      - reactions:read
+      - reactions:write
       - files:read
       - users:read
 
