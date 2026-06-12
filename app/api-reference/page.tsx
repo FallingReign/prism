@@ -56,17 +56,66 @@ export default function ApiReferencePage() {
       </section>
 
       <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.38fr)]" aria-label="Reference guidance">
-        <Panel title="Headers and diagnostics" titleId="diagnostics-title" eyebrow="Runtime signals" accent="info">
-          <p>
-            Slack-compatible forwarding can include <code>X-Prism-Surface</code>, <code>X-Prism-Workspace-ID</code>,{" "}
-            <code>X-Prism-Execution-Mode</code>, <code>X-Prism-Request-ID</code>, and <code>X-Prism-Upstream-Called</code>.
-            Prism-side rate limit and upstream Slack rate limit responses preserve <code>Retry-After</code> when available; compare with{" "}
-            <a className="font-medium text-primary underline-offset-4 hover:underline" href="https://docs.slack.dev/apis/web-api/rate-limits/">
-              Slack rate limit documentation
-            </a>
-            .
-          </p>
-          <p>Common local-tool failures include policy denied, unsupported method, reauth required, and rate-limited responses.</p>
+        <Panel title="Request headers" titleId="headers-title" eyebrow="API configuration" accent="info">
+          <div className="grid gap-4">
+            <div>
+              <h3 className="mb-1 font-semibold text-foreground">
+                <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">X-Prism-Surface</code>
+              </h3>
+              <p className="text-sm">
+                <strong>Required</strong> for surface-gated methods like <code>chat.postMessage</code>, <code>reactions.add</code>, and <code>conversations.list</code>.
+                Values: <code>public_channel</code>, <code>private_channel</code>, <code>dm</code>, or <code>mpim</code>.
+              </p>
+            </div>
+            <div>
+              <h3 className="mb-1 font-semibold text-foreground">
+                <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">X-Prism-Workspace-ID</code>
+              </h3>
+              <p className="text-sm">
+                <strong>Optional</strong> for Enterprise Grid workspaces. Specifies target Slack workspace ID (e.g., <code>T...</code>).
+                Prism forwards this as <code>team_id</code> to Slack when not already in the payload.
+              </p>
+            </div>
+            <div>
+              <h3 className="mb-1 font-semibold text-foreground">
+                <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">X-Prism-Execution-Mode</code>
+              </h3>
+              <p className="text-sm">
+                <strong>Optional</strong> when Token profile allows execution mode selection. Values: <code>user</code> or <code>bot</code>.
+                Defaults to Token profile's configured execution identity when not specified.
+              </p>
+            </div>
+            <div>
+              <h3 className="mb-1 font-semibold text-foreground">
+                <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">X-Prism-Request-ID</code>
+              </h3>
+              <p className="text-sm">
+                <strong>Response header</strong>. Prism returns this in responses for request correlation and audit trail lookup.
+                Use for debugging and support requests.
+              </p>
+            </div>
+            <div>
+              <h3 className="mb-1 font-semibold text-foreground">
+                <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">X-Prism-Upstream-Called</code>
+              </h3>
+              <p className="text-sm">
+                <strong>Response header</strong>. Set to <code>true</code> when Prism forwarded the request to Slack's API.
+                Absent when denied by policy before forwarding.
+              </p>
+            </div>
+            <div>
+              <h3 className="mb-1 font-semibold text-foreground">
+                <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs">Retry-After</code>
+              </h3>
+              <p className="text-sm">
+                Prism preserves <code>Retry-After</code> from Slack rate limit responses. Compare with{" "}
+                <a className="font-medium text-primary underline-offset-4 hover:underline" href="https://docs.slack.dev/apis/web-api/rate-limits/">
+                  Slack rate limits
+                </a>
+                .
+              </p>
+            </div>
+          </div>
         </Panel>
         <Panel title="Custody and audit posture" titleId="custody-title" eyebrow="Safety" accent="primary">
           <p>

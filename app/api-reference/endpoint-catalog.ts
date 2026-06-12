@@ -76,10 +76,12 @@ export const apiEndpointGroups = [
         summary: "Slack-compatible Web API forwarding for safe POST-style calls.",
         details: [
           "Use JSON or form payloads that the target Slack method already accepts.",
+          "Surface-gated methods (chat.*, reactions.*, conversations.*) require X-Prism-Surface header.",
+          "Enterprise Grid: Use X-Prism-Workspace-ID to target specific workspace.",
           "Prism removes local token fields before upstream calls and records only metadata, not Slack payload content."
         ],
         example:
-          "curl -X POST -H \"Authorization: Bearer prism_dev_...\" -H \"Content-Type: application/json\" \"$PRISM_BASE_URL/v1/slack/api/chat.postMessage\" -d '{\"channel\":\"<channel-id>\",\"text\":\"<message>\"}'",
+          "# Basic message\ncurl -X POST \\\n  -H \"Authorization: Bearer prism_dev_...\" \\\n  -H \"Content-Type: application/json\" \\\n  -H \"X-Prism-Surface: public_channel\" \\\n  \"$PRISM_BASE_URL/v1/slack/api/chat.postMessage\" \\\n  -d '{\"channel\":\"C...\",\"text\":\"Hello!\"}'\\n\\n# With workspace targeting (Enterprise Grid)\ncurl -X POST \\\n  -H \"Authorization: Bearer prism_dev_...\" \\\n  -H \"Content-Type: application/json\" \\\n  -H \"X-Prism-Surface: dm\" \\\n  -H \"X-Prism-Workspace-ID: T...\" \\\n  \"$PRISM_BASE_URL/v1/slack/api/chat.postMessage\" \\\n  -d '{\"channel\":\"U...\",\"text\":\"DM\"}'\\n\\n# Add reaction\ncurl -X POST \\\n  -H \"Authorization: Bearer prism_dev_...\" \\\n  -H \"Content-Type: application/json\" \\\n  -H \"X-Prism-Surface: public_channel\" \\\n  \"$PRISM_BASE_URL/v1/slack/api/reactions.add\" \\\n  -d '{\"channel\":\"C...\",\"name\":\"tada\",\"timestamp\":\"1234.56\"}'",
         docsLinks: [
           { label: "Slack Web API reference", href: "https://docs.slack.dev/apis/web-api/" },
           { label: "Slack chat.postMessage documentation", href: "https://docs.slack.dev/reference/methods/chat.postMessage/" }
