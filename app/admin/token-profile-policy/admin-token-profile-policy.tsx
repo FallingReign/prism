@@ -259,7 +259,7 @@ function policyFromForm(form: FormData, current: GlobalTokenProfilePolicy): Glob
       maximumDays: {
         readOnly: current.expiry.maximumDays.readOnly,
         nonDestructive: positiveInteger(form.get("maxNonDestructiveDays"), current.expiry.maximumDays.nonDestructive),
-        destructive: positiveInteger(form.get("maxDestructiveDays"), current.expiry.maximumDays.destructive)
+        destructive: positiveInteger(form.get("maxDestructiveDays"), current.expiry.maximumDays.destructive) ?? current.expiry.maximumDays.destructive
       },
       allowedExperimentTtls: experimentOptions.map((option) => option.value).filter((value) => form.get(`experiment:${value}`) === "on")
     },
@@ -346,7 +346,7 @@ function rotationOverlapValue(value: FormDataEntryValue | null, fallback: Global
   return value === "none" || value === "15m" || value === "1h" || value === "24h" ? value : fallback;
 }
 
-function positiveInteger(value: FormDataEntryValue | null, fallback: number): number {
+function positiveInteger(value: FormDataEntryValue | null, fallback: number | null): number | null {
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed >= 1 && parsed <= 3650 ? parsed : fallback;
 }
