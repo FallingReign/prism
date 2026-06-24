@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -34,11 +35,6 @@ const helperClass = "text-xs leading-5 text-muted-foreground";
 const checkboxLabelClass =
   "flex min-h-11 items-center gap-3 rounded-lg bg-muted/35 px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-muted/55";
 const actionCardClass = "grid gap-3 rounded-xl bg-muted/35 p-4";
-const policyExperimentOptions = [
-  { value: "none", label: "Policy default" },
-  { value: "24h", label: "24 hours" },
-  { value: "7d", label: "7 days" }
-];
 const presetOptions = [
   { value: "read_only", label: "Read-only" },
   { value: "messages_only", label: "Messages only" },
@@ -401,7 +397,11 @@ export function TokenProfileDetailWorkspace({
                 options={executionIdentitySelectOptions(policyOptions, profile.executionIdentity)}
                 help={executionIdentityHelp(policyOptions, profile.executionIdentity)}
               />
-              <SelectField name="policyExperiment" label="Expiry" defaultValue="none" options={policyExperimentOptions} help="Use only for short-lived experiment profiles." />
+              <NumberField
+                name="policyExpiryDays"
+                label="Expires in (days)"
+                help={profile.expiresAt ? `Current expiry: ${formatUtcDate(profile.expiresAt)}. Enter a number to reset it from today.` : "No current expiry. Enter a number to set one."}
+              />
             </div>
             <fieldset className="grid gap-3 rounded-xl bg-muted/30 p-4">
               <legend className="px-1 text-sm font-semibold text-foreground">Capability template</legend>
@@ -496,6 +496,17 @@ function CheckboxField({
         </Label>
         {help ? <span className={helperClass}>{help}</span> : null}
       </div>
+    </div>
+  );
+}
+
+function NumberField({ name, label, help }: { name: string; label: string; help?: string }) {
+  const id = `${name}-${useId()}`;
+  return (
+    <div className={fieldClass}>
+      <Label htmlFor={id}>{label}</Label>
+      <Input id={id} name={name} type="number" min={1} max={3650} placeholder="e.g. 30" />
+      {help ? <span className={helperClass}>{help}</span> : null}
     </div>
   );
 }

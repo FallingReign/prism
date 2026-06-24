@@ -9,6 +9,7 @@ export type TokenProfilePolicyInput = {
   executionIdentity: ExecutionIdentity;
   destructive?: boolean;
   experiment?: ExperimentTtl;
+  expiryDays?: number;
   custom?: {
     read?: boolean;
     search?: boolean;
@@ -135,6 +136,7 @@ function actionsFor(input: TokenProfilePolicyInput): CapabilityMap["actions"] {
 }
 
 function expiryFor(input: TokenProfilePolicyInput, destructive: boolean, now: Date): Date | null {
+  if (input.expiryDays !== undefined && input.expiryDays > 0) return addDays(now, input.expiryDays);
   if (input.experiment === "24h") return addDays(now, 1);
   if (input.experiment === "7d") return addDays(now, 7);
   // Destructive capabilities require 30-day expiry for safety

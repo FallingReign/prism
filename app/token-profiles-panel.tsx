@@ -323,9 +323,11 @@ export function TokenProfilesPanel({
                     options={executionIdentitySelectOptions(policyOptions)}
                     help={`Global policy default: ${executionIdentityLabel(policyOptions.executionIdentities.default)}.`}
                   />
-                  <Notice title="Safe defaults" tone="info">
-                    Prism starts with {executionIdentityLabel(createExecutionIdentity)} execution identity and no experiment expiry. Configure advanced policy after creation.
-                  </Notice>
+                  <label className={fieldClass}>
+                    Expires in (days)
+                    <Input name="expiryDays" type="number" min={1} max={3650} placeholder="e.g. 30" />
+                    <span className={helperClass}>Optional. Leave blank to use the default: destructive tokens expire in 30 days, others never expire.</span>
+                  </label>
                   {error ? (
                     <p className="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm font-medium text-destructive" role="alert">
                       {error} Check the fields and try again.

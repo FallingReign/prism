@@ -23,6 +23,7 @@ export type CreateTokenProfileInput = {
   executionIdentity: ExecutionIdentity;
   destructive?: boolean;
   experiment?: ExperimentTtl;
+  expiryDays?: number;
   custom?: {
     read?: boolean;
     search?: boolean;
@@ -365,7 +366,8 @@ export async function updateTokenProfilePolicy({
   if (!current) return { kind: "not_found" };
 
   const requestedPolicy = buildTokenProfilePolicy(parsed.input, now);
-  const nextPolicy = sameCapabilityPolicy(current.capabilityMap, requestedPolicy.capabilityMap)
+  const hasExplicitExpiry = parsed.input.expiryDays !== undefined;
+  const nextPolicy = !hasExplicitExpiry && sameCapabilityPolicy(current.capabilityMap, requestedPolicy.capabilityMap)
     ? { ...requestedPolicy, expiresAt: current.expiresAt }
     : requestedPolicy;
   let change = classifyPolicyChange(current.capabilityMap, current.expiresAt, nextPolicy.capabilityMap, nextPolicy.expiresAt);
@@ -463,6 +465,9 @@ function validateInput(input: CreateTokenProfileInput): { kind: "valid"; input: 
   }
   if (input.experiment && !["24h", "7d"].includes(input.experiment)) {
     return { kind: "validation_error", message: "Choose a supported experiment expiry." };
+  }
+  if (input.expiryDays !== undefined && (!Number.isInteger(input.expiryDays) || input.expiryDays < 1 || input.expiryDays > 3650)) {
+    return { kind: "validation_error", message: "Expiry days must be a whole number between 1 and 3650." };
   }
   return { kind: "valid", input: { ...input, name, intendedUse } };
 }

@@ -7,6 +7,7 @@ export type TokenProfileRequestBody = {
   executionIdentity: string;
   destructive: boolean;
   experiment?: string;
+  expiryDays?: number;
   custom?: {
     read: boolean;
     search: boolean;
@@ -42,6 +43,7 @@ export function buildCreateTokenProfileModalRequestBody(form: FormData): TokenPr
     preset,
     executionIdentity: formString(form, "executionIdentity", "automatic"),
     destructive: form.get("destructive") === "on",
+    expiryDays: formPositiveInteger(form, "expiryDays"),
     custom: preset === "custom" ? customCapabilities(form) : undefined
   });
 }
@@ -56,6 +58,7 @@ export function buildPolicyUpdateRequestBody(form: FormData, profile: TokenProfi
       executionIdentity: formString(form, "policyExecutionIdentity", profile.executionIdentity),
       destructive: form.get("policyDestructive") === "on",
       experiment: experimentValue(form, "policyExperiment"),
+      expiryDays: formPositiveInteger(form, "policyExpiryDays"),
       custom: preset === "custom" ? customCapabilities(form, "policy") : undefined
     }),
     confirmBroadening: form.get("confirmBroadening") === "on"
@@ -82,6 +85,13 @@ function formString(form: FormData, field: string, fallback = ""): string {
   return String(form.get(field) ?? fallback);
 }
 
+function formPositiveInteger(form: FormData, field: string): number | undefined {
+  const raw = form.get(field);
+  if (raw === null || raw === "") return undefined;
+  const parsed = Number(raw);
+  return Number.isInteger(parsed) && parsed >= 1 && parsed <= 3650 ? parsed : undefined;
+}
+
 function withOptionalFields(body: TokenProfileRequestBody): TokenProfileRequestBody {
   const result: TokenProfileRequestBody = {
     name: body.name,
@@ -91,6 +101,7 @@ function withOptionalFields(body: TokenProfileRequestBody): TokenProfileRequestB
     destructive: body.destructive
   };
   if (body.experiment !== undefined) result.experiment = body.experiment;
+  if (body.expiryDays !== undefined) result.expiryDays = body.expiryDays;
   if (body.custom !== undefined) result.custom = body.custom;
   return result;
 }

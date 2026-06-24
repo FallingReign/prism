@@ -74,6 +74,7 @@ async function readPolicyInput(request: NextRequest): Promise<{ profile: CreateT
       executionIdentity: stringValue(body.executionIdentity) as CreateTokenProfileInput["executionIdentity"],
       destructive: booleanValue(body.destructive),
       experiment: optionalStringValue(body.experiment) as CreateTokenProfileInput["experiment"],
+      expiryDays: positiveIntegerValue(body.expiryDays),
       custom: custom
         ? {
             read: booleanValue(custom.read),
@@ -112,4 +113,9 @@ function optionalStringValue(value: unknown): string | undefined {
 
 function booleanValue(value: unknown): boolean | undefined {
   return typeof value === "boolean" ? value : undefined;
+}
+
+function positiveIntegerValue(value: unknown): number | undefined {
+  if (typeof value !== "number") return undefined;
+  return Number.isInteger(value) && value >= 1 && value <= 3650 ? value : undefined;
 }
