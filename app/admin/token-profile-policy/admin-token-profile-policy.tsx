@@ -294,11 +294,11 @@ function SelectField({ name, label, defaultValue, options, disabled }: { name: s
   );
 }
 
-function NumberField({ name, label, defaultValue, disabled }: { name: string; label: string; defaultValue: number; disabled: boolean }) {
+function NumberField({ name, label, defaultValue, disabled }: { name: string; label: string; defaultValue: number | null; disabled: boolean }) {
   return (
     <label className="grid gap-2 text-sm font-medium text-foreground">
       {label}
-      <input className="min-h-11 rounded-lg border border-border bg-background px-3 text-foreground" type="number" min={1} max={3650} name={name} defaultValue={defaultValue} disabled={disabled} />
+      <input className="min-h-11 rounded-lg border border-border bg-background px-3 text-foreground" type="number" min={1} max={3650} name={name} defaultValue={defaultValue ?? undefined} disabled={disabled} />
     </label>
   );
 }
