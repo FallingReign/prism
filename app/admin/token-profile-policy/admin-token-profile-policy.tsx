@@ -145,6 +145,7 @@ export function AdminTokenProfilePolicyView({ scope, settings, editable }: { sco
               <NumberField name="maxDestructiveDays" label="Destructive max days" defaultValue={policy.expiry.maximumDays.destructive} disabled={!editable} />
               <SelectField name="maxRotationOverlap" label="Max rotation overlap" defaultValue={policy.mutation.maxRotationOverlap} options={rotationOverlapOptions()} disabled={!editable} />
             </div>
+            <p className="text-xs leading-5 text-muted-foreground">Leave Non-destructive max days blank to allow unlimited non-destructive token expiry.</p>
             <CheckboxField name="allowNoExpiryForReadOnly" label="Allow no-expiry Read-only profiles" defaultChecked={policy.expiry.allowNoExpiryForReadOnly} disabled={!editable} />
             <div className="grid gap-2 sm:grid-cols-2">
               {experimentOptions.map((option) => (
