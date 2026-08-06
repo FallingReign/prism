@@ -12,8 +12,8 @@ export PRISM_BASE_URL=http://localhost:3732
 
 Local development uses port `3732`. For a hosted or pilot environment, use the approved Prism origin from the deployment owner.
 
-For a Windows-first agent workflow with masked local token setup and confirmed Slack actions, see the
-[Prism Slack agent skill](../.agents/skills/prism-slack/SKILL.md).
+For a Windows-first agent workflow with agent-launched masked local token setup
+and confirmed Slack actions, see the [Prism Slack agent skill](../.agents/skills/prism-slack/SKILL.md).
 
 ## Use bearer authentication
 
