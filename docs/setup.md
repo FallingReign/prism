@@ -4,6 +4,20 @@ This guide is for a **Local tool** author using Prism v1. A Local tool calls the
 
 ## Configure the Prism base URL
 
+For the fastest Windows-first agent setup, open the Prism website and use
+**Install Prism skill**. The website copies a prompt containing its current
+browser origin:
+
+```text
+Go to <prism-origin>/skills/install.md and follow the setup instructions.
+```
+
+The hosted instructions download the public, SHA-256-verified skill bundle,
+ask whether the install is project-local or global, and then hand off to the
+normal Prism onboarding flow. They are the canonical distribution path;
+contributors can inspect the source skill at
+[`../.agents/skills/prism-slack/SKILL.md`](../.agents/skills/prism-slack/SKILL.md).
+
 Use `PRISM_BASE_URL` for the hosted Prism origin, for example:
 
 ```bash
@@ -12,8 +26,9 @@ export PRISM_BASE_URL=http://localhost:3732
 
 Local development uses port `3732`. For a hosted or pilot environment, use the approved Prism origin from the deployment owner.
 
-For a Windows-first agent workflow with agent-launched masked local token setup
-and confirmed Slack actions, see the [Prism Slack agent skill](../.agents/skills/prism-slack/SKILL.md).
+For the Windows-first agent workflow after installation, see the hosted
+`/skills/install.md` instructions or the contributor copy of the [Prism Slack
+agent skill](../.agents/skills/prism-slack/SKILL.md).
 
 ## Use bearer authentication
 

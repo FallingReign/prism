@@ -7,6 +7,7 @@ describe("Prism API endpoint catalog", () => {
     expect(apiEndpointGroups.map((group) => group.title)).toEqual([
       "Local tool endpoints",
       "Website/session management endpoints",
+      "Public skill distribution",
       "Admin handoff"
     ]);
 
@@ -25,7 +26,11 @@ describe("Prism API endpoint catalog", () => {
         "GET /v1/prism/activity websiteSession website-session",
         "GET /v1/slack/oauth/start websiteSession website-session",
         "GET /v1/slack/oauth/callback websiteSession website-session",
-        "DELETE /v1/prism/slack-connection websiteSession website-session"
+        "DELETE /v1/prism/slack-connection websiteSession website-session",
+        "GET /skills/install.md none public-distribution",
+        "GET /skills/manifest.json none public-distribution",
+        "GET /skills/latest.zip none public-distribution",
+        "GET /skills/archive/{file} none public-distribution"
       ])
     );
 

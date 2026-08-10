@@ -1,5 +1,5 @@
 export type ApiAuthModel = "none" | "prismDeveloperToken" | "websiteSession";
-export type ApiSurface = "local-tool" | "website-session" | "admin-handoff";
+export type ApiSurface = "local-tool" | "website-session" | "public-distribution" | "admin-handoff";
 export type ApiMethod = "GET" | "POST" | "DELETE";
 
 export type ApiEndpoint = {
@@ -167,6 +167,46 @@ export const apiEndpointGroups = [
         surface: "website-session",
         summary: "Remove the current user's local Slack connection from Prism.",
         details: ["Requires typed confirmation in the website UI.", "Cascades local Token profile state without touching the Slack workspace."]
+      }
+    ]
+  },
+  {
+    title: "Public skill distribution",
+    description:
+      "Public, secret-free artifacts used by coding agents to install the Prism skill. The manifest and archive are integrity-checked by the install instructions.",
+    endpoints: [
+      {
+        method: "GET",
+        path: "/skills/install.md",
+        authModel: "none",
+        surface: "public-distribution",
+        summary: "Canonical skill installation instructions.",
+        details: ["Resolve linked paths against the origin used to fetch this document.", "The website CTA points agents here."],
+        docsLinks: [{ label: "Skill installation guide", href: "/skills/install.md" }]
+      },
+      {
+        method: "GET",
+        path: "/skills/manifest.json",
+        authModel: "none",
+        surface: "public-distribution",
+        summary: "Skill bundle version and SHA-256 manifest.",
+        details: ["Contains file hashes and the immutable archive path.", "Does not contain credentials or user data."]
+      },
+      {
+        method: "GET",
+        path: "/skills/latest.zip",
+        authModel: "none",
+        surface: "public-distribution",
+        summary: "Current Prism skill bundle.",
+        details: ["The install instructions verify this archive against the manifest before extraction.", "The archive is public and secret-free."]
+      },
+      {
+        method: "GET",
+        path: "/skills/archive/{file}",
+        authModel: "none",
+        surface: "public-distribution",
+        summary: "Immutable versioned Prism skill bundle.",
+        details: ["The route accepts only the archive filename advertised by the manifest.", "Versioned responses are immutable and cacheable."]
       }
     ]
   },

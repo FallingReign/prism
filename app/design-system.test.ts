@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
 
 describe("Prism website design-system guard", () => {
   it("keeps app components on shared classes instead of inline styles", () => {
-    const source = ["page.tsx", "slack-status-panel.tsx", "token-profiles-panel.tsx", "token-profile-detail-panel.tsx", "activity-audit-panel.tsx", "ui.tsx"]
+    const source = ["page.tsx", "skill-install-cta.tsx", "slack-status-panel.tsx", "token-profiles-panel.tsx", "token-profile-detail-panel.tsx", "activity-audit-panel.tsx", "ui.tsx"]
       .map((file) => readFileSync(join(process.cwd(), "app", file), "utf8"))
       .join("\n");
 

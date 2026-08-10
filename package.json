@@ -8,9 +8,12 @@
   ],
   "scripts": {
     "dev": "next dev --hostname 0.0.0.0 --port 3732",
+    "predev": "node scripts/build-skill-bundle.mjs",
     "build": "next build && node scripts/restore-next-env-dev.mjs",
+    "prebuild": "node scripts/build-skill-bundle.mjs",
     "start": "next start -p 3732",
-    "test": "vitest run",
+    "test": "vitest run && npm run test:helper",
+    "test:helper": "python -m unittest discover -s test -p test_*.py",
     "db:up": "docker compose --env-file .env.local up -d postgres",
     "db:down": "docker compose --env-file .env.local down",
     "db:migrate": "node scripts/ensure-local-encryption-key.mjs && node scripts/run-migrations.mjs",

@@ -24,6 +24,23 @@ optional implementation detail in one-level-deep references or scripts only
 when the skill needs it. The Prism setup guide should link to the skill rather
 than duplicate its procedure.
 
+## Hosted distribution
+
+The Prism website distributes the complete skill tree through a public,
+build-generated bundle:
+
+- `/skills/install.md` is the canonical human- and agent-readable procedure.
+- `/skills/manifest.json` describes the independent skill version, file hashes,
+  and immutable archive path.
+- `/skills/latest.zip` is the revalidated alias for the current bundle.
+- `/skills/archive/<versioned-file>.zip` is immutable and cacheable.
+
+The archive preserves a top-level `prism-slack/` directory and is generated
+from this repository's `.agents/skills/prism-slack/` source. Its independent
+`VERSION` file starts at `1.0.0`; generated artifacts are excluded from source
+control. The homepage CTA derives the prompt origin from the browser's current
+web origin, not from a server environment variable or request headers.
+
 ## Evidence
 
 - The Agent Skills specification requires a skill directory containing

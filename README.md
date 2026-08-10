@@ -42,6 +42,8 @@ No Supabase, Auth, PostgREST, ORM, or migration framework is required for this s
 
 ## Self-serve setup
 
+- Install the Prism agent skill: open the Prism website and copy the prompt from the **Install Prism skill** action, or visit
+  `/skills/install.md` on that same Prism origin.
 - Local tool and API setup: [`docs/setup.md`](docs/setup.md)
 - Website API reference: `/api-reference`
 - Security review notes and token-risk guidance: [`docs/security.md`](docs/security.md)

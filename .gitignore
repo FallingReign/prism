@@ -10,7 +10,11 @@ out/
 coverage/
 dist/
 test-results/
+.artifacts/
+__pycache__/
+*.pyc
 
 config/prism-admin-allowlist.local.json
+.agents/skills/prism-slack/config.json
 
 .DS_Store

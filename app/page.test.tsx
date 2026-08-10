@@ -42,6 +42,7 @@ describe("/", () => {
 
     expect(html).toContain('href="/api-reference"');
     expect(html).toContain("API reference");
+    expect(html).toContain("Install Prism skill");
     expect(html).not.toContain("Admin console");
   });
 

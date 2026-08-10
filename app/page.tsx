@@ -12,6 +12,7 @@ import { createPostgresGlobalTokenProfilePolicyStore } from "../src/server/token
 import { listTokenProfiles } from "../src/server/token-profiles/service";
 import { createPostgresTokenProfileStore } from "../src/server/token-profiles/store";
 import { ActivityAuditPanel } from "./activity-audit-panel";
+import { SkillInstallCta } from "./skill-install-cta";
 import { SlackStatusPanel, type SlackWebsiteStatus } from "./slack-status-panel";
 import { tokenProfilePolicyOptionsFromGlobalPolicy, type TokenProfilePolicyOptions } from "./token-profile-policy-options";
 import { toTokenProfileSummary, type TokenProfileSummary } from "./token-profile-summary";
@@ -93,6 +94,10 @@ async function HomeContent() {
               Slack OAuth and tokens stay server-side. Local CLIs, MCP servers, and coding agents receive scoped Prism developer
               tokens, policy enforcement, rate limits, and metadata-only audit.
             </p>
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <SkillInstallCta />
+              <span className="text-xs leading-5 text-muted-foreground">Give your local agent the hosted install instructions.</span>
+            </div>
           </div>
           <SlackStatusPanel status={status} variant="compact" />
         </div>

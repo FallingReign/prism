@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+from datetime import datetime, timezone
 import getpass
 import json
 import os
@@ -58,6 +59,10 @@ _HTTP_OPENER = build_opener(_NoRedirect)
 
 class PrismCredentialError(RuntimeError):
     """A redacted, actionable credential or request error."""
+
+
+class CredentialNotFoundError(PrismCredentialError):
+    """Raised when a host-scoped credential has not been stored yet."""
 
 
 @dataclass(frozen=True)
@@ -185,7 +190,7 @@ class _WindowsCredentialBackend(_CredentialBackend):
         if not self._read_native(target, GENERIC_CREDENTIAL, 0, ctypes.byref(credential)):
             error = ctypes.get_last_error()
             if error == ERROR_NOT_FOUND:
-                raise PrismCredentialError("No Prism credential is stored for this host.")
+                raise CredentialNotFoundError("No Prism credential is stored for this host.")
             raise PrismCredentialError("Windows Credential Manager could not read the Prism credential.")
         try:
             blob = ctypes.string_at(credential.contents.CredentialBlob, credential.contents.CredentialBlobSize)
@@ -229,7 +234,9 @@ class _FileCredentialBackend(_CredentialBackend):
             data = self._load()
             try:
                 return validate_token(str(data["credentials"][target]))
-            except (KeyError, TypeError, PrismCredentialError) as error:
+            except KeyError as error:
+                raise CredentialNotFoundError("No valid fallback Prism credential is stored for this host.") from error
+            except (TypeError, PrismCredentialError) as error:
                 raise PrismCredentialError("No valid fallback Prism credential is stored for this host.") from error
 
     def _write(self, target: str, token: str) -> None:
@@ -316,7 +323,7 @@ class _FileCredentialBackend(_CredentialBackend):
         try:
             value = json.loads(self.path.read_text(encoding="utf-8"))
         except FileNotFoundError as error:
-            raise PrismCredentialError("The fallback Prism credential file does not exist.") from error
+            raise CredentialNotFoundError("The fallback Prism credential file does not exist.") from error
         except (OSError, json.JSONDecodeError) as error:
             raise PrismCredentialError("The fallback Prism credential file could not be read.") from error
         if not isinstance(value, dict) or not isinstance(value.get("credentials"), dict):
@@ -349,7 +356,7 @@ class _FileCredentialBackend(_CredentialBackend):
     def _verify_private(self, path: Path | None = None) -> None:
         target_path = path or self.path
         if not target_path.exists():
-            raise PrismCredentialError("The fallback Prism credential file does not exist.")
+            raise CredentialNotFoundError("The fallback Prism credential file does not exist.")
         if os.name != "nt":
             raise PrismCredentialError("The fallback file backend is currently supported only on Windows.")
         current_principals = _current_windows_principals()
@@ -399,6 +406,126 @@ def _fallback_path() -> Path:
     if not root:
         root = str(Path.home() / "AppData" / "Roaming")
     return Path(root) / "Prism" / "credentials.json"
+
+
+def skill_root() -> Path:
+    """Return the installed skill root containing this helper."""
+
+    return Path(__file__).resolve().parents[1]
+
+
+def skill_config_path() -> Path:
+    """Return the non-secret configuration path for this skill installation."""
+
+    return skill_root() / "config.json"
+
+
+def read_configuration_marker() -> dict[str, Any] | None:
+    """Read a valid skill-local marker without exposing or mutating credentials."""
+
+    path = skill_config_path()
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, json.JSONDecodeError) as error:
+        raise PrismCredentialError("The skill-local Prism configuration is unreadable.") from error
+    if not isinstance(data, dict) or data.get("configured") is not True or not isinstance(data.get("origin"), str):
+        raise PrismCredentialError("The skill-local Prism configuration is invalid.")
+    return {
+        "origin": normalize_origin(data["origin"]),
+        "configured": True,
+        "verifiedAt": data.get("verifiedAt"),
+    }
+
+
+def environment_origin_mismatch(origin: str, env: Mapping[str, str] | None = None) -> tuple[str, str | None] | None:
+    """Return normalized PRISM_BASE_URL values when it differs from the skill origin."""
+
+    values = env if env is not None else os.environ
+    configured = values.get("PRISM_BASE_URL")
+    if not configured:
+        return None
+    normalized = normalize_origin(origin)
+    try:
+        configured_origin = normalize_origin(configured)
+    except PrismCredentialError:
+        return normalized, None
+    if configured_origin == normalized:
+        return None
+    return normalized, configured_origin
+
+
+def _check_origin_change(origin: str, *, confirm_origin_change: bool = False) -> None:
+    normalized = normalize_origin(origin)
+    try:
+        existing = read_configuration_marker()
+    except PrismCredentialError as error:
+        if confirm_origin_change:
+            return
+        raise PrismCredentialError(
+            "The skill-local Prism configuration is invalid; rerun with --confirm-origin-change to replace it."
+        ) from error
+    if existing and existing["origin"] != normalized and not confirm_origin_change:
+        raise PrismCredentialError(
+            f"The skill configuration already points to {existing['origin']}; "
+            f"rerun with --confirm-origin-change to use {normalized}."
+        )
+
+
+def _write_configuration_marker(origin: str, *, confirm_origin_change: bool = False) -> None:
+    _check_origin_change(origin, confirm_origin_change=confirm_origin_change)
+    path = skill_config_path()
+    normalized = normalize_origin(origin)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = {
+        "origin": normalized,
+        "configured": True,
+        "verifiedAt": datetime.now(timezone.utc).isoformat(),
+    }
+    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+    try:
+        with temporary.open("w", encoding="utf-8", newline="\n") as handle:
+            handle.write(json.dumps(data, indent=2) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    except OSError as error:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise PrismCredentialError("The skill-local Prism configuration could not be stored.") from error
+
+
+def record_verified_origin(
+    origin: str,
+    *,
+    allow_file_fallback: bool = False,
+    confirm_origin_change: bool = False,
+) -> SafeResponse:
+    """Verify an existing credential and record a non-secret skill-local marker."""
+
+    normalized = normalize_origin(origin)
+    status = request(normalized, "GET", "/v1/prism/status", allow_file_fallback=allow_file_fallback)
+    capabilities = request(normalized, "GET", "/v1/prism/capabilities", allow_file_fallback=allow_file_fallback)
+    token = status.data.get("token", {})
+    slack = status.data.get("slack", {})
+    execution = status.data.get("executionIdentity", {})
+    methods = capabilities.data.get("methods", {})
+    method = methods.get("chat.postMessage", {}) if isinstance(methods, dict) else {}
+    if not (
+        status.ok
+        and token.get("status") == "active"
+        and slack.get("connected") is True
+        and slack.get("status") == "healthy"
+        and execution.get("available") is True
+        and capabilities.ok
+        and method.get("status") == "allowed"
+    ):
+        raise PrismCredentialError("Prism is not ready; the skill-local configuration marker was not stored.")
+    _write_configuration_marker(normalized, confirm_origin_change=confirm_origin_change)
+    return status
 
 
 def _current_windows_principals() -> set[str]:
@@ -483,6 +610,25 @@ def _read_token(backend: _CredentialBackend, origin: str) -> str:
     return backend._read(credential_target(origin))
 
 
+def _has_stored_credential(origin: str, *, allow_file_fallback: bool = False) -> bool:
+    backend = _select_backend(allow_file_fallback)
+    try:
+        _read_token(backend, origin)
+        return True
+    except CredentialNotFoundError:
+        if allow_file_fallback and isinstance(backend, _WindowsCredentialBackend):
+            try:
+                _read_token(_FileCredentialBackend(), origin)
+                return True
+            except CredentialNotFoundError:
+                return False
+            except PrismCredentialError:
+                return True
+        return False
+    except PrismCredentialError:
+        return True
+
+
 def request(
     origin: str,
     method: str,
@@ -553,10 +699,35 @@ def setup_credentials(
     *,
     allow_file_fallback: bool = False,
     allow_insecure_http: bool = False,
+    confirm_origin_change: bool = False,
+    confirm_environment_origin: bool = False,
+    replace_existing: bool = False,
 ) -> SafeResponse:
     """Prompt locally, validate with Prism, then store the credential."""
 
     normalized = normalize_origin(origin, allow_insecure_http=allow_insecure_http)
+    _check_origin_change(normalized, confirm_origin_change=confirm_origin_change)
+    mismatch = environment_origin_mismatch(normalized)
+    if mismatch and not confirm_environment_origin:
+        configured_origin, environment_origin = mismatch
+        environment_message = environment_origin or "an invalid value"
+        raise PrismCredentialError(
+            f"PRISM_BASE_URL is {environment_message}, while the install origin is {configured_origin}; "
+            "rerun with --confirm-environment-origin after approval."
+        )
+    if _has_stored_credential(normalized, allow_file_fallback=allow_file_fallback):
+        if not replace_existing:
+            try:
+                return record_verified_origin(
+                    normalized,
+                    allow_file_fallback=allow_file_fallback,
+                    confirm_origin_change=confirm_origin_change,
+                )
+            except PrismCredentialError as error:
+                raise PrismCredentialError(
+                    "A stored Prism credential is not ready; fix the connection or rerun with --replace "
+                    "to enter a replacement token."
+                ) from error
     token = _prompt_for_token()
     ephemeral = _EphemeralBackend(token)
     response = request(normalized, "GET", "/v1/prism/status", backend=ephemeral)
@@ -570,13 +741,23 @@ def setup_credentials(
             raise
         try:
             _read_token(backend, normalized)
-        except PrismCredentialError:
+        except CredentialNotFoundError:
             _FileCredentialBackend()._write(credential_target(normalized), token)
         else:
             raise PrismCredentialError(
                 "Windows Credential Manager rejected the replacement while an older credential is still present; "
                 "the file fallback was not used."
             ) from native_error
+    try:
+        record_verified_origin(
+            normalized,
+            allow_file_fallback=allow_file_fallback,
+            confirm_origin_change=confirm_origin_change,
+        )
+    except PrismCredentialError as error:
+        raise PrismCredentialError(
+            "The Prism credential was stored, but the connection is not ready; fix the connection and rerun setup."
+        ) from error
     return response
 
 
@@ -900,6 +1081,21 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Confirm that a bare host may use HTTP; prefer supplying an explicit scheme.",
     )
+    parser.add_argument(
+        "--confirm-origin-change",
+        action="store_true",
+        help="Confirm replacing the existing skill-local Prism origin.",
+    )
+    parser.add_argument(
+        "--confirm-environment-origin",
+        action="store_true",
+        help="Confirm using the install origin when PRISM_BASE_URL differs.",
+    )
+    parser.add_argument(
+        "--replace",
+        action="store_true",
+        help="Replace a stored Prism credential after explicit user approval.",
+    )
     args = parser.parse_args(argv)
     try:
         normalized = normalize_origin(args.host, allow_insecure_http=args.allow_insecure_http)
@@ -907,6 +1103,9 @@ def main(argv: list[str] | None = None) -> int:
             normalized,
             allow_file_fallback=args.allow_file_fallback,
             allow_insecure_http=args.allow_insecure_http,
+            confirm_origin_change=args.confirm_origin_change,
+            confirm_environment_origin=args.confirm_environment_origin,
+            replace_existing=args.replace,
         )
     except PrismCredentialError as error:
         print(f"Prism credential setup failed: {error}", file=sys.stderr)

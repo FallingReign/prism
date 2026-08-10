@@ -30,6 +30,9 @@ export default function ApiReferencePage() {
           <a className="inline-flex min-h-11 items-center rounded-full px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground" href="#website-session-management-endpoints">
             Website session
           </a>
+          <a className="inline-flex min-h-11 items-center rounded-full px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground" href="#public-skill-distribution">
+            Skill distribution
+          </a>
           <a className="inline-flex min-h-11 items-center rounded-full px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground" href="#admin-handoff">
             Admin handoff
           </a>

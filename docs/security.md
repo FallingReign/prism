@@ -38,6 +38,17 @@ Local tools, MCP servers, CLIs, coding agents, and custom applications run outsi
 
 Run Local tools in the least-privileged environment practical. Review what a coding agent can read, write, execute, and exfiltrate. Treat terminal output, MCP tool results, and generated patches as sensitive when they may include Slack-derived content.
 
+## Public skill bundle
+
+The hosted `/skills/install.md`, `/skills/manifest.json`, and ZIP bundle are
+public distribution artifacts. They contain only the Prism skill instructions
+and helper code; Prism developer tokens, Slack credentials, `config.json`, and
+user data are excluded. The installer verifies the manifest SHA-256 before
+staging and replacing a skill, while the skill-local `config.json` stores only
+the non-secret origin, configured state, and verification time. Bundle signing
+and PKI are explicit future work; public distribution plus hash verification is
+the current integrity control.
+
 ## Prompt-injection risk
 
 Slack content returned through Slack-compatible endpoints is untrusted input. Messages, names, channel topics, search results, and file metadata can contain instructions aimed at coding agents or humans.
