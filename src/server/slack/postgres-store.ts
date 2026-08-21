@@ -11,22 +11,43 @@ import type { RefreshStore } from "./refresh";
 
 export function createPostgresOAuthFlowStore(database: Database): OAuthFlowStore {
   return {
+    async transaction(callback) {
+      return database.transaction((transactionDatabase) =>
+        callback(createPostgresOAuthFlowStore(transactionDatabase))
+      );
+    },
     async saveOAuthState(input) {
       await database.query(
-        "insert into slack_oauth_states (state_hash, redirect_uri, expires_at) values ($1, $2, $3)",
-        [input.stateHash, input.redirectUri, input.expiresAt]
+        `insert into slack_oauth_states
+           (state_hash, redirect_uri, oidc_authorization_request_id, expires_at)
+         values ($1, $2, $3, $4)`,
+        [
+          input.stateHash,
+          input.redirectUri,
+          input.oidcAuthorizationRequestId ?? null,
+          input.expiresAt
+        ]
       );
     },
     async consumeOAuthState({ stateHash, now }) {
-      const result = await database.query<{ redirect_uri: string }>(
+      const result = await database.query<{
+        redirect_uri: string;
+        oidc_authorization_request_id: string | null;
+      }>(
         `update slack_oauth_states
          set used_at = $2
          where state_hash = $1 and used_at is null and expires_at > $2
-         returning redirect_uri`,
+         returning redirect_uri, oidc_authorization_request_id`,
         [stateHash, now]
       );
       const row = result.rows[0];
-      return row ? { redirectUri: row.redirect_uri } : null;
+      return row
+        ? {
+            redirectUri: row.redirect_uri,
+            oidcAuthorizationRequestId:
+              row.oidc_authorization_request_id ?? null
+          }
+        : null;
     },
     async upsertPrismUser(input) {
       const result = await database.query<{ id: string }>(

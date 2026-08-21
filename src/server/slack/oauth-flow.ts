@@ -1,6 +1,6 @@
 import "server-only";
 
-import { createHash, randomBytes as nodeRandomBytes } from "node:crypto";
+import { createHash, randomBytes as nodeRandomBytes, timingSafeEqual } from "node:crypto";
 
 import type { CredentialCipher, CredentialEnvelope } from "../credentials/encryption";
 import type { SlackOAuthClient, SlackOAuthSuccess } from "./oauth-client";
@@ -28,8 +28,20 @@ export type CookieSpec = {
 };
 
 export type OAuthFlowStore = {
-  saveOAuthState(input: { stateHash: string; redirectUri: string; expiresAt: Date }): Promise<void>;
-  consumeOAuthState(input: { stateHash: string; now: Date }): Promise<{ redirectUri: string } | null>;
+  transaction<T>(callback: (store: OAuthFlowStore) => Promise<T>): Promise<T>;
+  saveOAuthState(input: {
+    stateHash: string;
+    redirectUri: string;
+    oidcAuthorizationRequestId?: string | null;
+    expiresAt: Date;
+  }): Promise<void>;
+  consumeOAuthState(input: {
+    stateHash: string;
+    now: Date;
+  }): Promise<{
+    redirectUri: string;
+    oidcAuthorizationRequestId: string | null;
+  } | null>;
   upsertPrismUser(input: { slackTeamId: string; slackUserId: string; slackEnterpriseId: string | null }): Promise<{ id: string }>;
   upsertSlackConnection(input: {
     prismUserId: string;
@@ -57,18 +69,25 @@ export type OAuthFlowStore = {
 export async function createSlackOAuthStart({
   store,
   config,
+  oidcAuthorizationRequestId = null,
   now = new Date(),
   randomBytes = nodeRandomBytes
 }: {
   store: OAuthFlowStore;
   config: SlackOAuthConfig;
+  oidcAuthorizationRequestId?: string | null;
   now?: Date;
   randomBytes?: (size: number) => Buffer;
 }): Promise<{ state: string; stateHash: string; redirectUrl: string; cookie: CookieSpec }> {
   const state = randomBytes(32).toString("base64url");
   const stateHash = hashSecret(state);
   const expiresAt = new Date(now.getTime() + 10 * 60 * 1000);
-  await store.saveOAuthState({ stateHash, redirectUri: config.redirectUri, expiresAt });
+  await store.saveOAuthState({
+    stateHash,
+    redirectUri: config.redirectUri,
+    oidcAuthorizationRequestId,
+    expiresAt
+  });
 
   const authorize = new URL("https://slack.com/oauth/v2/authorize");
   authorize.searchParams.set("client_id", config.clientId);
@@ -93,6 +112,7 @@ export async function completeSlackOAuthCallback({
   code,
   state,
   cookieState,
+  oauthError = null,
   now = new Date(),
   randomBytes = nodeRandomBytes
 }: {
@@ -103,13 +123,24 @@ export async function completeSlackOAuthCallback({
   code: string | null;
   state: string | null;
   cookieState: string | null;
+  oauthError?: string | null;
   now?: Date;
   randomBytes?: (size: number) => Buffer;
 }): Promise<
-  | { kind: "linked"; redirectUrl: string; sessionCookie: CookieSpec }
-  | { kind: "invalid_state" | "slack_error"; redirectUrl: string; sessionCookie?: undefined }
+  | {
+      kind: "linked";
+      redirectUrl: string;
+      sessionCookie: CookieSpec;
+      oidcAuthorizationRequestId: string | null;
+    }
+  | {
+      kind: "invalid_state" | "slack_error";
+      redirectUrl: string;
+      oidcAuthorizationRequestId?: string | null;
+      sessionCookie?: undefined;
+    }
 > {
-  if (!code || !state || !cookieState || state !== cookieState) {
+  if (!state || !cookieState || !equalSecret(state, cookieState)) {
     return { kind: "invalid_state", redirectUrl: statusRedirect(config, "error") };
   }
 
@@ -118,47 +149,98 @@ export async function completeSlackOAuthCallback({
     return { kind: "invalid_state", redirectUrl: statusRedirect(config, "error") };
   }
 
-  const slackResult = await slackOAuthClient.exchangeCode({ code, redirectUri: config.redirectUri });
-  if (!slackResult.ok) {
-    return { kind: "slack_error", redirectUrl: statusRedirect(config, "error") };
+  if (oauthError || !code) {
+    return {
+      kind: "slack_error",
+      redirectUrl: statusRedirect(config, "error"),
+      oidcAuthorizationRequestId: storedState.oidcAuthorizationRequestId
+    };
   }
 
-  const prismUser = await store.upsertPrismUser({
-    slackTeamId: slackResult.team.id,
-    slackUserId: slackResult.authedUser.id,
-    slackEnterpriseId: slackResult.enterprise?.id ?? null
-  });
-  const connection = await store.upsertSlackConnection({
-    prismUserId: prismUser.id,
-    teamId: slackResult.team.id,
-    teamName: slackResult.team.name ?? null,
-    enterpriseId: slackResult.enterprise?.id ?? null,
-    enterpriseName: slackResult.enterprise?.name ?? null,
-    authedUserId: slackResult.authedUser.id,
-    appId: slackResult.appId,
-    botScopes: slackResult.bot?.scope ?? "",
-    userScopes: slackResult.authedUser.scope ?? ""
-  });
+  const slackResult = await slackOAuthClient.exchangeCode({ code, redirectUri: config.redirectUri });
+  if (!slackResult.ok) {
+    return {
+      kind: "slack_error",
+      redirectUrl: statusRedirect(config, "error"),
+      oidcAuthorizationRequestId: storedState.oidcAuthorizationRequestId
+    };
+  }
 
-  await storeCredentialIfPresent({ store, cipher, connectionId: connection.id, kind: "bot", token: slackResult.bot, now });
-  await storeCredentialIfPresent({ store, cipher, connectionId: connection.id, kind: "user", token: slackResult.authedUser, now });
+  if (
+    !nonemptySlackIdentifier(slackResult.appId) ||
+    !nonemptySlackIdentifier(slackResult.team.id) ||
+    !nonemptySlackIdentifier(slackResult.authedUser.id)
+  ) {
+    return {
+      kind: "slack_error",
+      redirectUrl: statusRedirect(config, "error"),
+      oidcAuthorizationRequestId: storedState.oidcAuthorizationRequestId
+    };
+  }
 
   const sessionToken = randomBytes(32).toString("base64url");
-  await store.createWebsiteSession({
-    sessionTokenHash: hashSecret(sessionToken),
-    prismUserId: prismUser.id,
-    expiresAt: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
+  await store.transaction(async (transactionStore) => {
+    const prismUser = await transactionStore.upsertPrismUser({
+      slackTeamId: slackResult.team.id,
+      slackUserId: slackResult.authedUser.id,
+      slackEnterpriseId: slackResult.enterprise?.id ?? null
+    });
+    const connection = await transactionStore.upsertSlackConnection({
+      prismUserId: prismUser.id,
+      teamId: slackResult.team.id,
+      teamName: slackResult.team.name ?? null,
+      enterpriseId: slackResult.enterprise?.id ?? null,
+      enterpriseName: slackResult.enterprise?.name ?? null,
+      authedUserId: slackResult.authedUser.id,
+      appId: slackResult.appId,
+      botScopes: slackResult.bot?.scope ?? "",
+      userScopes: slackResult.authedUser.scope ?? ""
+    });
+
+    await storeCredentialIfPresent({
+      store: transactionStore,
+      cipher,
+      connectionId: connection.id,
+      kind: "bot",
+      token: slackResult.bot,
+      now
+    });
+    await storeCredentialIfPresent({
+      store: transactionStore,
+      cipher,
+      connectionId: connection.id,
+      kind: "user",
+      token: slackResult.authedUser,
+      now
+    });
+
+    await transactionStore.createWebsiteSession({
+      sessionTokenHash: hashSecret(sessionToken),
+      prismUserId: prismUser.id,
+      expiresAt: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
+    });
   });
 
   return {
     kind: "linked",
     redirectUrl: statusRedirect(config, "linked"),
-    sessionCookie: sessionCookie(sessionToken, config.publicBaseUrl)
+    sessionCookie: sessionCookie(sessionToken, config.publicBaseUrl),
+    oidcAuthorizationRequestId: storedState.oidcAuthorizationRequestId
   };
 }
 
 export function hashSecret(secret: string): string {
   return createHash("sha256").update(secret).digest("hex");
+}
+
+function equalSecret(leftValue: string, rightValue: string): boolean {
+  const left = Buffer.from(leftValue);
+  const right = Buffer.from(rightValue);
+  return left.length === right.length && timingSafeEqual(left, right);
+}
+
+function nonemptySlackIdentifier(value: string): boolean {
+  return value.trim().length > 0 && value.length <= 255;
 }
 
 function oauthStateCookie(value: string, publicBaseUrl: string): CookieSpec {

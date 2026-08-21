@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { NextRequest } from "next/server";
 
 const mockDb = vi.hoisted(() => ({ query: vi.fn<() => Promise<unknown>>() }));
 
@@ -11,7 +12,9 @@ describe("GET /v1/slack/oauth/start", () => {
     process.env.SLACK_CLIENT_ID = "client-id-123";
     process.env.SLACK_CLIENT_SECRET = "client-secret-must-not-appear";
     process.env.PRISM_PUBLIC_BASE_URL = "http://localhost:3732";
+    process.env.PRISM_OIDC_ALLOW_INSECURE_HTTP = "1";
     process.env.SLACK_OAUTH_REDIRECT_URI = "http://localhost:3732/v1/slack/oauth/callback";
+    process.env.SLACK_USER_SCOPES = "users:read";
   });
 
   it("redirects to Slack authorize with state cookie and no client secret", async () => {
@@ -29,6 +32,25 @@ describe("GET /v1/slack/oauth/start", () => {
     expect(cookie).toContain("prism_slack_oauth_state=");
     expect(cookie.toLowerCase()).toContain("httponly");
     expect(cookie.toLowerCase()).toContain("samesite=lax");
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("pragma")).toBe("no-cache");
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
     expect(`${location} ${cookie}`).not.toContain("client-secret-must-not-appear");
+  });
+
+  it("binds only a well-formed opaque OIDC request id into the stored Slack state", async () => {
+    const oidcRequestId = "r".repeat(43);
+    mockDb.query.mockResolvedValue({ rows: [], rowCount: 1 });
+    const { GET } = await import("./route");
+
+    const response = await GET(
+      new NextRequest(`http://localhost:3732/v1/slack/oauth/start?oidc_request=${oidcRequestId}`)
+    );
+
+    expect(response.status).toBe(302);
+    expect(mockDb.query).toHaveBeenCalledWith(
+      expect.stringContaining("oidc_authorization_request_id"),
+      expect.arrayContaining([oidcRequestId])
+    );
   });
 });

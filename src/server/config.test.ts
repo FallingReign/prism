@@ -4,6 +4,7 @@ import {
   getCredentialEncryptionConfig,
   getDatabaseUrl,
   getDeveloperTokenConfig,
+  getOidcProviderConfig,
   getSlackOAuthConfig,
   getSlackWebApiConfig,
   isSetupRequiredError
@@ -55,5 +56,210 @@ describe("server setup config", () => {
     expect(getSlackWebApiConfig({})).toEqual({ mockWebApi: false });
     expect(getSlackWebApiConfig({ PRISM_SLACK_WEB_API_MOCK: "1", NODE_ENV: "development" })).toEqual({ mockWebApi: true });
     expect(getSlackWebApiConfig({ PRISM_SLACK_WEB_API_MOCK: "1", NODE_ENV: "production" })).toEqual({ mockWebApi: false });
+  });
+
+  it("requires explicit approved Slack scopes for a real OAuth authorization request", () => {
+    const base = {
+      NODE_ENV: "development",
+      SLACK_CLIENT_ID: "client-id",
+      SLACK_CLIENT_SECRET: "secret-canary",
+      PRISM_PUBLIC_BASE_URL: "http://localhost:3732",
+      PRISM_OIDC_ALLOW_INSECURE_HTTP: "1"
+    };
+
+    expect(() => getSlackOAuthConfig(base)).toThrow("setup-required:SLACK_OAUTH_SCOPES");
+    expect(
+      getSlackOAuthConfig({ ...base, SLACK_USER_SCOPES: "users:read,chat:write" })
+    ).toMatchObject({ botScopes: [], userScopes: ["users:read", "chat:write"], mockOAuth: false });
+    expect(
+      getSlackOAuthConfig({ ...base, PRISM_SLACK_OAUTH_MOCK: "1" })
+    ).toMatchObject({ botScopes: [], userScopes: [], mockOAuth: true });
+  });
+
+  it("loads one strict Playtest OIDC client and derives the issuer from the public base URL", () => {
+    expect(
+      getOidcProviderConfig({
+        NODE_ENV: "development",
+        PRISM_PUBLIC_BASE_URL: "http://localhost:3732/",
+        PRISM_OIDC_ALLOW_INSECURE_HTTP: "1",
+        PRISM_OIDC_PLAYTEST_CLIENT_ID: "shg-playtest",
+        PRISM_OIDC_PLAYTEST_REDIRECT_URI: "http://localhost:3847/api/auth/callback",
+        PRISM_OIDC_SIGNING_PRIVATE_KEY_BASE64: Buffer.from("-----BEGIN PRIVATE KEY-----\nnot-a-key\n-----END PRIVATE KEY-----").toString("base64"),
+        PRISM_OIDC_SIGNING_KEY_ID: "local-rs256-v1"
+      })
+    ).toMatchObject({
+      issuer: "http://localhost:3732",
+      playtestClient: {
+        clientId: "shg-playtest",
+        redirectUri: "http://localhost:3847/api/auth/callback",
+        tokenEndpointAuthMethod: "none"
+      },
+      signing: { keyId: "local-rs256-v1" },
+      allowInsecureHttp: true,
+      abuseProtection: {
+        authorizeWindowMs: 60_000,
+        maxAuthorizeRequestsPerSource: 30,
+        maxAuthorizeRequestsPerClient: 300,
+        maxOutstandingPendingPerSource: 10,
+        maxOutstandingPendingPerClient: 500,
+        cleanupBatchSize: 100,
+        trustProxyHeaders: false
+      }
+    });
+  });
+
+  it("loads bounded OIDC abuse-control overrides and fails closed on contradictory limits", () => {
+    const base = {
+      NODE_ENV: "development",
+      PRISM_PUBLIC_BASE_URL: "http://localhost:3732",
+      PRISM_OIDC_ALLOW_INSECURE_HTTP: "1",
+      PRISM_OIDC_PLAYTEST_CLIENT_ID: "shg-playtest",
+      PRISM_OIDC_PLAYTEST_REDIRECT_URI: "http://localhost:3847/api/auth/callback",
+      PRISM_OIDC_SIGNING_PRIVATE_KEY_BASE64: Buffer.from("-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----").toString("base64"),
+      PRISM_OIDC_SIGNING_KEY_ID: "local-rs256-v1"
+    };
+
+    expect(getOidcProviderConfig({
+      ...base,
+      PRISM_OIDC_AUTHORIZE_RATE_WINDOW_SECONDS: "120",
+      PRISM_OIDC_AUTHORIZE_RATE_LIMIT_PER_SOURCE: "40",
+      PRISM_OIDC_AUTHORIZE_RATE_LIMIT_PER_CLIENT: "400",
+      PRISM_OIDC_AUTHORIZE_MAX_OUTSTANDING_PER_SOURCE: "12",
+      PRISM_OIDC_AUTHORIZE_MAX_OUTSTANDING_PER_CLIENT: "600",
+      PRISM_OIDC_CLEANUP_BATCH_SIZE: "75",
+      PRISM_OIDC_TRUST_PROXY_HEADERS: "1"
+    }).abuseProtection).toEqual({
+      authorizeWindowMs: 120_000,
+      maxAuthorizeRequestsPerSource: 40,
+      maxAuthorizeRequestsPerClient: 400,
+      maxOutstandingPendingPerSource: 12,
+      maxOutstandingPendingPerClient: 600,
+      cleanupBatchSize: 75,
+      trustProxyHeaders: true
+    });
+    expect(() => getOidcProviderConfig({
+      ...base,
+      PRISM_OIDC_AUTHORIZE_RATE_LIMIT_PER_SOURCE: "50",
+      PRISM_OIDC_AUTHORIZE_RATE_LIMIT_PER_CLIENT: "10"
+    })).toThrow("setup-required:PRISM_OIDC_ABUSE_PROTECTION_LIMITS");
+  });
+
+  it("requires an explicit non-production HTTP opt-in and rejects HTTP in production", () => {
+    const base = {
+      PRISM_PUBLIC_BASE_URL: "http://localhost:3732",
+      PRISM_OIDC_PLAYTEST_CLIENT_ID: "shg-playtest",
+      PRISM_OIDC_PLAYTEST_REDIRECT_URI: "http://localhost:3847/api/auth/callback",
+      PRISM_OIDC_SIGNING_PRIVATE_KEY_BASE64: "a2V5",
+      PRISM_OIDC_SIGNING_KEY_ID: "local-rs256-v1"
+    };
+
+    expect(() => getOidcProviderConfig({ ...base, NODE_ENV: "development" })).toThrow(
+      "setup-required:PRISM_OIDC_ALLOW_INSECURE_HTTP"
+    );
+    expect(() => getOidcProviderConfig({ ...base, NODE_ENV: "production", PRISM_OIDC_ALLOW_INSECURE_HTTP: "1" })).toThrow(
+      "setup-required:PRISM_PUBLIC_BASE_URL_HTTPS"
+    );
+  });
+
+  it("canonicalizes and validates Slack public and callback URLs using the same HTTP policy", () => {
+    const base = {
+      NODE_ENV: "development",
+      SLACK_CLIENT_ID: "client-id",
+      SLACK_CLIENT_SECRET: "secret-canary",
+      SLACK_USER_SCOPES: "users:read",
+      PRISM_PUBLIC_BASE_URL: "http://localhost:3732/",
+      SLACK_OAUTH_REDIRECT_URI: "http://localhost:3732/v1/slack/oauth/callback?ignored=1",
+      PRISM_OIDC_ALLOW_INSECURE_HTTP: "1"
+    };
+
+    expect(() => getSlackOAuthConfig(base)).toThrow("setup-required:SLACK_OAUTH_REDIRECT_URI");
+    expect(getSlackOAuthConfig({ ...base, SLACK_OAUTH_REDIRECT_URI: "http://localhost:3732/v1/slack/oauth/callback" })).toMatchObject({
+      publicBaseUrl: "http://localhost:3732",
+      redirectUri: "http://localhost:3732/v1/slack/oauth/callback"
+    });
+    expect(() => getSlackOAuthConfig({ ...base, PRISM_OIDC_ALLOW_INSECURE_HTTP: undefined })).toThrow(
+      "setup-required:PRISM_OIDC_ALLOW_INSECURE_HTTP"
+    );
+    expect(() => getSlackOAuthConfig({ ...base, NODE_ENV: "production", PRISM_PUBLIC_BASE_URL: "http://localhost:3732", SLACK_OAUTH_REDIRECT_URI: "https://prism.example/v1/slack/oauth/callback" })).toThrow(
+      "setup-required:PRISM_PUBLIC_BASE_URL_HTTPS"
+    );
+    expect(() => getSlackOAuthConfig({ ...base, PRISM_PUBLIC_BASE_URL: "https://prism.example", SLACK_OAUTH_REDIRECT_URI: "http://example.com:3732/v1/slack/oauth/callback" })).toThrow(
+      "setup-required:PRISM_OIDC_ALLOW_INSECURE_HTTP"
+    );
+    expect(() => getSlackOAuthConfig({ ...base, PRISM_PUBLIC_BASE_URL: "http://example.com:3732", SLACK_OAUTH_REDIRECT_URI: "http://example.com:3732/v1/slack/oauth/callback" })).toThrow(
+      "setup-required:PRISM_OIDC_ALLOW_INSECURE_HTTP"
+    );
+  });
+
+  it("accepts loopback and RFC1918 HTTP hosts only with the documented flag", () => {
+    const base = {
+      NODE_ENV: "development",
+      PRISM_OIDC_ALLOW_INSECURE_HTTP: "1",
+      PRISM_OIDC_PLAYTEST_CLIENT_ID: "shg-playtest",
+      PRISM_OIDC_SIGNING_PRIVATE_KEY_BASE64: Buffer.from("-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----").toString("base64"),
+      PRISM_OIDC_SIGNING_KEY_ID: "local-rs256-v1"
+    };
+
+    expect(
+      getOidcProviderConfig({
+        ...base,
+        PRISM_PUBLIC_BASE_URL: "http://10.62.240.10:3732",
+        PRISM_OIDC_PLAYTEST_REDIRECT_URI: "http://localhost:3847/api/auth/callback"
+      })
+    ).toMatchObject({ issuer: "http://10.62.240.10:3732", allowInsecureHttp: true });
+    expect(() =>
+      getOidcProviderConfig({
+        ...base,
+        PRISM_PUBLIC_BASE_URL: "http://example.com:3732",
+        PRISM_OIDC_PLAYTEST_REDIRECT_URI: "http://localhost:3847/api/auth/callback"
+      })
+    ).toThrow("setup-required:PRISM_OIDC_ALLOW_INSECURE_HTTP");
+    expect(() =>
+      getOidcProviderConfig({
+        ...base,
+        PRISM_PUBLIC_BASE_URL: "http://localhost:3732",
+        PRISM_OIDC_PLAYTEST_REDIRECT_URI: "http://example.com:3847/api/auth/callback"
+      })
+    ).toThrow("setup-required:PRISM_OIDC_ALLOW_INSECURE_HTTP");
+  });
+
+  it("does not recognize an undocumented insecure HTTP alias", () => {
+    expect(() =>
+      getOidcProviderConfig({
+        NODE_ENV: "development",
+        PRISM_OIDC_ALLOW_HTTP: "1",
+        PRISM_PUBLIC_BASE_URL: "http://localhost:3732",
+        PRISM_OIDC_PLAYTEST_CLIENT_ID: "shg-playtest",
+        PRISM_OIDC_PLAYTEST_REDIRECT_URI: "http://localhost:3847/api/auth/callback",
+        PRISM_OIDC_SIGNING_PRIVATE_KEY_BASE64: "a2V5",
+        PRISM_OIDC_SIGNING_KEY_ID: "local-rs256-v1"
+      })
+    ).toThrow("setup-required:PRISM_OIDC_ALLOW_INSECURE_HTTP");
+  });
+
+  it("rejects malformed origins and redirect URLs without echoing key material", () => {
+    const secret = "private-key-secret-canary";
+    expect(() =>
+      getOidcProviderConfig({
+        NODE_ENV: "development",
+        PRISM_PUBLIC_BASE_URL: "https://user:password@example.com/path?x=1",
+        PRISM_OIDC_PLAYTEST_CLIENT_ID: "shg-playtest",
+        PRISM_OIDC_PLAYTEST_REDIRECT_URI: "https://playtest.example/callback",
+        PRISM_OIDC_SIGNING_PRIVATE_KEY_BASE64: secret,
+        PRISM_OIDC_SIGNING_KEY_ID: "kid"
+      })
+    ).toThrow("setup-required:PRISM_PUBLIC_BASE_URL");
+    try {
+      getOidcProviderConfig({
+        NODE_ENV: "production",
+        PRISM_PUBLIC_BASE_URL: "https://prism.example",
+        PRISM_OIDC_PLAYTEST_CLIENT_ID: "shg-playtest",
+        PRISM_OIDC_PLAYTEST_REDIRECT_URI: "https://playtest.example/callback#fragment",
+        PRISM_OIDC_SIGNING_PRIVATE_KEY_BASE64: secret,
+        PRISM_OIDC_SIGNING_KEY_ID: "kid"
+      });
+    } catch (error) {
+      expect(String(error)).not.toContain(secret);
+    }
   });
 });

@@ -26,6 +26,58 @@ export PRISM_BASE_URL=http://localhost:3732
 
 Local development uses port `3732`. For a hosted or pilot environment, use the approved Prism origin from the deployment owner.
 
+For real Slack authorization, configure at least one of `SLACK_BOT_SCOPES` or
+`SLACK_USER_SCOPES` with a comma-separated subset already approved for the
+existing Prism Slack app. Prism fails closed when a real authorization start
+would omit both scope parameters. Mock OAuth does not require scopes.
+
+## Configure the Playtest OIDC provider
+
+Prism exposes a single public client for Playtest at the issuer-relative
+discovery and JWKS endpoints. Set `PRISM_OIDC_PLAYTEST_CLIENT_ID` and the exact
+`PRISM_OIDC_PLAYTEST_REDIRECT_URI`; do not use wildcard or alternate callback
+URLs. Production `PRISM_PUBLIC_BASE_URL` and the callback must use HTTPS. Local
+or isolated-VPN HTTP requires the single explicit
+`PRISM_OIDC_ALLOW_INSECURE_HTTP=1` opt-in and is accepted only for `localhost`,
+loopback, or RFC1918/private IPv4 hosts (for example `10.62.240.10`).
+
+Next's development request logger excludes `/oauth/authorize`,
+`/v1/slack/oauth/start`, and `/v1/slack/oauth/callback` because their query
+strings contain short-lived transaction material. Configure any reverse proxy
+or hosting access logger to omit query strings for the same routes.
+
+Generate a local RSA (2048-bit minimum) PKCS#8 signing-key env file with:
+
+```bash
+npm run oidc:keygen
+```
+
+The command writes `.env.oidc.local` without printing key material. Keep the
+private-key value server-side and set it as
+`PRISM_OIDC_SIGNING_PRIVATE_KEY_BASE64` with the stable
+`PRISM_OIDC_SIGNING_KEY_ID` in the hosted environment.
+
+Authorization persistence is protected by Postgres-backed fixed-window limits
+and outstanding-request caps shared by all Prism processes. Defaults are 30
+new authorizations per attributed source and 300 per client per 60 seconds,
+with at most 10 outstanding pending requests per attributed source and 500 per
+client. Each accepted authorization also deletes at most 100 expired rows from
+each OIDC/Slack-state table. Override these with
+`PRISM_OIDC_AUTHORIZE_RATE_WINDOW_SECONDS`,
+`PRISM_OIDC_AUTHORIZE_RATE_LIMIT_PER_SOURCE`,
+`PRISM_OIDC_AUTHORIZE_RATE_LIMIT_PER_CLIENT`,
+`PRISM_OIDC_AUTHORIZE_MAX_OUTSTANDING_PER_SOURCE`,
+`PRISM_OIDC_AUTHORIZE_MAX_OUTSTANDING_PER_CLIENT`, and
+`PRISM_OIDC_CLEANUP_BATCH_SIZE` only after measuring real traffic.
+
+Prism ignores `X-Forwarded-For` and `X-Real-IP` by default. In that mode the
+per-client rate and outstanding cap remain the non-bypassable backstop, while
+the per-source cap is not applied to unattributed traffic (so a small number of
+direct requests cannot exhaust a service-wide ten-request source bucket). Set
+`PRISM_OIDC_TRUST_PROXY_HEADERS=1` only when a trusted ingress overwrites those
+headers and direct access to the Prism origin is blocked. Otherwise an attacker
+could rotate a spoofed header to evade a source bucket.
+
 For the Windows-first agent workflow after installation, see the hosted
 `/skills/install.md` instructions or the contributor copy of the [Prism Slack
 agent skill](../.agents/skills/prism-slack/SKILL.md).

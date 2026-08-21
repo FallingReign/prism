@@ -40,7 +40,7 @@ describe("DELETE /v1/prism/slack-connection", () => {
     const response = await DELETE(
       new NextRequest("http://localhost:3732/v1/prism/slack-connection", {
         method: "DELETE",
-        headers: { cookie: "prism_session=session-token" }
+        headers: { cookie: "prism_session=session-token", "sec-fetch-site": "same-origin" }
       })
     );
     const body = await response.json();
@@ -56,7 +56,7 @@ describe("DELETE /v1/prism/slack-connection", () => {
 
   it("rejects missing website sessions without attempting deletion", async () => {
     const { DELETE } = await import("./route");
-    const response = await DELETE(new NextRequest("http://localhost:3732/v1/prism/slack-connection", { method: "DELETE" }));
+    const response = await DELETE(new NextRequest("http://localhost:3732/v1/prism/slack-connection", { method: "DELETE", headers: { "sec-fetch-site": "same-origin" } }));
     const body = await response.json();
 
     expect(response.status).toBe(401);

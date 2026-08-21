@@ -84,7 +84,20 @@ export function classifySlackOAuthError(error: string): SlackOAuthFailure["error
   return "slack_error";
 }
 
-function normalizeSlackOAuthSuccess(body: Record<string, any>, topLevelTokenKind: "bot" | "user"): SlackOAuthSuccess {
+function normalizeSlackOAuthSuccess(body: Record<string, any>, topLevelTokenKind: "bot" | "user"): SlackOAuthResult {
+  const appId = body.app_id;
+  const teamId = body.team?.id;
+  const authedUserId = body.authed_user?.id;
+  const enterpriseId = body.enterprise?.id;
+  if (
+    !nonemptySlackIdentifier(appId) ||
+    !nonemptySlackIdentifier(teamId) ||
+    !nonemptySlackIdentifier(authedUserId) ||
+    (body.enterprise !== undefined && body.enterprise !== null && !nonemptySlackIdentifier(enterpriseId))
+  ) {
+    return { ok: false, errorClass: "slack_error" };
+  }
+
   const topLevelToken = {
     accessToken: body.access_token,
     refreshToken: body.refresh_token,
@@ -95,11 +108,11 @@ function normalizeSlackOAuthSuccess(body: Record<string, any>, topLevelTokenKind
 
   return {
     ok: true,
-    appId: String(body.app_id ?? ""),
-    team: { id: String(body.team?.id ?? ""), name: body.team?.name },
-    enterprise: body.enterprise ? { id: String(body.enterprise.id ?? ""), name: body.enterprise.name } : null,
+    appId,
+    team: { id: teamId, name: body.team?.name },
+    enterprise: body.enterprise ? { id: enterpriseId, name: body.enterprise.name } : null,
     authedUser: {
-      id: String(body.authed_user?.id ?? ""),
+      id: authedUserId,
       accessToken: topLevelTokenKind === "user" ? topLevelToken.accessToken : body.authed_user?.access_token,
       refreshToken: topLevelTokenKind === "user" ? topLevelToken.refreshToken : body.authed_user?.refresh_token,
       tokenType: topLevelTokenKind === "user" ? topLevelToken.tokenType : body.authed_user?.token_type,
@@ -108,4 +121,8 @@ function normalizeSlackOAuthSuccess(body: Record<string, any>, topLevelTokenKind
     },
     bot: topLevelTokenKind === "bot" ? topLevelToken : undefined
   };
+}
+
+function nonemptySlackIdentifier(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0 && value.length <= 255;
 }

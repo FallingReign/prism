@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { createPostgresActivityAuditStore, isActivityAuditUnavailableError } from "../../../../src/server/audit/postgres-store";
 import { getDeveloperTokenConfig, isSetupRequiredError } from "../../../../src/server/config";
 import { database } from "../../../../src/server/db";
+import { rejectCrossOriginBrowserMutation } from "../../../../src/server/http/browser-mutation-csrf";
 import { prismSessionCookieName } from "../../../../src/server/slack/oauth-flow";
 import { createPostgresGlobalTokenProfilePolicyStore } from "../../../../src/server/token-profiles/global-policy-store";
 import { createTokenProfile, listTokenProfiles, type CreateTokenProfileInput } from "../../../../src/server/token-profiles/service";
@@ -36,6 +37,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 }
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  const csrfRejection = rejectCrossOriginBrowserMutation(request);
+  if (csrfRejection) return csrfRejection;
   const requestId = randomUUID();
   const input = await readCreateInput(request);
   if (!input) return noStoreJson({ error: "invalid_json" }, 400, requestId);

@@ -45,7 +45,7 @@ describe("/v1/prism/admin/users/[userId]/token-profiles/[profileId]", () => {
     const response = await DELETE(
       new NextRequest("http://localhost:3732/v1/prism/admin/users/target_user/token-profiles/profile_1", {
         method: "DELETE",
-        headers: { cookie: "prism_session=session-token" },
+        headers: { cookie: "prism_session=session-token", "sec-fetch-site": "same-origin" },
         body: JSON.stringify({ confirmation: "DELETE", reason: "Retired local tool" })
       }),
       { params: Promise.resolve({ userId: "target_user", profileId: "profile_1" }) }
@@ -69,7 +69,7 @@ describe("/v1/prism/admin/users/[userId]/token-profiles/[profileId]", () => {
     const response = await DELETE(
       new NextRequest("http://localhost:3732/v1/prism/admin/users/target_user/token-profiles/profile_1", {
         method: "DELETE",
-        headers: { cookie: "prism_session=session-token" },
+        headers: { cookie: "prism_session=session-token", "sec-fetch-site": "same-origin" },
         body: JSON.stringify({ confirmation: "DELETE", reason: "Retired local tool" })
       }),
       { params: Promise.resolve({ userId: "target_user", profileId: "profile_1" }) }
@@ -87,7 +87,7 @@ describe("/v1/prism/admin/users/[userId]/token-profiles/[profileId]", () => {
     const failedConfirmation = await DELETE(
       new NextRequest("http://localhost:3732/v1/prism/admin/users/target_user/token-profiles/profile_1", {
         method: "DELETE",
-        headers: { cookie: "prism_session=session-token" },
+        headers: { cookie: "prism_session=session-token", "sec-fetch-site": "same-origin" },
         body: JSON.stringify({ confirmation: "REVOKE", reason: "Retired local tool" })
       }),
       { params: Promise.resolve({ userId: "target_user", profileId: "profile_1" }) }
@@ -95,7 +95,7 @@ describe("/v1/prism/admin/users/[userId]/token-profiles/[profileId]", () => {
     const overlongReason = await DELETE(
       new NextRequest("http://localhost:3732/v1/prism/admin/users/target_user/token-profiles/profile_1", {
         method: "DELETE",
-        headers: { cookie: "prism_session=session-token" },
+        headers: { cookie: "prism_session=session-token", "sec-fetch-site": "same-origin" },
         body: JSON.stringify({ confirmation: "DELETE", reason: "x".repeat(241) })
       }),
       { params: Promise.resolve({ userId: "target_user", profileId: "profile_1" }) }
@@ -115,6 +115,7 @@ describe("/v1/prism/admin/users/[userId]/token-profiles/[profileId]", () => {
     const missing = await DELETE(
       new NextRequest("http://localhost:3732/v1/prism/admin/users/target_user/token-profiles/profile_1", {
         method: "DELETE",
+        headers: { "sec-fetch-site": "same-origin" },
         body: JSON.stringify({ confirmation: "DELETE", reason: "Retired local tool" })
       }),
       { params: Promise.resolve({ userId: "target_user", profileId: "profile_1" }) }
@@ -122,7 +123,7 @@ describe("/v1/prism/admin/users/[userId]/token-profiles/[profileId]", () => {
     const forbidden = await DELETE(
       new NextRequest("http://localhost:3732/v1/prism/admin/users/target_user/token-profiles/profile_1", {
         method: "DELETE",
-        headers: { cookie: "prism_session=session-token" },
+        headers: { cookie: "prism_session=session-token", "sec-fetch-site": "same-origin" },
         body: JSON.stringify({ confirmation: "DELETE", reason: "Retired local tool" })
       }),
       { params: Promise.resolve({ userId: "target_user", profileId: "profile_1" }) }
@@ -138,7 +139,7 @@ describe("/v1/prism/admin/users/[userId]/token-profiles/[profileId]", () => {
     const notFound = await DELETE(
       new NextRequest("http://localhost:3732/v1/prism/admin/users/target_user/token-profiles/missing_profile", {
         method: "DELETE",
-        headers: { cookie: "prism_session=session-token" },
+        headers: { cookie: "prism_session=session-token", "sec-fetch-site": "same-origin" },
         body: JSON.stringify({ confirmation: "DELETE", reason: "Retired local tool" })
       }),
       { params: Promise.resolve({ userId: "target_user", profileId: "missing_profile" }) }

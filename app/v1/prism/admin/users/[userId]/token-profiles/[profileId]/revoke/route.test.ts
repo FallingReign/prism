@@ -44,7 +44,7 @@ describe("/v1/prism/admin/users/[userId]/token-profiles/[profileId]/revoke", () 
     const response = await POST(
       new NextRequest("http://localhost:3732/v1/prism/admin/users/target_user/token-profiles/profile_1/revoke", {
         method: "POST",
-        headers: { cookie: "prism_session=session-token" },
+        headers: { cookie: "prism_session=session-token", "sec-fetch-site": "same-origin" },
         body: JSON.stringify({ confirmation: "REVOKE", reason: "Security review" })
       }),
       { params: Promise.resolve({ userId: "target_user", profileId: "profile_1" }) }
@@ -67,7 +67,7 @@ describe("/v1/prism/admin/users/[userId]/token-profiles/[profileId]/revoke", () 
     const response = await POST(
       new NextRequest("http://localhost:3732/v1/prism/admin/users/target_user/token-profiles/profile_1/revoke", {
         method: "POST",
-        headers: { cookie: "prism_session=session-token" },
+        headers: { cookie: "prism_session=session-token", "sec-fetch-site": "same-origin" },
         body: JSON.stringify({ confirmation: "REVOKE", reason: " " })
       }),
       { params: Promise.resolve({ userId: "target_user", profileId: "profile_1" }) }
@@ -85,7 +85,7 @@ describe("/v1/prism/admin/users/[userId]/token-profiles/[profileId]/revoke", () 
     const failedConfirmation = await POST(
       new NextRequest("http://localhost:3732/v1/prism/admin/users/target_user/token-profiles/profile_1/revoke", {
         method: "POST",
-        headers: { cookie: "prism_session=session-token" },
+        headers: { cookie: "prism_session=session-token", "sec-fetch-site": "same-origin" },
         body: JSON.stringify({ confirmation: "DELETE", reason: "Security review" })
       }),
       { params: Promise.resolve({ userId: "target_user", profileId: "profile_1" }) }
@@ -93,7 +93,7 @@ describe("/v1/prism/admin/users/[userId]/token-profiles/[profileId]/revoke", () 
     const overlongReason = await POST(
       new NextRequest("http://localhost:3732/v1/prism/admin/users/target_user/token-profiles/profile_1/revoke", {
         method: "POST",
-        headers: { cookie: "prism_session=session-token" },
+        headers: { cookie: "prism_session=session-token", "sec-fetch-site": "same-origin" },
         body: JSON.stringify({ confirmation: "REVOKE", reason: "x".repeat(241) })
       }),
       { params: Promise.resolve({ userId: "target_user", profileId: "profile_1" }) }
@@ -113,6 +113,7 @@ describe("/v1/prism/admin/users/[userId]/token-profiles/[profileId]/revoke", () 
     const missing = await POST(
       new NextRequest("http://localhost:3732/v1/prism/admin/users/target_user/token-profiles/profile_1/revoke", {
         method: "POST",
+        headers: { "sec-fetch-site": "same-origin" },
         body: JSON.stringify({ confirmation: "REVOKE", reason: "Security review" })
       }),
       { params: Promise.resolve({ userId: "target_user", profileId: "profile_1" }) }
@@ -120,7 +121,7 @@ describe("/v1/prism/admin/users/[userId]/token-profiles/[profileId]/revoke", () 
     const forbidden = await POST(
       new NextRequest("http://localhost:3732/v1/prism/admin/users/target_user/token-profiles/profile_1/revoke", {
         method: "POST",
-        headers: { cookie: "prism_session=session-token" },
+        headers: { cookie: "prism_session=session-token", "sec-fetch-site": "same-origin" },
         body: JSON.stringify({ confirmation: "REVOKE", reason: "Security review" })
       }),
       { params: Promise.resolve({ userId: "target_user", profileId: "profile_1" }) }
@@ -145,7 +146,7 @@ describe("/v1/prism/admin/users/[userId]/token-profiles/[profileId]/revoke", () 
     const response = await POST(
       new NextRequest("http://localhost:3732/v1/prism/admin/users/outside_user/token-profiles/profile_1/revoke", {
         method: "POST",
-        headers: { cookie: "prism_session=session-token" },
+        headers: { cookie: "prism_session=session-token", "sec-fetch-site": "same-origin" },
         body: JSON.stringify({ confirmation: "REVOKE", reason: "Security review" })
       }),
       { params: Promise.resolve({ userId: "outside_user", profileId: "profile_1" }) }

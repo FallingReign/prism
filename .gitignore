@@ -3,6 +3,7 @@
 .env
 .env.*
 !.env.example
+.env.oidc.local
 
 node_modules/
 .next/

@@ -71,7 +71,7 @@ describe("DELETE /v1/prism/admin/users/[userId]/slack-connection", () => {
     const response = await DELETE(
       new NextRequest("http://localhost/v1/prism/admin/users/target_user/slack-connection", {
         method: "DELETE",
-        headers: { cookie: "prism_session=session-token" },
+        headers: { cookie: "prism_session=session-token", "sec-fetch-site": "same-origin" },
         body: JSON.stringify({ confirmation: "REMOVE", reason: "Security offboarding" })
       }),
       { params: Promise.resolve({ userId: "target_user" }) }
@@ -103,6 +103,7 @@ describe("DELETE /v1/prism/admin/users/[userId]/slack-connection", () => {
     const invalidJson = await DELETE(
       new NextRequest("http://localhost/v1/prism/admin/users/target_user/slack-connection", {
         method: "DELETE",
+        headers: { "sec-fetch-site": "same-origin" },
         body: "{"
       }),
       { params: Promise.resolve({ userId: "target_user" }) }
@@ -141,7 +142,7 @@ function removeRequest(
   return DELETE(
     new NextRequest("http://localhost/v1/prism/admin/users/target_user/slack-connection", {
       method: "DELETE",
-      headers: { cookie: "prism_session=session-token" },
+      headers: { cookie: "prism_session=session-token", "sec-fetch-site": "same-origin" },
       body: JSON.stringify(body)
     }),
     { params: Promise.resolve({ userId: "target_user" }) }

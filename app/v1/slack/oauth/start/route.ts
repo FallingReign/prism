@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
 import { getSlackOAuthConfig, isSetupRequiredError } from "../../../../../src/server/config";
 import { database } from "../../../../../src/server/db";
@@ -7,12 +7,21 @@ import { createPostgresOAuthFlowStore } from "../../../../../src/server/slack/po
 
 export const dynamic = "force-dynamic";
 
-export async function GET(): Promise<NextResponse> {
+export async function GET(request?: NextRequest): Promise<NextResponse> {
   try {
     const config = getSlackOAuthConfig();
+    const oidcAuthorizationRequestId = request
+      ? validOidcRequestId(request.nextUrl.searchParams.get("oidc_request"))
+      : null;
+    if (request?.nextUrl.searchParams.has("oidc_request") && !oidcAuthorizationRequestId) {
+      return secureOAuthResponse(
+        NextResponse.redirect(errorRedirect(), { status: 302 })
+      );
+    }
     const start = await createSlackOAuthStart({
       store: createPostgresOAuthFlowStore(database),
-      config
+      config,
+      oidcAuthorizationRequestId
     });
     const response = NextResponse.redirect(start.redirectUrl, { status: 302 });
     response.cookies.set(start.cookie.name, start.cookie.value, {
@@ -22,13 +31,28 @@ export async function GET(): Promise<NextResponse> {
       path: start.cookie.path,
       maxAge: start.cookie.maxAge
     });
-    return response;
+    return secureOAuthResponse(response);
   } catch (error) {
     if (isSetupRequiredError(error)) {
-      return NextResponse.redirect(setupRedirect(), { status: 302 });
+      return secureOAuthResponse(
+        NextResponse.redirect(setupRedirect(), { status: 302 })
+      );
     }
-    return NextResponse.redirect(errorRedirect(), { status: 302 });
+    return secureOAuthResponse(
+      NextResponse.redirect(errorRedirect(), { status: 302 })
+    );
   }
+}
+
+function validOidcRequestId(value: string | null): string | null {
+  return value && /^[A-Za-z0-9_-]{43}$/.test(value) ? value : null;
+}
+
+function secureOAuthResponse(response: NextResponse): NextResponse {
+  response.headers.set("Cache-Control", "no-store");
+  response.headers.set("Pragma", "no-cache");
+  response.headers.set("Referrer-Policy", "no-referrer");
+  return response;
 }
 
 function setupRedirect(): string {

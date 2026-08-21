@@ -58,7 +58,7 @@ describe("/v1/prism/admin/token-profile-policy", () => {
     const response = await PATCH(
       new NextRequest("http://localhost:3732/v1/prism/admin/token-profile-policy", {
         method: "PATCH",
-        headers: { cookie: "prism_session=session-token", "content-type": "application/json" },
+        headers: { cookie: "prism_session=session-token", "sec-fetch-site": "same-origin", "content-type": "application/json" },
         body: JSON.stringify({ policy, tokenHash: "token_hash_secret", refresh_token: "xoxp-secret" })
       })
     );
@@ -77,7 +77,7 @@ describe("/v1/prism/admin/token-profile-policy", () => {
     const response = await PATCH(
       new NextRequest("http://localhost:3732/v1/prism/admin/token-profile-policy", {
         method: "PATCH",
-        headers: { cookie: "prism_session=session-token", "content-type": "application/json" },
+        headers: { cookie: "prism_session=session-token", "sec-fetch-site": "same-origin", "content-type": "application/json" },
         body: JSON.stringify({ policy: buildCurrentGlobalTokenProfilePolicy() })
       })
     );

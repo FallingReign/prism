@@ -5,6 +5,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isActivityAuditUnavailableError } from "../../../../../../src/server/audit/postgres-store";
 import { getDeveloperTokenConfig, isSetupRequiredError } from "../../../../../../src/server/config";
 import { database } from "../../../../../../src/server/db";
+import { rejectCrossOriginBrowserMutation } from "../../../../../../src/server/http/browser-mutation-csrf";
 import { prismSessionCookieName } from "../../../../../../src/server/slack/oauth-flow";
 import { createPostgresGlobalTokenProfilePolicyStore } from "../../../../../../src/server/token-profiles/global-policy-store";
 import { rotateTokenProfile, type TokenRotationOverlap } from "../../../../../../src/server/token-profiles/service";
@@ -15,6 +16,8 @@ export const dynamic = "force-dynamic";
 type RouteContext = { params: Promise<{ profileId: string }> | { profileId: string } };
 
 export async function POST(request: NextRequest, context: RouteContext): Promise<NextResponse> {
+  const csrfRejection = rejectCrossOriginBrowserMutation(request);
+  if (csrfRejection) return csrfRejection;
   const requestId = randomUUID();
   const { profileId } = await context.params;
   const input = await readRotateInput(request);

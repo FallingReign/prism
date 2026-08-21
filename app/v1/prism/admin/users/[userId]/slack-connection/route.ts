@@ -9,6 +9,7 @@ import { createPostgresAdminUserDirectoryStore } from "../../../../../../../src/
 import { createPostgresAdminSlackConnectionActionStore, removeAdminSlackConnection } from "../../../../../../../src/server/admin/slack-connection-actions";
 import { isActivityAuditUnavailableError } from "../../../../../../../src/server/audit/postgres-store";
 import { database } from "../../../../../../../src/server/db";
+import { rejectCrossOriginBrowserMutation } from "../../../../../../../src/server/http/browser-mutation-csrf";
 import { prismSessionCookieName } from "../../../../../../../src/server/slack/oauth-flow";
 
 export const dynamic = "force-dynamic";
@@ -16,6 +17,8 @@ export const dynamic = "force-dynamic";
 type RouteContext = { params: Promise<{ userId: string }> | { userId: string } };
 
 export async function DELETE(request: NextRequest, context: RouteContext): Promise<NextResponse> {
+  const csrfRejection = rejectCrossOriginBrowserMutation(request);
+  if (csrfRejection) return csrfRejection;
   const requestId = randomUUID();
   const parsedBody = await readActionBody(request);
   if (parsedBody.kind === "invalid_json") return noStoreJson({ error: "invalid_json" }, 400, requestId);

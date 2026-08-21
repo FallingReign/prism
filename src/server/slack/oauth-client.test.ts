@@ -78,4 +78,26 @@ describe("Slack OAuth client", () => {
       authedUser: { id: "U123" }
     });
   });
+
+  it.each([
+    ["app", { app_id: 123 }],
+    ["team", { team: { id: 123 } }],
+    ["user", { authed_user: { id: 123 } }]
+  ])("rejects a non-string Slack %s identifier before normalization", async (_label, override) => {
+    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
+      json: async () => ({
+        ok: true,
+        app_id: "A123",
+        team: { id: "T123" },
+        authed_user: { id: "U123" },
+        ...override
+      })
+    } as Response);
+    const client = createFetchSlackOAuthClient({ clientId: "client-id", clientSecret: "client-secret-canary", fetchImpl });
+
+    await expect(client.exchangeCode({ code: "code-123", redirectUri: "http://localhost:3732/v1/slack/oauth/callback" })).resolves.toEqual({
+      ok: false,
+      errorClass: "slack_error"
+    });
+  });
 });

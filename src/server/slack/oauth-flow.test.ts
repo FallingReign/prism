@@ -13,11 +13,16 @@ function createMemoryStore(): OAuthFlowStore & { rows: Record<string, unknown[]>
     connections: [] as any[],
     credentials: [] as any[],
     sessions: [] as any[],
-    tokenProfiles: [] as any[]
+    tokenProfiles: [] as any[],
+    transactions: [] as any[]
   };
 
-  return {
+  const store: OAuthFlowStore & { rows: Record<string, unknown[]> } = {
     rows,
+    async transaction(callback) {
+      rows.transactions.push({ started: true });
+      return callback(store);
+    },
     async saveOAuthState(state) {
       rows.states.push({ ...state });
     },
@@ -25,7 +30,10 @@ function createMemoryStore(): OAuthFlowStore & { rows: Record<string, unknown[]>
       const state = rows.states.find((row) => row.stateHash === stateHash);
       if (!state || state.usedAt || state.expiresAt <= consumedAt) return null;
       state.usedAt = consumedAt;
-      return { redirectUri: state.redirectUri };
+      return {
+        redirectUri: state.redirectUri,
+        oidcAuthorizationRequestId: state.oidcAuthorizationRequestId ?? null
+      };
     },
     async upsertPrismUser(input) {
       const existing = rows.users.find((row) => row.slackTeamId === input.slackTeamId && row.slackUserId === input.slackUserId);
@@ -57,6 +65,8 @@ function createMemoryStore(): OAuthFlowStore & { rows: Record<string, unknown[]>
       }
     }
   };
+
+  return store;
 }
 
 describe("Slack OAuth flow", () => {
@@ -166,12 +176,183 @@ describe("Slack OAuth flow", () => {
       }
     ]);
     expect(store.rows.tokenProfiles).toHaveLength(0);
+    expect(store.rows.transactions).toHaveLength(1);
 
     const persisted = JSON.stringify(store.rows);
     expect(persisted).not.toContain("xoxb-bot-token-canary");
     expect(persisted).not.toContain("xoxp-user-token-canary");
     expect(persisted).not.toContain("refresh-secret-canary");
     expect(JSON.stringify(result)).not.toMatch(/xox[bp]-|refresh-secret|client-secret/i);
+  });
+
+  it("binds an OIDC authorization request to Slack state and returns it only after a successful callback", async () => {
+    const store = createMemoryStore();
+    const cipher = createLocalAesGcmCredentialCipher({ key: encryptionKey, keyId: "local-test" });
+    const start = await createSlackOAuthStart({
+      store,
+      config: {
+        clientId: "client-id-123",
+        clientSecret: "client-secret-must-not-appear",
+        redirectUri: "http://localhost:3732/v1/slack/oauth/callback",
+        publicBaseUrl: "http://localhost:3732",
+        botScopes: [],
+        userScopes: []
+      },
+      oidcAuthorizationRequestId: "oidc_request_123",
+      now,
+      randomBytes: () => Buffer.alloc(32, 8)
+    });
+
+    expect(store.rows.states).toMatchObject([
+      { oidcAuthorizationRequestId: "oidc_request_123" }
+    ]);
+
+    const result = await completeSlackOAuthCallback({
+      store,
+      cipher,
+      config: {
+        clientId: "client-id-123",
+        clientSecret: "client-secret-must-not-appear",
+        redirectUri: "http://localhost:3732/v1/slack/oauth/callback",
+        publicBaseUrl: "http://localhost:3732",
+        botScopes: [],
+        userScopes: []
+      },
+      code: "valid-code",
+      state: start.state,
+      cookieState: start.state,
+      now,
+      randomBytes: () => Buffer.alloc(32, 9),
+      slackOAuthClient: {
+        async exchangeCode() {
+          return {
+            ok: true,
+            appId: "A123",
+            team: { id: "T123" },
+            enterprise: null,
+            authedUser: { id: "U123" }
+          };
+        },
+        async refreshToken() {
+          throw new Error("not used");
+        }
+      }
+    });
+
+    expect(result).toMatchObject({
+      kind: "linked",
+      oidcAuthorizationRequestId: "oidc_request_123"
+    });
+  });
+
+  it("rejects malformed Slack success identity before creating a Prism user or session", async () => {
+    const store = createMemoryStore();
+    const cipher = createLocalAesGcmCredentialCipher({ key: encryptionKey, keyId: "local-test" });
+    const start = await createSlackOAuthStart({
+      store,
+      config: {
+        clientId: "client-id-123",
+        clientSecret: "client-secret-must-not-appear",
+        redirectUri: "http://localhost:3732/v1/slack/oauth/callback",
+        publicBaseUrl: "http://localhost:3732",
+        botScopes: [],
+        userScopes: []
+      },
+      now,
+      randomBytes: () => Buffer.alloc(32, 10)
+    });
+
+    const result = await completeSlackOAuthCallback({
+      store,
+      cipher,
+      config: {
+        clientId: "client-id-123",
+        clientSecret: "client-secret-must-not-appear",
+        redirectUri: "http://localhost:3732/v1/slack/oauth/callback",
+        publicBaseUrl: "http://localhost:3732",
+        botScopes: [],
+        userScopes: []
+      },
+      code: "valid-code",
+      state: start.state,
+      cookieState: start.state,
+      now,
+      slackOAuthClient: {
+        async exchangeCode() {
+          return {
+            ok: true,
+            appId: "",
+            team: { id: "" },
+            enterprise: null,
+            authedUser: { id: "" }
+          };
+        },
+        async refreshToken() {
+          throw new Error("not used");
+        }
+      }
+    });
+
+    expect(result.kind).toBe("slack_error");
+    expect(store.rows.users).toHaveLength(0);
+    expect(store.rows.connections).toHaveLength(0);
+    expect(store.rows.sessions).toHaveLength(0);
+    expect(store.rows.transactions).toHaveLength(0);
+  });
+
+  it("consumes a Slack cancellation and preserves only the bound OIDC request for a safe client error", async () => {
+    const store = createMemoryStore();
+    const cipher = createLocalAesGcmCredentialCipher({ key: encryptionKey, keyId: "local-test" });
+    const start = await createSlackOAuthStart({
+      store,
+      config: {
+        clientId: "client-id-123",
+        clientSecret: "client-secret-must-not-appear",
+        redirectUri: "http://localhost:3732/v1/slack/oauth/callback",
+        publicBaseUrl: "http://localhost:3732",
+        botScopes: [],
+        userScopes: []
+      },
+      oidcAuthorizationRequestId: "oidc_request_cancelled",
+      now,
+      randomBytes: () => Buffer.alloc(32, 11)
+    });
+    let exchanged = false;
+
+    const result = await completeSlackOAuthCallback({
+      store,
+      cipher,
+      config: {
+        clientId: "client-id-123",
+        clientSecret: "client-secret-must-not-appear",
+        redirectUri: "http://localhost:3732/v1/slack/oauth/callback",
+        publicBaseUrl: "http://localhost:3732",
+        botScopes: [],
+        userScopes: []
+      },
+      code: null,
+      state: start.state,
+      cookieState: start.state,
+      oauthError: "access_denied",
+      now,
+      slackOAuthClient: {
+        async exchangeCode() {
+          exchanged = true;
+          throw new Error("must not exchange");
+        },
+        async refreshToken() {
+          throw new Error("not used");
+        }
+      }
+    });
+
+    expect(result).toEqual({
+      kind: "slack_error",
+      redirectUrl: "http://localhost:3732/?slack=error",
+      oidcAuthorizationRequestId: "oidc_request_cancelled"
+    });
+    expect(exchanged).toBe(false);
+    expect(store.rows.users).toHaveLength(0);
   });
 
   it("rejects replayed state before exchanging a Slack code", async () => {

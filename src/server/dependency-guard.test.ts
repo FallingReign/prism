@@ -31,7 +31,8 @@ describe("Prism substrate dependencies", () => {
       "src/server/slack/refresh.ts",
       "src/server/slack/web-api-client.ts",
       "src/server/slack/oauth-client.ts",
-      "src/server/slack/mock-oauth-client.ts"
+      "src/server/slack/mock-oauth-client.ts",
+      "src/server/oidc/signing.ts"
     ];
 
     for (const file of files) {

@@ -23,12 +23,20 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       config,
       code: url.searchParams.get("code"),
       state: url.searchParams.get("state"),
+      oauthError: url.searchParams.get("error"),
       cookieState: request.cookies.get(slackOAuthStateCookieName)?.value ?? null,
       slackOAuthClient: config.mockOAuth
         ? createMockSlackOAuthClient()
         : createFetchSlackOAuthClient({ clientId: config.clientId, clientSecret: config.clientSecret })
     });
-    const response = NextResponse.redirect(result.redirectUrl, { status: 302 });
+    const response = NextResponse.redirect(
+      oidcResumeUrl(
+        config.publicBaseUrl,
+        result.oidcAuthorizationRequestId,
+        result.kind === "linked" ? null : "access_denied"
+      ) ?? result.redirectUrl,
+      { status: 302 }
+    );
     response.cookies.delete(slackOAuthStateCookieName);
     if (result.sessionCookie) {
       response.cookies.set(result.sessionCookie.name, result.sessionCookie.value, {
@@ -39,13 +47,34 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         maxAge: result.sessionCookie.maxAge
       });
     }
-    return response;
+    return secureOAuthResponse(response);
   } catch (error) {
     if (isSetupRequiredError(error)) {
       redirectUrl = fallbackRedirect("setup_required");
     }
-    return NextResponse.redirect(redirectUrl, { status: 302 });
+    const response = NextResponse.redirect(redirectUrl, { status: 302 });
+    response.cookies.delete(slackOAuthStateCookieName);
+    return secureOAuthResponse(response);
   }
+}
+
+function oidcResumeUrl(
+  publicBaseUrl: string,
+  requestId: string | null | undefined,
+  error: "access_denied" | null
+): string | null {
+  if (!requestId || !/^[A-Za-z0-9_-]{43}$/.test(requestId)) return null;
+  const url = new URL("/oauth/authorize", publicBaseUrl);
+  url.searchParams.set("request", requestId);
+  if (error) url.searchParams.set("error", error);
+  return url.toString();
+}
+
+function secureOAuthResponse(response: NextResponse): NextResponse {
+  response.headers.set("Cache-Control", "no-store");
+  response.headers.set("Pragma", "no-cache");
+  response.headers.set("Referrer-Policy", "no-referrer");
+  return response;
 }
 
 function fallbackRedirect(status: "error" | "setup_required"): string {

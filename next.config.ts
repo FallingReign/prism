@@ -4,6 +4,17 @@ import { fileURLToPath } from "node:url";
 
 const nextConfig: NextConfig = {
   devIndicators: false,
+  logging: {
+    // These browser endpoints carry OAuth/OIDC transaction material in the
+    // query string. Do not persist it in Next's development request log.
+    incomingRequests: {
+      ignore: [
+        /^\/oauth\/authorize(?:[/?]|$)/,
+        /^\/v1\/slack\/oauth\/start(?:[/?]|$)/,
+        /^\/v1\/slack\/oauth\/callback(?:[/?]|$)/,
+      ],
+    },
+  },
   turbopack: {
     root: dirname(fileURLToPath(import.meta.url))
   }

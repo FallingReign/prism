@@ -17,12 +17,14 @@
     "db:up": "docker compose --env-file .env.local up -d postgres",
     "db:down": "docker compose --env-file .env.local down",
     "db:migrate": "node scripts/ensure-local-encryption-key.mjs && node scripts/run-migrations.mjs",
+    "oidc:keygen": "node scripts/generate-oidc-signing-key.mjs",
     "slack:display-name-backfill": "node --conditions=react-server --import tsx scripts/backfill-slack-connection-display-names.ts"
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.3.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "jose": "^6.2.9",
     "lucide-react": "^1.16.0",
     "next": "^16.0.3",
     "pg": "^8.16.3",

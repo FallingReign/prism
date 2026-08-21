@@ -9,6 +9,7 @@ import { createPostgresAdminUserDirectoryStore } from "../../../../../../../../.
 import { revokeAdminTokenProfile } from "../../../../../../../../../src/server/admin/token-profile-actions";
 import { isActivityAuditUnavailableError } from "../../../../../../../../../src/server/audit/postgres-store";
 import { database } from "../../../../../../../../../src/server/db";
+import { rejectCrossOriginBrowserMutation } from "../../../../../../../../../src/server/http/browser-mutation-csrf";
 import { prismSessionCookieName } from "../../../../../../../../../src/server/slack/oauth-flow";
 import { createPostgresTokenProfileStore } from "../../../../../../../../../src/server/token-profiles/store";
 
@@ -17,6 +18,8 @@ export const dynamic = "force-dynamic";
 type RouteContext = { params: Promise<{ userId: string; profileId: string }> | { userId: string; profileId: string } };
 
 export async function POST(request: NextRequest, context: RouteContext): Promise<NextResponse> {
+  const csrfRejection = rejectCrossOriginBrowserMutation(request);
+  if (csrfRejection) return csrfRejection;
   const requestId = randomUUID();
   const parsedBody = await readActionBody(request);
   if (parsedBody.kind === "invalid_json") return noStoreJson({ error: "invalid_json" }, 400, requestId);

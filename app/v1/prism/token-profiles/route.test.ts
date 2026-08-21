@@ -119,7 +119,7 @@ describe("/v1/prism/token-profiles", () => {
     const response = await POST(
       new NextRequest("http://localhost:3732/v1/prism/token-profiles", {
         method: "POST",
-        headers: { cookie: "prism_session=session-token", "content-type": "application/json" },
+        headers: { cookie: "prism_session=session-token", "sec-fetch-site": "same-origin", "content-type": "application/json" },
         body: JSON.stringify({
           name: "Local MCP read",
           intendedUse: "Read Slack context locally",
@@ -148,7 +148,7 @@ describe("/v1/prism/token-profiles", () => {
     const response = await POST(
       new NextRequest("http://localhost:3732/v1/prism/token-profiles", {
         method: "POST",
-        headers: { cookie: "prism_session=session-token", "content-type": "application/json" },
+        headers: { cookie: "prism_session=session-token", "sec-fetch-site": "same-origin", "content-type": "application/json" },
         body: JSON.stringify({
           name: "Local MCP read",
           intendedUse: "Read Slack context locally",
@@ -172,7 +172,7 @@ describe("/v1/prism/token-profiles", () => {
     const response = await POST(
       new NextRequest("http://localhost:3732/v1/prism/token-profiles", {
         method: "POST",
-        headers: { cookie: "prism_session=session-token", "content-type": "application/json" },
+        headers: { cookie: "prism_session=session-token", "sec-fetch-site": "same-origin", "content-type": "application/json" },
         body: JSON.stringify({
           name: "Message writer",
           intendedUse: "Post approved messages",
@@ -195,7 +195,7 @@ describe("/v1/prism/token-profiles", () => {
     const response = await POST(
       new NextRequest("http://localhost:3732/v1/prism/token-profiles", {
         method: "POST",
-        headers: { cookie: "prism_session=session-token", "content-type": "application/json" },
+        headers: { cookie: "prism_session=session-token", "sec-fetch-site": "same-origin", "content-type": "application/json" },
         body: JSON.stringify({
           name: "Local MCP read",
           intendedUse: "Read Slack context locally",
@@ -216,7 +216,7 @@ describe("/v1/prism/token-profiles", () => {
     const response = await POST(
       new NextRequest("http://localhost:3732/v1/prism/token-profiles", {
         method: "POST",
-        headers: { cookie: "prism_session=session-token", "content-type": "application/json" },
+        headers: { cookie: "prism_session=session-token", "sec-fetch-site": "same-origin", "content-type": "application/json" },
         body: JSON.stringify({
           name: "Local MCP read",
           intendedUse: "Read Slack context locally",
@@ -240,7 +240,7 @@ describe("/v1/prism/token-profiles", () => {
     const response = await POST(
       new NextRequest("http://localhost:3732/v1/prism/token-profiles/profile_1/policy", {
         method: "POST",
-        headers: { cookie: "prism_session=session-token", "content-type": "application/json" },
+        headers: { cookie: "prism_session=session-token", "sec-fetch-site": "same-origin", "content-type": "application/json" },
         body: JSON.stringify({
           name: "Local MCP read",
           intendedUse: "Read Slack context locally",
@@ -265,7 +265,7 @@ describe("/v1/prism/token-profiles", () => {
     const response = await POST(
       new NextRequest("http://localhost:3732/v1/prism/token-profiles/profile_1/policy", {
         method: "POST",
-        headers: { cookie: "prism_session=session-token", "content-type": "application/json" },
+        headers: { cookie: "prism_session=session-token", "sec-fetch-site": "same-origin", "content-type": "application/json" },
         body: JSON.stringify({
           name: "Local MCP read",
           intendedUse: "Read Slack context locally",
@@ -290,7 +290,7 @@ describe("/v1/prism/token-profiles", () => {
     const response = await POST(
       new NextRequest("http://localhost:3732/v1/prism/token-profiles/profile_1/policy", {
         method: "POST",
-        headers: { cookie: "prism_session=session-token", "content-type": "application/json" },
+        headers: { cookie: "prism_session=session-token", "sec-fetch-site": "same-origin", "content-type": "application/json" },
         body: JSON.stringify({
           name: "Local MCP read",
           intendedUse: "Read Slack context locally",
@@ -326,7 +326,7 @@ describe("/v1/prism/token-profiles", () => {
     const response = await POST(
       new NextRequest("http://localhost:3732/v1/prism/token-profiles/profile_1/revoke", {
         method: "POST",
-        headers: { cookie: "prism_session=session-token" }
+        headers: { cookie: "prism_session=session-token", "sec-fetch-site": "same-origin" }
       }),
       { params: Promise.resolve({ profileId: "profile_1" }) }
     );
@@ -346,7 +346,7 @@ describe("/v1/prism/token-profiles", () => {
     const response = await DELETE(
       new NextRequest("http://localhost:3732/v1/prism/token-profiles/profile_1", {
         method: "DELETE",
-        headers: { cookie: "prism_session=session-token" }
+        headers: { cookie: "prism_session=session-token", "sec-fetch-site": "same-origin" }
       }),
       { params: Promise.resolve({ profileId: "profile_1" }) }
     );
@@ -367,7 +367,7 @@ describe("/v1/prism/token-profiles", () => {
     const response = await DELETE(
       new NextRequest("http://localhost:3732/v1/prism/token-profiles/profile_1", {
         method: "DELETE",
-        headers: { cookie: "prism_session=session-token" }
+        headers: { cookie: "prism_session=session-token", "sec-fetch-site": "same-origin" }
       }),
       { params: Promise.resolve({ profileId: "profile_1" }) }
     );
@@ -388,7 +388,7 @@ describe("/v1/prism/token-profiles", () => {
     const response = await POST(
       new NextRequest("http://localhost:3732/v1/prism/token-profiles/profile_1/rotate", {
         method: "POST",
-        headers: { cookie: "prism_session=session-token", "content-type": "application/json" },
+        headers: { cookie: "prism_session=session-token", "sec-fetch-site": "same-origin", "content-type": "application/json" },
         body: JSON.stringify({ overlap: "none" })
       }),
       { params: Promise.resolve({ profileId: "profile_1" }) }
@@ -418,7 +418,7 @@ describe("/v1/prism/token-profiles", () => {
     const blocked = await POST(
       new NextRequest("http://localhost:3732/v1/prism/token-profiles/profile_1/policy", {
         method: "POST",
-        headers: { cookie: "prism_session=session-token", "content-type": "application/json" },
+        headers: { cookie: "prism_session=session-token", "sec-fetch-site": "same-origin", "content-type": "application/json" },
         body: JSON.stringify(broadeningInput)
       }),
       { params: Promise.resolve({ profileId: "profile_1" }) }
@@ -432,7 +432,7 @@ describe("/v1/prism/token-profiles", () => {
     const confirmed = await POST(
       new NextRequest("http://localhost:3732/v1/prism/token-profiles/profile_1/policy", {
         method: "POST",
-        headers: { cookie: "prism_session=session-token", "content-type": "application/json" },
+        headers: { cookie: "prism_session=session-token", "sec-fetch-site": "same-origin", "content-type": "application/json" },
         body: JSON.stringify({ ...broadeningInput, confirmBroadening: true })
       }),
       { params: Promise.resolve({ profileId: "profile_1" }) }

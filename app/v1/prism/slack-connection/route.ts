@@ -4,12 +4,15 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { isActivityAuditUnavailableError } from "../../../../src/server/audit/postgres-store";
 import { database } from "../../../../src/server/db";
+import { rejectCrossOriginBrowserMutation } from "../../../../src/server/http/browser-mutation-csrf";
 import { createPostgresSlackConnectionManagementStore, removeSlackConnection } from "../../../../src/server/slack/connection-management";
 import { prismSessionCookieName } from "../../../../src/server/slack/oauth-flow";
 
 export const dynamic = "force-dynamic";
 
 export async function DELETE(request: NextRequest): Promise<NextResponse> {
+  const csrfRejection = rejectCrossOriginBrowserMutation(request);
+  if (csrfRejection) return csrfRejection;
   const requestId = randomUUID();
   try {
     const result = await removeSlackConnection({

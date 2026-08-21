@@ -7,6 +7,7 @@ import { resolvePrismAdmin, type AdminAuthorizationDecision } from "../../../../
 import { createPostgresAdminIdentityStore } from "../../../../../src/server/admin/postgres-store";
 import { isActivityAuditUnavailableError } from "../../../../../src/server/audit/postgres-store";
 import { database } from "../../../../../src/server/db";
+import { rejectCrossOriginBrowserMutation } from "../../../../../src/server/http/browser-mutation-csrf";
 import { prismSessionCookieName } from "../../../../../src/server/slack/oauth-flow";
 import { parseGlobalTokenProfilePolicy, type GlobalTokenProfilePolicy } from "../../../../../src/server/token-profiles/global-policy";
 import { createPostgresGlobalTokenProfilePolicyStore, type GlobalTokenProfilePolicySettings } from "../../../../../src/server/token-profiles/global-policy-store";
@@ -27,6 +28,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 }
 
 export async function PATCH(request: NextRequest): Promise<NextResponse> {
+  const csrfRejection = rejectCrossOriginBrowserMutation(request);
+  if (csrfRejection) return csrfRejection;
   const requestId = randomUUID();
   const parsedBody = await readPolicyBody(request);
   if (parsedBody.kind === "invalid_json") return noStoreJson({ error: "invalid_json" }, 400, requestId);
