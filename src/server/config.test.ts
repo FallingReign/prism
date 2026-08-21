@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 
+import { generateKeyPairSync } from "node:crypto";
+
 import {
   getCredentialEncryptionConfig,
   getDatabaseUrl,
+  getDelegatedDeliveryConfig,
+  getDelegatedDeliveryMaintenanceConfig,
   getDeveloperTokenConfig,
   getOidcProviderConfig,
   getSlackOAuthConfig,
@@ -11,6 +15,146 @@ import {
 } from "./config";
 
 describe("server setup config", () => {
+  it("keeps delegated Slack delivery disabled without loading any registration or secret", () => {
+    expect(
+      getDelegatedDeliveryConfig({
+        NODE_ENV: "test",
+        PRISM_DELEGATED_SLACK_DELIVERY_ENABLED: "0",
+        PRISM_DELEGATED_SLACK_DELIVERY_GRANT_PEPPER: "replace-with-secret-canary"
+      })
+    ).toEqual({ enabled: false });
+    expect(getDelegatedDeliveryConfig({ NODE_ENV: "test" })).toEqual({ enabled: false });
+  });
+
+  it("loads the exact delegated Playtest registration and bounded defaults", () => {
+    expect(getDelegatedDeliveryConfig(delegatedDeliveryEnv())).toMatchObject({
+      enabled: true,
+      issuer: "http://localhost:3732",
+      clientId: "shg-playtest-delegation",
+      callbackUri: "http://localhost:3847/api/announcements/delegation/callback",
+      clientJwks: [{ kty: "EC", crv: "P-256", alg: "ES256", kid: "playtest-es256-v1" }],
+      grantPepperId: "delegated-grants-v1",
+      allowInsecureHttp: true,
+      trustProxyHeaders: false,
+      limits: {
+        approvalTtlMs: 600_000,
+        authorizationCodeTtlMs: 300_000,
+        maxScheduleHorizonMs: 2_592_000_000,
+        grantTtlMs: 1_800_000,
+        statusRetentionMs: 2_592_000_000,
+        proofClockSkewSeconds: 60,
+        proofLifetimeSeconds: 60,
+        rateWindowMs: 60_000,
+        maxRequestsPerSource: 30,
+        maxRequestsPerClient: 300,
+        maxRequestsPerUser: 30,
+        maxRequestsPerChannel: 60,
+        maxOutstandingPendingPerSource: 10,
+        maxOutstandingPendingPerClient: 500,
+        maxOutstandingPendingPerUser: 20,
+        cleanupBatchSize: 100
+      }
+    });
+  });
+
+  it("rejects a broadened delegated registration, private JWK material, or shared pepper", () => {
+    const base = delegatedDeliveryEnv();
+    expect(() =>
+      getDelegatedDeliveryConfig({ ...base, PRISM_DELEGATED_SLACK_DELIVERY_CLIENT_ID: "another-client" })
+    ).toThrow("setup-required:PRISM_DELEGATED_SLACK_DELIVERY_CLIENT_ID");
+
+    const jwks = JSON.parse(base.PRISM_DELEGATED_SLACK_DELIVERY_CLIENT_JWKS!) as { keys: Array<Record<string, unknown>> };
+    jwks.keys[0]!.d = "private-key-secret-canary";
+    try {
+      getDelegatedDeliveryConfig({
+        ...base,
+        PRISM_DELEGATED_SLACK_DELIVERY_CLIENT_JWKS: JSON.stringify(jwks)
+      });
+      throw new Error("expected delegated JWK validation to fail");
+    } catch (error) {
+      expect(String(error)).toBe("Error: setup-required:PRISM_DELEGATED_SLACK_DELIVERY_CLIENT_JWKS");
+      expect(String(error)).not.toContain("private-key-secret-canary");
+    }
+
+    expect(() =>
+      getDelegatedDeliveryConfig({
+        ...base,
+        PRISM_DEVELOPER_TOKEN_PEPPER: base.PRISM_DELEGATED_SLACK_DELIVERY_GRANT_PEPPER
+      })
+    ).toThrow("setup-required:PRISM_DELEGATED_SLACK_DELIVERY_GRANT_PEPPER_DISTINCT");
+    expect(() =>
+      getDelegatedDeliveryConfig({
+        ...base,
+        PRISM_DEVELOPER_TOKEN_PEPPER_ID: base.PRISM_DELEGATED_SLACK_DELIVERY_GRANT_PEPPER_ID
+      })
+    ).toThrow("setup-required:PRISM_DELEGATED_SLACK_DELIVERY_GRANT_PEPPER_ID_DISTINCT");
+  });
+
+  it("enforces delegated HTTPS policy, hard timing ceilings, and coherent abuse caps", () => {
+    const base = delegatedDeliveryEnv();
+    expect(() =>
+      getDelegatedDeliveryConfig({
+        ...base,
+        NODE_ENV: "production",
+        PRISM_DELEGATED_SLACK_DELIVERY_ALLOW_INSECURE_HTTP: "1"
+      })
+    ).toThrow("setup-required:PRISM_PUBLIC_BASE_URL_HTTPS");
+    expect(() =>
+      getDelegatedDeliveryConfig({
+        ...base,
+        PRISM_DELEGATED_SLACK_DELIVERY_CALLBACK_URI:
+          "http://localhost:3847/api/announcements/delegation/callback?next=untrusted"
+      })
+    ).toThrow("setup-required:PRISM_DELEGATED_SLACK_DELIVERY_CALLBACK_URI");
+    expect(() =>
+      getDelegatedDeliveryConfig({
+        ...base,
+        PRISM_DELEGATED_SLACK_DELIVERY_APPROVAL_TTL_SECONDS: "601"
+      })
+    ).toThrow("setup-required:PRISM_DELEGATED_SLACK_DELIVERY_APPROVAL_TTL_SECONDS");
+    expect(() =>
+      getDelegatedDeliveryConfig({
+        ...base,
+        PRISM_DELEGATED_SLACK_DELIVERY_APPROVAL_TTL_SECONDS: "300",
+        PRISM_DELEGATED_SLACK_DELIVERY_GRANT_TTL_SECONDS: "300"
+      })
+    ).toThrow("setup-required:PRISM_DELEGATED_SLACK_DELIVERY_TIMING_LIMITS");
+    expect(() =>
+      getDelegatedDeliveryConfig({
+        ...base,
+        PRISM_DELEGATED_SLACK_DELIVERY_RATE_LIMIT_PER_SOURCE: "50",
+        PRISM_DELEGATED_SLACK_DELIVERY_RATE_LIMIT_PER_CLIENT: "10"
+      })
+    ).toThrow("setup-required:PRISM_DELEGATED_SLACK_DELIVERY_ABUSE_PROTECTION_LIMITS");
+  });
+
+  it("enables delegated forwarding headers only with the dedicated opt-in", () => {
+    const base = delegatedDeliveryEnv();
+    expect(getDelegatedDeliveryConfig(base)).toMatchObject({
+      enabled: true,
+      trustProxyHeaders: false
+    });
+    expect(getDelegatedDeliveryConfig({
+      ...base,
+      PRISM_DELEGATED_SLACK_DELIVERY_TRUST_PROXY_HEADERS: "1"
+    })).toMatchObject({ enabled: true, trustProxyHeaders: true });
+    expect(getDelegatedDeliveryConfig({
+      ...base,
+      PRISM_DELEGATED_SLACK_DELIVERY_TRUST_PROXY_HEADERS: "yes"
+    })).toMatchObject({ enabled: true, trustProxyHeaders: false });
+  });
+
+  it("loads bounded cleanup settings without enabling or loading delegation secrets", () => {
+    expect(getDelegatedDeliveryMaintenanceConfig({
+      PRISM_DELEGATED_SLACK_DELIVERY_STATUS_RETENTION_SECONDS: "3600",
+      PRISM_DELEGATED_SLACK_DELIVERY_CLEANUP_BATCH_SIZE: "25",
+      PRISM_DELEGATED_SLACK_DELIVERY_GRANT_PEPPER: "cleanup-secret-canary"
+    })).toEqual({ statusRetentionMs: 3_600_000, cleanupBatchSize: 25 });
+    expect(() => getDelegatedDeliveryMaintenanceConfig({
+      PRISM_DELEGATED_SLACK_DELIVERY_CLEANUP_BATCH_SIZE: "1001"
+    })).toThrow("setup-required:PRISM_DELEGATED_SLACK_DELIVERY_CLEANUP_BATCH_SIZE");
+  });
+
   it("derives the local database URL from canonical Postgres fields", () => {
     expect(
       getDatabaseUrl({
@@ -263,3 +407,33 @@ describe("server setup config", () => {
     }
   });
 });
+
+function delegatedDeliveryEnv(): NodeJS.ProcessEnv {
+  const { publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+  const publicJwk = publicKey.export({ format: "jwk" });
+  return {
+    NODE_ENV: "development",
+    PRISM_PUBLIC_BASE_URL: "http://localhost:3732",
+    PRISM_DELEGATED_SLACK_DELIVERY_ENABLED: "1",
+    PRISM_DELEGATED_SLACK_DELIVERY_ALLOW_INSECURE_HTTP: "1",
+    PRISM_DELEGATED_SLACK_DELIVERY_CLIENT_ID: "shg-playtest-delegation",
+    PRISM_DELEGATED_SLACK_DELIVERY_CALLBACK_URI:
+      "http://localhost:3847/api/announcements/delegation/callback",
+    PRISM_DELEGATED_SLACK_DELIVERY_CLIENT_JWKS: JSON.stringify({
+      keys: [
+        {
+          kty: "EC",
+          crv: "P-256",
+          alg: "ES256",
+          kid: "playtest-es256-v1",
+          x: publicJwk.x,
+          y: publicJwk.y,
+          use: "sig",
+          key_ops: ["verify"]
+        }
+      ]
+    }),
+    PRISM_DELEGATED_SLACK_DELIVERY_GRANT_PEPPER: "delegated-grant-pepper-secret-canary-32-bytes",
+    PRISM_DELEGATED_SLACK_DELIVERY_GRANT_PEPPER_ID: "delegated-grants-v1"
+  };
+}

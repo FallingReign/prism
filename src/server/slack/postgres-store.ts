@@ -19,12 +19,13 @@ export function createPostgresOAuthFlowStore(database: Database): OAuthFlowStore
     async saveOAuthState(input) {
       await database.query(
         `insert into slack_oauth_states
-           (state_hash, redirect_uri, oidc_authorization_request_id, expires_at)
-         values ($1, $2, $3, $4)`,
+           (state_hash, redirect_uri, oidc_authorization_request_id, delegated_delivery_request_id, expires_at)
+         values ($1, $2, $3, $4, $5)`,
         [
           input.stateHash,
           input.redirectUri,
           input.oidcAuthorizationRequestId ?? null,
+          input.delegatedDeliveryRequestId ?? null,
           input.expiresAt
         ]
       );
@@ -33,11 +34,12 @@ export function createPostgresOAuthFlowStore(database: Database): OAuthFlowStore
       const result = await database.query<{
         redirect_uri: string;
         oidc_authorization_request_id: string | null;
+        delegated_delivery_request_id: string | null;
       }>(
         `update slack_oauth_states
          set used_at = $2
          where state_hash = $1 and used_at is null and expires_at > $2
-         returning redirect_uri, oidc_authorization_request_id`,
+         returning redirect_uri, oidc_authorization_request_id, delegated_delivery_request_id`,
         [stateHash, now]
       );
       const row = result.rows[0];
@@ -45,7 +47,8 @@ export function createPostgresOAuthFlowStore(database: Database): OAuthFlowStore
         ? {
             redirectUri: row.redirect_uri,
             oidcAuthorizationRequestId:
-              row.oidc_authorization_request_id ?? null
+              row.oidc_authorization_request_id ?? null,
+            delegatedDeliveryRequestId: row.delegated_delivery_request_id ?? null
           }
         : null;
     },

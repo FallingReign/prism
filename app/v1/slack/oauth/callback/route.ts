@@ -1,8 +1,12 @@
+import { randomUUID } from "node:crypto";
+
 import { NextRequest, NextResponse } from "next/server";
 
-import { getSlackOAuthConfig, isSetupRequiredError } from "../../../../../src/server/config";
+import { getDelegatedDeliveryConfig, getSlackOAuthConfig, isSetupRequiredError } from "../../../../../src/server/config";
 import { createConfiguredCredentialCipher } from "../../../../../src/server/credentials/factory";
 import { database } from "../../../../../src/server/db";
+import { createPostgresDelegatedDeliveryStore } from "../../../../../src/server/delegated-delivery/postgres-store";
+import { createDelegationOAuthResume, denyDelegationAfterOAuth } from "../../../../../src/server/delegated-delivery/service";
 import { createFetchSlackOAuthClient } from "../../../../../src/server/slack/oauth-client";
 import { completeSlackOAuthCallback, slackOAuthStateCookieName } from "../../../../../src/server/slack/oauth-flow";
 import { createMockSlackOAuthClient } from "../../../../../src/server/slack/mock-oauth-client";
@@ -11,6 +15,7 @@ import { createPostgresOAuthFlowStore } from "../../../../../src/server/slack/po
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
+  const correlationId = randomUUID();
   let redirectUrl = fallbackRedirect("error");
 
   try {
@@ -26,17 +31,33 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       oauthError: url.searchParams.get("error"),
       cookieState: request.cookies.get(slackOAuthStateCookieName)?.value ?? null,
       slackOAuthClient: config.mockOAuth
-        ? createMockSlackOAuthClient()
+        ? createMockSlackOAuthClient({ botScopes: config.botScopes, userScopes: config.userScopes })
         : createFetchSlackOAuthClient({ clientId: config.clientId, clientSecret: config.clientSecret })
     });
-    const response = NextResponse.redirect(
-      oidcResumeUrl(
+    let continuationUrl = oidcResumeUrl(
         config.publicBaseUrl,
         result.oidcAuthorizationRequestId,
         result.kind === "linked" ? null : "access_denied"
-      ) ?? result.redirectUrl,
-      { status: 302 }
-    );
+      );
+    if (!continuationUrl && result.delegatedDeliveryRequestId) {
+      const delegatedConfig = getDelegatedDeliveryConfig();
+      if (delegatedConfig.enabled) {
+        const decision = result.kind === "linked"
+          ? await createDelegationOAuthResume({
+              requestId: result.delegatedDeliveryRequestId,
+              store: createPostgresDelegatedDeliveryStore(database),
+              config: delegatedConfig
+            })
+          : await denyDelegationAfterOAuth({
+              requestId: result.delegatedDeliveryRequestId,
+              store: createPostgresDelegatedDeliveryStore(database),
+              cipher: createConfiguredCredentialCipher(),
+              config: delegatedConfig
+            });
+        if (decision.kind === "redirect") continuationUrl = decision.location;
+      }
+    }
+    const response = NextResponse.redirect(continuationUrl ?? result.redirectUrl, { status: 302 });
     response.cookies.delete(slackOAuthStateCookieName);
     if (result.sessionCookie) {
       response.cookies.set(result.sessionCookie.name, result.sessionCookie.value, {
@@ -47,14 +68,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         maxAge: result.sessionCookie.maxAge
       });
     }
-    return secureOAuthResponse(response);
+    return secureOAuthResponse(response, correlationId);
   } catch (error) {
     if (isSetupRequiredError(error)) {
       redirectUrl = fallbackRedirect("setup_required");
     }
     const response = NextResponse.redirect(redirectUrl, { status: 302 });
     response.cookies.delete(slackOAuthStateCookieName);
-    return secureOAuthResponse(response);
+    return secureOAuthResponse(response, correlationId);
   }
 }
 
@@ -70,10 +91,13 @@ function oidcResumeUrl(
   return url.toString();
 }
 
-function secureOAuthResponse(response: NextResponse): NextResponse {
+function secureOAuthResponse(response: NextResponse, requestId: string): NextResponse {
   response.headers.set("Cache-Control", "no-store");
   response.headers.set("Pragma", "no-cache");
   response.headers.set("Referrer-Policy", "no-referrer");
+  response.headers.set("Content-Security-Policy", "frame-ancestors 'none'; base-uri 'none'");
+  response.headers.set("X-Frame-Options", "DENY");
+  response.headers.set("X-Prism-Request-ID", requestId);
   return response;
 }
 

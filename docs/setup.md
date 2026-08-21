@@ -78,6 +78,85 @@ direct requests cannot exhaust a service-wide ten-request source bucket). Set
 headers and direct access to the Prism origin is blocked. Otherwise an attacker
 could rotate a spoofed header to evade a source bucket.
 
+## Configure Playtest delegated Slack delivery
+
+Per-message Playtest delivery is a separate first-party registration, not a
+Prism developer Token profile and not the public Playtest OIDC client. It is
+disabled unless `PRISM_DELEGATED_SLACK_DELIVERY_ENABLED=1`; when disabled,
+Prism does not require or load any delegation registration, JWK, or grant
+pepper value.
+
+Before enabling it, configure all of the following:
+
+- `PRISM_PUBLIC_BASE_URL` as the exact Prism issuer origin.
+- `PRISM_DELEGATED_SLACK_DELIVERY_CLIENT_ID=shg-playtest-delegation`. No other
+  client id is accepted.
+- `PRISM_DELEGATED_SLACK_DELIVERY_CALLBACK_URI` as the one exact Playtest
+  callback, without query parameters, fragments, wildcards, or alternate
+  origins.
+- `PRISM_DELEGATED_SLACK_DELIVERY_CLIENT_JWKS` as a JWKS JSON object containing
+  one to five public `EC`/`P-256`/`ES256` keys with unique `kid` values. Prism
+  rejects private JWK parameters. Keep the corresponding private keys only in
+  Playtest deployment secret storage.
+- `PRISM_DELEGATED_SLACK_DELIVERY_GRANT_PEPPER` and
+  `PRISM_DELEGATED_SLACK_DELIVERY_GRANT_PEPPER_ID` as a dedicated grant-hash
+  secret and stable key id. Neither value may reuse its Prism developer-token
+  counterpart.
+
+Production issuer and callback URLs must use HTTPS. For local or isolated VPN
+testing only, set
+`PRISM_DELEGATED_SLACK_DELIVERY_ALLOW_INSECURE_HTTP=1`; Prism accepts HTTP only
+outside production and only for localhost, loopback, or RFC1918/private IPv4
+hosts. This opt-in is intentionally separate from the OIDC HTTP opt-in.
+
+The default contract ceilings are a 10-minute approval, 5-minute code,
+30-day scheduling horizon, delivery authority through 30 minutes after the
+approved `not_before`, 30-day terminal status retention, and 60-second proof
+lifetime/skew bounds. The corresponding `PRISM_DELEGATED_SLACK_DELIVERY_*`
+timing variables in `.env.example` may shorten these limits; Prism rejects any
+larger value. The code lifetime cannot exceed the approval lifetime, and the
+post-`not_before` grant window must remain longer than the approval lifetime so
+an immediate approval can still produce a usable grant. The rate,
+outstanding-request, and cleanup variables are also
+hard-bounded and backed by Postgres so they apply across Prism processes.
+The delegated request route ignores forwarding headers by default. In that
+mode, Prism omits the per-source bucket and relies on the mandatory client,
+expected-user, channel, and outstanding caps rather than letting all direct
+traffic share one attacker-exhaustible source bucket. Set
+`PRISM_DELEGATED_SLACK_DELIVERY_TRUST_PROXY_HEADERS=1` only when a trusted
+ingress overwrites `X-Forwarded-For` and `X-Real-IP` and direct access to the
+Prism origin is blocked. Trusted mode requires one valid address (or identical
+values in both headers) and rejects missing, multiple, malformed, oversized,
+or disagreeing values before reading the request body.
+
+Run `npm run db:migrate` before enabling the flag. Migration `0016` adds the
+hash-only code/grant stores, encrypted request custody, DPoP replay protection,
+delegated rate buckets, typed Slack OAuth continuations, ownership constraints,
+and metadata-only audit lifecycle values. Enabling the Prism flag alone does
+not authorize delivery: Playtest must use the matching callback and managed
+private key, and the approved Prism Slack user connection must have a healthy
+user credential with `chat:write`.
+
+Schedule `npm run delegated-delivery:cleanup` at least every five minutes in
+the Prism deployment (for example with the platform scheduler, Kubernetes
+CronJob, or Windows Task Scheduler). The non-HTTP command performs one
+transactional, bounded batch per lifecycle stage using the same retention and
+cleanup limits as issuance. It expires pending/approved requests and active
+grants, clears encrypted payload/state custody, removes expired authorization
+codes, DPoP replay records, rate buckets, and delegated Slack OAuth continuation
+states, then deletes grants and request metadata only after their configured
+status-retention window. The command remains safe to run while issuance is
+disabled and requires the database environment to be injected by the scheduler;
+it never calls Slack. Run it more frequently or temporarily increase the
+bounded batch size (within the documented ceiling) when draining a backlog.
+
+Delegated API responses set `X-Prism-Request-ID` to a per-call correlation
+UUID. On request-creation success, the JSON `request_id` is instead the stable
+semantic `ddr_...` delegation id. On errors, JSON `request_id` is the same
+correlation UUID as the header. Neither value is an approval handle, code, or
+grant token. A `rate_limited` response may additionally carry integer
+`retry_after_seconds` in the inclusive range 1 through 3600.
+
 For the Windows-first agent workflow after installation, see the hosted
 `/skills/install.md` instructions or the contributor copy of the [Prism Slack
 agent skill](../.agents/skills/prism-slack/SKILL.md).

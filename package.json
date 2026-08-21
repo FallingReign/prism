@@ -18,7 +18,8 @@
     "db:down": "docker compose --env-file .env.local down",
     "db:migrate": "node scripts/ensure-local-encryption-key.mjs && node scripts/run-migrations.mjs",
     "oidc:keygen": "node scripts/generate-oidc-signing-key.mjs",
-    "slack:display-name-backfill": "node --conditions=react-server --import tsx scripts/backfill-slack-connection-display-names.ts"
+    "slack:display-name-backfill": "node --conditions=react-server --import tsx scripts/backfill-slack-connection-display-names.ts",
+    "delegated-delivery:cleanup": "node --conditions=react-server --import tsx scripts/cleanup-delegated-slack-delivery.ts"
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.3.0",

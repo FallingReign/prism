@@ -111,4 +111,41 @@ describe("metadata-only activity audit", () => {
     expect(record.adminReason).toHaveLength(240);
     expect(JSON.stringify(record)).not.toMatch(/prism_dev_|xoxb-|client_secret_canary/i);
   });
+
+  it("supports metadata-only delegated grant issuance without carrying grant or payload material", () => {
+    const record = buildActivityAuditRecord(
+      {
+        prismUserId: "user_1",
+        slackConnectionId: "conn_1",
+        slackUserId: "U123",
+        slackTeamId: "T123",
+        activityType: "delegated_delivery_grant_issued",
+        endpoint: "/v1/prism/delegations/slack-message/token",
+        slackMethod: "chat.postMessage",
+        actionCategory: "messages.write",
+        surface: "public_channel",
+        objectType: "channel",
+        objectId: "C123",
+        executionMode: "user",
+        status: "issued",
+        requestId: "delegation_request_1",
+        upstreamCalled: false,
+        contentCanaries: {
+          grant: "prism_grant_secret_canary",
+          payload: "MESSAGE_TEXT_CANARY",
+          proof: "DPoP_PROOF_CANARY"
+        }
+      },
+      { now, randomId: () => "audit_delegated_1" }
+    );
+
+    expect(record).toMatchObject({
+      activityType: "delegated_delivery_grant_issued",
+      status: "issued",
+      requestId: "delegation_request_1",
+      objectId: "C123",
+      upstreamCalled: false
+    });
+    expect(JSON.stringify(record)).not.toMatch(/prism_grant_secret_canary|MESSAGE_TEXT_CANARY|DPoP_PROOF_CANARY/);
+  });
 });

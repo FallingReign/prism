@@ -33,6 +33,7 @@ export type OAuthFlowStore = {
     stateHash: string;
     redirectUri: string;
     oidcAuthorizationRequestId?: string | null;
+    delegatedDeliveryRequestId?: string | null;
     expiresAt: Date;
   }): Promise<void>;
   consumeOAuthState(input: {
@@ -41,6 +42,7 @@ export type OAuthFlowStore = {
   }): Promise<{
     redirectUri: string;
     oidcAuthorizationRequestId: string | null;
+    delegatedDeliveryRequestId?: string | null;
   } | null>;
   upsertPrismUser(input: { slackTeamId: string; slackUserId: string; slackEnterpriseId: string | null }): Promise<{ id: string }>;
   upsertSlackConnection(input: {
@@ -70,15 +72,20 @@ export async function createSlackOAuthStart({
   store,
   config,
   oidcAuthorizationRequestId = null,
+  delegatedDeliveryRequestId = null,
   now = new Date(),
   randomBytes = nodeRandomBytes
 }: {
   store: OAuthFlowStore;
   config: SlackOAuthConfig;
   oidcAuthorizationRequestId?: string | null;
+  delegatedDeliveryRequestId?: string | null;
   now?: Date;
   randomBytes?: (size: number) => Buffer;
 }): Promise<{ state: string; stateHash: string; redirectUrl: string; cookie: CookieSpec }> {
+  if (oidcAuthorizationRequestId && delegatedDeliveryRequestId) {
+    throw new Error("slack-oauth-continuation-conflict");
+  }
   const state = randomBytes(32).toString("base64url");
   const stateHash = hashSecret(state);
   const expiresAt = new Date(now.getTime() + 10 * 60 * 1000);
@@ -86,6 +93,7 @@ export async function createSlackOAuthStart({
     stateHash,
     redirectUri: config.redirectUri,
     oidcAuthorizationRequestId,
+    ...(delegatedDeliveryRequestId ? { delegatedDeliveryRequestId } : {}),
     expiresAt
   });
 
@@ -132,11 +140,13 @@ export async function completeSlackOAuthCallback({
       redirectUrl: string;
       sessionCookie: CookieSpec;
       oidcAuthorizationRequestId: string | null;
+      delegatedDeliveryRequestId?: string | null;
     }
   | {
       kind: "invalid_state" | "slack_error";
       redirectUrl: string;
       oidcAuthorizationRequestId?: string | null;
+      delegatedDeliveryRequestId?: string | null;
       sessionCookie?: undefined;
     }
 > {
@@ -153,7 +163,8 @@ export async function completeSlackOAuthCallback({
     return {
       kind: "slack_error",
       redirectUrl: statusRedirect(config, "error"),
-      oidcAuthorizationRequestId: storedState.oidcAuthorizationRequestId
+      oidcAuthorizationRequestId: storedState.oidcAuthorizationRequestId,
+      ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {})
     };
   }
 
@@ -162,7 +173,8 @@ export async function completeSlackOAuthCallback({
     return {
       kind: "slack_error",
       redirectUrl: statusRedirect(config, "error"),
-      oidcAuthorizationRequestId: storedState.oidcAuthorizationRequestId
+      oidcAuthorizationRequestId: storedState.oidcAuthorizationRequestId,
+      ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {})
     };
   }
 
@@ -174,7 +186,8 @@ export async function completeSlackOAuthCallback({
     return {
       kind: "slack_error",
       redirectUrl: statusRedirect(config, "error"),
-      oidcAuthorizationRequestId: storedState.oidcAuthorizationRequestId
+      oidcAuthorizationRequestId: storedState.oidcAuthorizationRequestId,
+      ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {})
     };
   }
 
@@ -225,7 +238,8 @@ export async function completeSlackOAuthCallback({
     kind: "linked",
     redirectUrl: statusRedirect(config, "linked"),
     sessionCookie: sessionCookie(sessionToken, config.publicBaseUrl),
-    oidcAuthorizationRequestId: storedState.oidcAuthorizationRequestId
+    oidcAuthorizationRequestId: storedState.oidcAuthorizationRequestId,
+    ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {})
   };
 }
 

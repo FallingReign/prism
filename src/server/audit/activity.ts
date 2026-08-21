@@ -14,7 +14,16 @@ export type ActivityType =
   | "global_token_profile_policy_updated"
   | "admin_token_profile_revoked"
   | "admin_token_profile_deleted"
-  | "admin_slack_connection_removed";
+  | "admin_slack_connection_removed"
+  | "delegated_delivery_requested"
+  | "delegated_delivery_approved"
+  | "delegated_delivery_denied"
+  | "delegated_delivery_grant_issued"
+  | "delegated_delivery_execution"
+  | "delegated_delivery_cancelled"
+  | "delegated_delivery_expired"
+  | "delegated_delivery_rate_limited"
+  | "delegated_delivery_outcome_unknown";
 
 export type ActivityStatus =
   | "attempted"
@@ -31,7 +40,14 @@ export type ActivityStatus =
   | "revoked"
   | "rotated"
   | "updated"
-  | "deleted";
+  | "deleted"
+  | "approved"
+  | "issued"
+  | "cancelled"
+  | "expired"
+  | "sent"
+  | "failed"
+  | "outcome_unknown";
 
 export type ActivityAuditInput = {
   prismUserId?: string | null;

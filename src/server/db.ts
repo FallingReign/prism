@@ -60,3 +60,10 @@ export const database: Database = {
     }
   }
 };
+
+/** Used by finite non-HTTP maintenance commands after their last transaction. */
+export async function closeDatabasePool(): Promise<void> {
+  const activePool = pool;
+  pool = undefined;
+  if (activePool) await activePool.end();
+}

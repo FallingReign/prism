@@ -2,47 +2,59 @@ import "server-only";
 
 import type { SlackOAuthClient } from "./oauth-client";
 
-export function createMockSlackOAuthClient(): SlackOAuthClient {
+const MOCK_APP_ID = "A0123456789";
+const MOCK_TEAM_ID = "T0123456789";
+const MOCK_USER_ID = "U0123456789";
+
+export function createMockSlackOAuthClient({
+  botScopes = ["channels:read"],
+  userScopes = ["search:read"]
+}: {
+  botScopes?: string[];
+  userScopes?: string[];
+} = {}): SlackOAuthClient {
+  const botScope = botScopes.join(",");
+  const userScope = userScopes.join(",");
   return {
     async exchangeCode() {
       return {
         ok: true,
-        appId: "A-MOCK",
-        team: { id: "T-MOCK", name: "Mock workspace" },
+        appId: MOCK_APP_ID,
+        team: { id: MOCK_TEAM_ID, name: "Mock workspace" },
         enterprise: null,
         authedUser: {
-          id: "U-MOCK",
+          id: MOCK_USER_ID,
           accessToken: "xoxp-mock-user-token-canary",
           refreshToken: "mock-user-refresh-secret-canary",
           tokenType: "user",
           expiresIn: 3600,
-          scope: "search:read"
+          scope: userScope
         },
         bot: {
           accessToken: "xoxb-mock-bot-token-canary",
           refreshToken: "mock-bot-refresh-secret-canary",
           tokenType: "bot",
           expiresIn: 3600,
-          scope: "channels:read"
+          scope: botScope
         }
       };
     },
     async refreshToken({ kind }) {
       return {
         ok: true,
-        appId: "A-MOCK",
-        team: { id: "T-MOCK" },
+        appId: MOCK_APP_ID,
+        team: { id: MOCK_TEAM_ID },
         authedUser:
           kind === "user"
             ? {
-                id: "U-MOCK",
+                id: MOCK_USER_ID,
                 accessToken: "xoxp-mock-refreshed-token-canary",
                 refreshToken: "mock-refreshed-user-refresh-secret-canary",
                 tokenType: "user",
                 expiresIn: 3600,
-                scope: "search:read"
+                scope: userScope
               }
-            : { id: "U-MOCK" },
+            : { id: MOCK_USER_ID },
         bot:
           kind === "bot"
             ? {
@@ -50,7 +62,7 @@ export function createMockSlackOAuthClient(): SlackOAuthClient {
                 refreshToken: "mock-refreshed-refresh-secret-canary",
                 tokenType: "bot",
                 expiresIn: 3600,
-                scope: "channels:read"
+                scope: botScope
               }
             : undefined
       };

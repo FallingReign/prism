@@ -32,7 +32,8 @@ function createMemoryStore(): OAuthFlowStore & { rows: Record<string, unknown[]>
       state.usedAt = consumedAt;
       return {
         redirectUri: state.redirectUri,
-        oidcAuthorizationRequestId: state.oidcAuthorizationRequestId ?? null
+        oidcAuthorizationRequestId: state.oidcAuthorizationRequestId ?? null,
+        delegatedDeliveryRequestId: state.delegatedDeliveryRequestId ?? null
       };
     },
     async upsertPrismUser(input) {
@@ -58,11 +59,6 @@ function createMemoryStore(): OAuthFlowStore & { rows: Record<string, unknown[]>
     },
     async createWebsiteSession(input) {
       rows.sessions.push({ ...input });
-    },
-    async ensureTokenProfile(input) {
-      if (!rows.tokenProfiles.some((row) => row.prismUserId === input.prismUserId && row.slackConnectionId === input.slackConnectionId)) {
-        rows.tokenProfiles.push({ id: `profile_${rows.tokenProfiles.length + 1}`, ...input });
-      }
     }
   };
 
@@ -243,6 +239,100 @@ describe("Slack OAuth flow", () => {
       kind: "linked",
       oidcAuthorizationRequestId: "oidc_request_123"
     });
+  });
+
+  it("preserves one typed delegated-delivery continuation and rejects mixed continuation types", async () => {
+    const store = createMemoryStore();
+    const config = {
+      clientId: "client-id-123",
+      clientSecret: "client-secret-must-not-appear",
+      redirectUri: "http://localhost:3732/v1/slack/oauth/callback",
+      publicBaseUrl: "http://localhost:3732",
+      botScopes: [],
+      userScopes: ["chat:write"]
+    };
+    const delegatedDeliveryRequestId = "ddr_12345678-1234-4123-8123-123456789012";
+    const start = await createSlackOAuthStart({
+      store,
+      config,
+      delegatedDeliveryRequestId,
+      now,
+      randomBytes: () => Buffer.alloc(32, 12)
+    });
+
+    expect(store.rows.states).toMatchObject([{ delegatedDeliveryRequestId }]);
+    await expect(createSlackOAuthStart({
+      store,
+      config,
+      oidcAuthorizationRequestId: "r".repeat(43),
+      delegatedDeliveryRequestId,
+      now
+    })).rejects.toThrow("slack-oauth-continuation-conflict");
+
+    const result = await completeSlackOAuthCallback({
+      store,
+      cipher: createLocalAesGcmCredentialCipher({ key: encryptionKey, keyId: "local-test" }),
+      config,
+      code: "valid-code",
+      state: start.state,
+      cookieState: start.state,
+      now,
+      randomBytes: () => Buffer.alloc(32, 13),
+      slackOAuthClient: {
+        async exchangeCode() {
+          return {
+            ok: true,
+            appId: "A0123456789",
+            team: { id: "T0123456789" },
+            enterprise: null,
+            authedUser: { id: "U0123456789", scope: "chat:write" }
+          };
+        },
+        async refreshToken() { throw new Error("not used"); }
+      }
+    });
+
+    expect(result).toMatchObject({ kind: "linked", delegatedDeliveryRequestId });
+  });
+
+  it("preserves the delegated continuation on Slack cancellation without linking", async () => {
+    const store = createMemoryStore();
+    const config = {
+      clientId: "client-id-123",
+      clientSecret: "client-secret-must-not-appear",
+      redirectUri: "http://localhost:3732/v1/slack/oauth/callback",
+      publicBaseUrl: "http://localhost:3732",
+      botScopes: [],
+      userScopes: ["chat:write"]
+    };
+    const delegatedDeliveryRequestId = "ddr_12345678-1234-4123-8123-123456789012";
+    const start = await createSlackOAuthStart({
+      store, config, delegatedDeliveryRequestId, now,
+      randomBytes: () => Buffer.alloc(32, 14)
+    });
+
+    const result = await completeSlackOAuthCallback({
+      store,
+      cipher: createLocalAesGcmCredentialCipher({ key: encryptionKey, keyId: "local-test" }),
+      config,
+      code: null,
+      state: start.state,
+      cookieState: start.state,
+      oauthError: "access_denied",
+      now,
+      slackOAuthClient: {
+        async exchangeCode() { throw new Error("must not exchange"); },
+        async refreshToken() { throw new Error("not used"); }
+      }
+    });
+
+    expect(result).toEqual({
+      kind: "slack_error",
+      redirectUrl: "http://localhost:3732/?slack=error",
+      oidcAuthorizationRequestId: null,
+      delegatedDeliveryRequestId
+    });
+    expect(store.rows.users).toHaveLength(0);
   });
 
   it("rejects malformed Slack success identity before creating a Prism user or session", async () => {
