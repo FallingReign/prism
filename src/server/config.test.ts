@@ -220,6 +220,42 @@ describe("server setup config", () => {
     ).toMatchObject({ botScopes: [], userScopes: [], mockOAuth: true });
   });
 
+  it("rejects local Slack OAuth mock configuration in production without echoing credentials", () => {
+    const production: NodeJS.ProcessEnv = {
+      NODE_ENV: "production",
+      SLACK_CLIENT_ID: "33336676.569200954261",
+      SLACK_CLIENT_SECRET: "production-client-secret-canary",
+      PRISM_PUBLIC_BASE_URL: "https://prism.invalid",
+      SLACK_OAUTH_REDIRECT_URI: "https://prism.invalid/v1/slack/oauth/callback",
+      SLACK_USER_SCOPES: "users:read"
+    };
+
+    for (const env of [
+      { ...production, PRISM_SLACK_OAUTH_MOCK: "1" },
+      { ...production, SLACK_CLIENT_ID: "mock-playtest-client", PRISM_SLACK_OAUTH_MOCK: "0" }
+    ]) {
+      try {
+        getSlackOAuthConfig(env);
+        throw new Error("expected production mock configuration to be rejected");
+      } catch (error) {
+        expect(isSetupRequiredError(error)).toBe(true);
+        expect(String(error)).not.toContain("production-client-secret-canary");
+        expect(String(error)).not.toContain("mock-playtest-client");
+      }
+    }
+
+    expect(() => getSlackOAuthConfig({ ...production, PRISM_SLACK_OAUTH_MOCK: "1" })).toThrow(
+      "setup-required:PRISM_SLACK_OAUTH_MOCK"
+    );
+    expect(() => getSlackOAuthConfig({ ...production, SLACK_CLIENT_ID: "mock-playtest-client" })).toThrow(
+      "setup-required:SLACK_CLIENT_ID"
+    );
+    expect(getSlackOAuthConfig(production)).toMatchObject({
+      clientId: "33336676.569200954261",
+      mockOAuth: false
+    });
+  });
+
   it("loads one strict Playtest OIDC client and derives the issuer from the public base URL", () => {
     expect(
       getOidcProviderConfig({

@@ -5,6 +5,7 @@ import { resolvePrismAdmin } from "../src/server/admin/authorization";
 import { createPostgresAdminIdentityStore } from "../src/server/admin/postgres-store";
 import { createPostgresActivityAuditStore } from "../src/server/audit/postgres-store";
 import { toActivityAuditSummary, type ActivityAuditSummary } from "../src/server/audit/presentation";
+import { getCredentialEncryptionConfig, getSlackOAuthConfig, isSetupRequiredError } from "../src/server/config";
 import { database } from "../src/server/db";
 import { prismSessionCookieName } from "../src/server/slack/oauth-flow";
 import { getSlackLinkStatusWithDisplayNameEnrichment } from "../src/server/slack/connection-status";
@@ -75,7 +76,7 @@ async function HomeContent() {
               Admin console
             </LinkButton>
           ) : null}
-          {status.kind !== "linked" || status.status === "reauth_required" ? (
+          {status.kind === "not_linked" || (status.kind === "linked" && status.status === "reauth_required") ? (
             <LinkButton href="/v1/slack/oauth/start" variant="secondary">
               {slackActionLabel}
             </LinkButton>
@@ -112,7 +113,7 @@ async function HomeContent() {
             titleId="token-profiles-title"
             eyebrow="Token profiles"
             accent="primary"
-            actions={<LinkButton href="/v1/slack/oauth/start">{slackActionLabel}</LinkButton>}
+            actions={status.kind === "not_linked" ? <LinkButton href="/v1/slack/oauth/start">{slackActionLabel}</LinkButton> : undefined}
           >
             <p>
               Create copy-once Prism developer tokens after Slack is linked. Each Token profile captures the intended local tool,
@@ -136,6 +137,14 @@ async function HomeContent() {
 }
 
 async function readSlackWebsiteStatus(sessionToken: string | undefined): Promise<SlackWebsiteStatus> {
+  try {
+    getSlackOAuthConfig();
+    getCredentialEncryptionConfig();
+  } catch (error) {
+    if (isSetupRequiredError(error)) return { kind: "setup_required" };
+    return { kind: "not_linked" };
+  }
+
   try {
     return await getSlackLinkStatusWithDisplayNameEnrichment({ database, sessionToken });
   } catch {

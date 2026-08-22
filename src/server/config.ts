@@ -111,6 +111,8 @@ export type DelegatedDeliveryMaintenanceConfig = Pick<
 
 export const DELEGATED_DELIVERY_CLIENT_ID = "shg-playtest-delegation" as const;
 
+const RESERVED_SLACK_OAUTH_MOCK_CLIENT_ID = "mock-playtest-client";
+
 export const DEFAULT_DELEGATED_DELIVERY_LIMITS: DelegatedDeliveryLimits = {
   approvalTtlMs: 10 * 60_000,
   authorizationCodeTtlMs: 5 * 60_000,
@@ -180,7 +182,15 @@ export function getDatabaseUrl(env: NodeJS.ProcessEnv = process.env): string | u
 }
 
 export function getSlackOAuthConfig(env: NodeJS.ProcessEnv = process.env): SlackOAuthServerConfig {
+  const mockOAuthRequested = env.PRISM_SLACK_OAUTH_MOCK === "1";
+  if (env.NODE_ENV === "production" && mockOAuthRequested) {
+    throw new Error("setup-required:PRISM_SLACK_OAUTH_MOCK");
+  }
+
   const clientId = requiredConfiguredValue(env.SLACK_CLIENT_ID, "SLACK_CLIENT_ID");
+  if (env.NODE_ENV === "production" && clientId === RESERVED_SLACK_OAUTH_MOCK_CLIENT_ID) {
+    throw new Error("setup-required:SLACK_CLIENT_ID");
+  }
   const clientSecret = requiredConfiguredValue(env.SLACK_CLIENT_SECRET, "SLACK_CLIENT_SECRET");
   const configuredPublicBaseUrl = requiredConfiguredValue(env.PRISM_PUBLIC_BASE_URL, "PRISM_PUBLIC_BASE_URL");
   const publicBase = parsePublicBaseUrl(configuredPublicBaseUrl);
@@ -193,7 +203,7 @@ export function getSlackOAuthConfig(env: NodeJS.ProcessEnv = process.env): Slack
 
   const botScopes = parseScopes(env.SLACK_BOT_SCOPES) ?? [];
   const userScopes = parseScopes(env.SLACK_USER_SCOPES) ?? [];
-  const mockOAuth = env.PRISM_SLACK_OAUTH_MOCK === "1" && env.NODE_ENV !== "production";
+  const mockOAuth = mockOAuthRequested;
   if (!mockOAuth && botScopes.length === 0 && userScopes.length === 0) {
     throw new Error("setup-required:SLACK_OAUTH_SCOPES");
   }

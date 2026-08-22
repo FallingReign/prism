@@ -57,7 +57,7 @@ function buildSlackOverview(slackStatus: SlackWebsiteStatus): WebsiteOverviewIte
     return {
       label: "Setup required",
       value: "Server configuration",
-      detail: "Slack OAuth or credential encryption settings are missing.",
+      detail: "Slack OAuth or credential encryption settings are missing or invalid.",
       tone: "warning"
     };
   }

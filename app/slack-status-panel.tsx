@@ -31,7 +31,7 @@ export function SlackStatusPanel({ status, variant = "panel" }: { status: SlackW
         accent="warning"
         badge={<StatusBadge tone="warning">Configuration needed</StatusBadge>}
       >
-        <p>Slack OAuth or credential encryption configuration is missing. Add server-side settings, then reconnect.</p>
+        <p>Slack OAuth or credential encryption configuration is missing or invalid. Update the server-side settings, then retry.</p>
       </Panel>
     );
   }
@@ -59,7 +59,9 @@ export function SlackStatusPanel({ status, variant = "panel" }: { status: SlackW
       return (
         <section className="rounded-2xl border border-[color:var(--prism-warning)]/55 bg-[color:var(--prism-warning-soft)]/55 p-4" aria-labelledby="slack-status-title">
           <CompactHeading title="Setup required" tone="warning" badge="Configuration needed" />
-          <p className="mt-3 text-sm leading-6 text-muted-foreground">Add Slack OAuth and encryption settings before connecting this hosted service.</p>
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">
+            Slack OAuth or credential encryption configuration is missing or invalid. Update the server-side settings, then retry.
+          </p>
         </section>
       );
     }

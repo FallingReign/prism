@@ -31,6 +31,15 @@ For real Slack authorization, configure at least one of `SLACK_BOT_SCOPES` or
 existing Prism Slack app. Prism fails closed when a real authorization start
 would omit both scope parameters. Mock OAuth does not require scopes.
 
+Mock OAuth is development-only. Put its Slack client, secret, and
+`PRISM_SLACK_OAUTH_MOCK=1` overrides in ignored `.env.development.local`, not
+shared `.env.local` or production configuration. Supply real Slack app values
+through managed production environment variables or ignored
+`.env.production.local` for a local production smoke test. `npm start` rejects
+the mock flag and Prism's reserved mock client ID before it stores OAuth state
+or emits a Slack redirect, and the website shows only generic **Setup required**
+guidance without displaying configuration values.
+
 ## Configure the Playtest OIDC provider
 
 Prism exposes a single public client for Playtest at the issuer-relative

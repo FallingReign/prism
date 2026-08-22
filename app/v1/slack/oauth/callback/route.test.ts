@@ -1,6 +1,6 @@
 import { generateKeyPairSync } from "node:crypto";
 
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 const mockDb = vi.hoisted(() => ({
@@ -14,6 +14,7 @@ describe("GET /v1/slack/oauth/callback", () => {
   beforeEach(() => {
     vi.resetModules();
     clearDelegatedDeliveryEnv();
+    vi.stubEnv("NODE_ENV", "development");
     mockDb.query.mockReset();
     mockDb.transaction.mockReset();
     mockDb.transaction.mockImplementation(async (callback) => callback(mockDb));
@@ -32,6 +33,10 @@ describe("GET /v1/slack/oauth/callback", () => {
       if (sql.includes("insert into slack_connections")) return { rows: [{ id: "conn_1" }], rowCount: 1 };
       return { rows: [], rowCount: 1 };
     });
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it("exchanges a valid callback through the server path and redirects without token-bearing params", async () => {
@@ -54,6 +59,28 @@ describe("GET /v1/slack/oauth/callback", () => {
     expect(response.headers.get("referrer-policy")).toBe("no-referrer");
     expect(response.headers.get("X-Prism-Request-ID")).toMatch(/^[0-9a-f-]{36}$/);
     expect(visible).not.toMatch(/xox[bp]-|refresh-secret|access_token|client-secret/i);
+  });
+
+  it("fails closed before callback persistence when OAuth mock mode reaches production", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const { GET } = await import("./route");
+    const request = new NextRequest("http://localhost:3732/v1/slack/oauth/callback?code=mock-code&state=state-123", {
+      headers: { cookie: "prism_slack_oauth_state=state-123" }
+    });
+
+    const response = await GET(request);
+    const location = response.headers.get("location") ?? "";
+    const cookie = response.headers.get("set-cookie") ?? "";
+
+    expect(response.status).toBe(302);
+    expect(location).toBe("http://localhost:3732/?slack=setup_required");
+    expect(location).not.toContain("slack.com");
+    expect(cookie).toContain("prism_slack_oauth_state=");
+    expect(cookie).toContain("Expires=Thu, 01 Jan 1970 00:00:00 GMT");
+    expect(mockDb.query).not.toHaveBeenCalled();
+    expect(mockDb.transaction).not.toHaveBeenCalled();
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("X-Prism-Request-ID")).toMatch(/^[0-9a-f-]{36}$/);
   });
 
   it("clears the Slack state cookie and disables caching when callback persistence fails", async () => {
