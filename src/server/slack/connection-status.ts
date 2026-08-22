@@ -1,11 +1,11 @@
 import "server-only";
 
-import { getSlackOAuthConfig, isSetupRequiredError } from "../config";
+import { isSetupRequiredError } from "../config";
 import { createConfiguredCredentialCipher } from "../credentials/factory";
 import type { Database } from "../db";
+import { createOptionalConfiguredSlackOAuthClient } from "./app-configuration-factory";
 import { enrichSlackConnectionDisplayNames, needsSlackConnectionDisplayNameEnrichment, type SlackConnectionDisplayNameStore } from "./connection-display-names";
 import { createSlackForwardingCredentialProvider, type SlackForwardingCredentialProvider } from "./forwarding-credentials";
-import { createFetchSlackOAuthClient } from "./oauth-client";
 import {
   createPostgresRefreshStore,
   createPostgresSlackConnectionDisplayNameStore,
@@ -35,7 +35,7 @@ export async function getSlackLinkStatusWithDisplayNameEnrichment({
 
   if (!needsSlackConnectionDisplayNameEnrichment(connection)) return toSlackLinkStatus(connection);
 
-  const dependencies = resolveDisplayNameDependencies({ database, displayNameStore, credentialProvider, webApiClient });
+  const dependencies = await resolveDisplayNameDependencies({ database, displayNameStore, credentialProvider, webApiClient });
   if (!dependencies) return toSlackLinkStatus(connection);
 
   try {
@@ -56,7 +56,7 @@ export async function getSlackLinkStatusWithDisplayNameEnrichment({
   }
 }
 
-function resolveDisplayNameDependencies({
+async function resolveDisplayNameDependencies({
   database,
   displayNameStore,
   credentialProvider,
@@ -66,26 +66,20 @@ function resolveDisplayNameDependencies({
   displayNameStore?: SlackConnectionDisplayNameStore;
   credentialProvider?: SlackForwardingCredentialProvider;
   webApiClient?: SlackWebApiClient;
-}):
+}): Promise<
   | {
       displayNameStore: SlackConnectionDisplayNameStore;
       credentialProvider: SlackForwardingCredentialProvider;
       webApiClient: SlackWebApiClient;
     }
-  | null {
+  | null> {
   if (displayNameStore && credentialProvider && webApiClient) {
     return { displayNameStore, credentialProvider, webApiClient };
   }
 
   try {
     const cipher = createConfiguredCredentialCipher();
-    let slackOAuthClient: ReturnType<typeof createFetchSlackOAuthClient> | undefined;
-    try {
-      const config = getSlackOAuthConfig();
-      slackOAuthClient = createFetchSlackOAuthClient({ clientId: config.clientId, clientSecret: config.clientSecret });
-    } catch (error) {
-      if (!isSetupRequiredError(error)) throw error;
-    }
+    const slackOAuthClient = await createOptionalConfiguredSlackOAuthClient({ database });
 
     return {
       displayNameStore: displayNameStore ?? createPostgresSlackConnectionDisplayNameStore(database),

@@ -30,6 +30,12 @@ describe("Prism admin console shell", () => {
       expect(html).toContain("Active scope");
       expect(html).toContain("User directory");
       expect(html).toContain("Global policy");
+      if (scope.kind === "global") {
+        expect(html).toContain("Slack configuration");
+        expect(html).toContain('href="/admin/configuration"');
+      } else {
+        expect(html).not.toContain('href="/admin/configuration"');
+      }
       expect(html).toContain("Audited admin actions");
       expect(html).not.toContain("Admin surfaces unlock in the next slices");
       expect(html).not.toContain("Destructive admin actions remain separate");

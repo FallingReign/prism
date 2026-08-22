@@ -26,19 +26,57 @@ export PRISM_BASE_URL=http://localhost:3732
 
 Local development uses port `3732`. For a hosted or pilot environment, use the approved Prism origin from the deployment owner.
 
-For real Slack authorization, configure at least one of `SLACK_BOT_SCOPES` or
-`SLACK_USER_SCOPES` with a comma-separated subset already approved for the
-existing Prism Slack app. Prism fails closed when a real authorization start
-would omit both scope parameters. Mock OAuth does not require scopes.
+## Configure Slack through Prism
 
-Mock OAuth is development-only. Put its Slack client, secret, and
-`PRISM_SLACK_OAUTH_MOCK=1` overrides in ignored `.env.development.local`, not
-shared `.env.local` or production configuration. Supply real Slack app values
-through managed production environment variables or ignored
-`.env.production.local` for a local production smoke test. `npm start` rejects
-the mock flag and Prism's reserved mock client ID before it stores OAuth state
-or emits a Slack redirect, and the website shows only generic **Setup required**
-guidance without displaying configuration values.
+Slack app credentials and requested scopes are managed through Prism's guided
+configuration screen for normal installs. They do not need to be copied into a
+collection of local environment variables.
+
+1. Run the database migrations and keep the deployment-owned database, public
+   URL, and root credential-encryption key configured.
+2. Run `npm run setup:bootstrap` on the Prism host. The one-time setup code is
+   printed only to that terminal and expires after 15 minutes.
+3. Open `/setup`, enter the code, and follow the structured form. Add the exact
+   redirect URL displayed there to the existing Slack app.
+4. Enter the Slack Client ID and Client Secret, review the explicit bot and
+   user scope checklists, then choose **Verify and connect Slack**.
+
+The Client Secret is encrypted before database storage and is never returned
+to the browser. A saved configuration remains pending until Slack OAuth
+succeeds. That callback activates the immutable configuration and makes the
+signed-in Slack user the initial Prism configuration administrator.
+
+Slack has no all-scopes wildcard. When no scope selection is supplied, Prism
+defaults to every scope in its reviewed, typed catalogue and passes those
+scope IDs explicitly. The setup page exposes the same checklist and warns that
+selecting scopes in Prism does not configure or approve them in Slack. The
+existing Slack app must already have the requested permissions.
+
+A complete real `SLACK_CLIENT_ID` plus `SLACK_CLIENT_SECRET` environment bundle
+remains supported for secret-manager deployments and takes precedence over the
+database configuration. Prism shows that source as **Environment locked** and
+does not let the browser replace it. Do not split one credential into the
+environment and the other into Prism.
+
+Mock OAuth is development-only. Prefer its Slack client, secret, and
+`PRISM_SLACK_OAUTH_MOCK=1` overrides in ignored `.env.development.local`.
+If `npm start` also loads the complete reserved development-mock bundle from a
+shared `.env.local`, Prism treats that bundle as absent: it cannot be sent to
+Slack, cannot lock `/setup`, and cannot override a verified database
+configuration. A mock flag paired with a non-reserved real client, and every
+partial real credential pair, still fails closed. Use
+`npm run setup:bootstrap -- --recover` only as an explicit host-level
+break-glass recovery after initial
+setup.
+
+Setup-code exchanges always use a Postgres-backed 1,000-attempt-per-minute
+global circuit breaker. Prism ignores `X-Forwarded-For` and `X-Real-IP` by
+default and does not apply the lower per-source bucket to unattributed traffic,
+so a direct attacker cannot exhaust a shared 20-attempt source allowance. Set
+`PRISM_SETUP_TRUST_PROXY_HEADERS=1` only when a trusted ingress overwrites those
+headers and direct origin access is blocked. Trusted mode requires exactly one
+valid, consistent address and applies a 20-attempt-per-minute source bucket;
+Prism persists only a root-key-derived HMAC of that address, never the raw IP.
 
 ## Configure the Playtest OIDC provider
 

@@ -1,11 +1,10 @@
 import { existsSync, readFileSync } from "node:fs";
 
-import { getSlackOAuthConfig, isSetupRequiredError } from "../src/server/config";
 import { createConfiguredCredentialCipher } from "../src/server/credentials/factory";
 import { database } from "../src/server/db";
+import { createOptionalConfiguredSlackOAuthClient } from "../src/server/slack/app-configuration-factory";
 import { enrichSlackConnectionDisplayNames, type SlackConnectionDisplayRecord } from "../src/server/slack/connection-display-names";
 import { createSlackForwardingCredentialProvider } from "../src/server/slack/forwarding-credentials";
-import { createFetchSlackOAuthClient } from "../src/server/slack/oauth-client";
 import { createPostgresRefreshStore, createPostgresSlackConnectionDisplayNameStore } from "../src/server/slack/postgres-store";
 import { createDefaultSlackWebApiClient } from "../src/server/slack/web-api-client";
 
@@ -18,7 +17,7 @@ const displayNameStore = createPostgresSlackConnectionDisplayNameStore(database)
 const credentialProvider = createSlackForwardingCredentialProvider({
   store: createPostgresRefreshStore(database),
   cipher: createConfiguredCredentialCipher(),
-  slackOAuthClient: createOptionalSlackOAuthClient()
+  slackOAuthClient: await createOptionalConfiguredSlackOAuthClient({ database })
 });
 const webApiClient = createDefaultSlackWebApiClient();
 
@@ -85,16 +84,6 @@ async function listConnectionsNeedingDisplayNameEnrichment(limit: number): Promi
     displayNamesEnrichedAt: row.display_names_enriched_at,
     lastErrorClass: row.last_error_class
   }));
-}
-
-function createOptionalSlackOAuthClient(): ReturnType<typeof createFetchSlackOAuthClient> | undefined {
-  try {
-    const config = getSlackOAuthConfig();
-    return createFetchSlackOAuthClient({ clientId: config.clientId, clientSecret: config.clientSecret });
-  } catch (error) {
-    if (isSetupRequiredError(error)) return undefined;
-    throw error;
-  }
 }
 
 function parseLimit(value: string | undefined): number {

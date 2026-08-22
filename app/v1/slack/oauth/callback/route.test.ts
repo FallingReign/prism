@@ -3,6 +3,15 @@ import { generateKeyPairSync } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
+import {
+  deriveSlackAppConfigurationFingerprintKey,
+  environmentFingerprint
+} from "../../../../../src/server/slack/app-configuration-factory";
+import {
+  ALL_PRISM_SUPPORTED_SLACK_SCOPES,
+  canonicalizeSlackScopeSelection
+} from "../../../../../src/server/slack/app-configuration";
+
 const mockDb = vi.hoisted(() => ({
   query: vi.fn<(sql: string, params?: unknown[]) => Promise<unknown>>(),
   transaction: vi.fn()
@@ -11,6 +20,8 @@ const mockDb = vi.hoisted(() => ({
 vi.mock("../../../../../src/server/db", () => ({ database: mockDb }));
 
 describe("GET /v1/slack/oauth/callback", () => {
+  const callbackState = "s".repeat(43);
+
   beforeEach(() => {
     vi.resetModules();
     clearDelegatedDeliveryEnv();
@@ -26,9 +37,10 @@ describe("GET /v1/slack/oauth/callback", () => {
     process.env.PRISM_CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 2).toString("base64");
     process.env.PRISM_CREDENTIAL_ENCRYPTION_KEY_ID = "test-key";
     process.env.PRISM_SLACK_OAUTH_MOCK = "1";
+    process.env.SLACK_BOT_SCOPES = "";
     process.env.SLACK_USER_SCOPES = "search:read";
     mockDb.query.mockImplementation(async (sql: string) => {
-      if (sql.includes("update slack_oauth_states")) return { rows: [{ redirect_uri: "http://localhost:3732/v1/slack/oauth/callback" }], rowCount: 1 };
+      if (sql.includes("update slack_oauth_states")) return { rows: [oauthStateRow()], rowCount: 1 };
       if (sql.includes("insert into prism_users")) return { rows: [{ id: "user_1" }], rowCount: 1 };
       if (sql.includes("insert into slack_connections")) return { rows: [{ id: "conn_1" }], rowCount: 1 };
       return { rows: [], rowCount: 1 };
@@ -41,8 +53,8 @@ describe("GET /v1/slack/oauth/callback", () => {
 
   it("exchanges a valid callback through the server path and redirects without token-bearing params", async () => {
     const { GET } = await import("./route");
-    const request = new NextRequest("http://localhost:3732/v1/slack/oauth/callback?code=mock-code&state=state-123", {
-      headers: { cookie: "prism_slack_oauth_state=state-123" }
+    const request = new NextRequest(`http://localhost:3732/v1/slack/oauth/callback?code=mock-code&state=${callbackState}`, {
+      headers: { cookie: `prism_slack_oauth_state=${callbackState}` }
     });
 
     const response = await GET(request);
@@ -64,8 +76,8 @@ describe("GET /v1/slack/oauth/callback", () => {
   it("fails closed before callback persistence when OAuth mock mode reaches production", async () => {
     vi.stubEnv("NODE_ENV", "production");
     const { GET } = await import("./route");
-    const request = new NextRequest("http://localhost:3732/v1/slack/oauth/callback?code=mock-code&state=state-123", {
-      headers: { cookie: "prism_slack_oauth_state=state-123" }
+    const request = new NextRequest(`http://localhost:3732/v1/slack/oauth/callback?code=mock-code&state=${callbackState}`, {
+      headers: { cookie: `prism_slack_oauth_state=${callbackState}` }
     });
 
     const response = await GET(request);
@@ -86,8 +98,8 @@ describe("GET /v1/slack/oauth/callback", () => {
   it("clears the Slack state cookie and disables caching when callback persistence fails", async () => {
     mockDb.query.mockRejectedValueOnce(new Error("database unavailable"));
     const { GET } = await import("./route");
-    const request = new NextRequest("http://localhost:3732/v1/slack/oauth/callback?code=mock-code&state=state-123", {
-      headers: { cookie: "prism_slack_oauth_state=state-123" }
+    const request = new NextRequest(`http://localhost:3732/v1/slack/oauth/callback?code=mock-code&state=${callbackState}`, {
+      headers: { cookie: `prism_slack_oauth_state=${callbackState}` }
     });
 
     const response = await GET(request);
@@ -106,10 +118,7 @@ describe("GET /v1/slack/oauth/callback", () => {
     mockDb.query.mockImplementation(async (sql: string) => {
       if (sql.includes("update slack_oauth_states")) {
         return {
-          rows: [{
-            redirect_uri: "http://localhost:3732/v1/slack/oauth/callback",
-            oidc_authorization_request_id: oidcRequestId
-          }],
+          rows: [oauthStateRow({ oidc_authorization_request_id: oidcRequestId })],
           rowCount: 1
         };
       }
@@ -118,8 +127,8 @@ describe("GET /v1/slack/oauth/callback", () => {
       return { rows: [], rowCount: 1 };
     });
     const { GET } = await import("./route");
-    const request = new NextRequest("http://localhost:3732/v1/slack/oauth/callback?code=mock-code&state=state-123", {
-      headers: { cookie: "prism_slack_oauth_state=state-123" }
+    const request = new NextRequest(`http://localhost:3732/v1/slack/oauth/callback?code=mock-code&state=${callbackState}`, {
+      headers: { cookie: `prism_slack_oauth_state=${callbackState}` }
     });
 
     const response = await GET(request);
@@ -130,18 +139,13 @@ describe("GET /v1/slack/oauth/callback", () => {
     expect(response.headers.get("set-cookie")).toContain("prism_session=");
   });
 
-  it("resumes delegated consent after mock OAuth and persists configured chat:write scope", async () => {
+  it("ignores stale mock scope overrides and resumes consent with the reviewed scope defaults", async () => {
     enableDelegatedDelivery();
-    process.env.SLACK_USER_SCOPES = "search:read,chat:write";
     const delegatedRequestId = "ddr_12345678-1234-4123-8123-123456789012";
     mockDb.query.mockImplementation(async (sql: string) => {
       if (sql.includes("update slack_oauth_states")) {
         return {
-          rows: [{
-            redirect_uri: "http://localhost:3732/v1/slack/oauth/callback",
-            oidc_authorization_request_id: null,
-            delegated_delivery_request_id: delegatedRequestId
-          }],
+          rows: [oauthStateRow({ delegated_delivery_request_id: delegatedRequestId })],
           rowCount: 1
         };
       }
@@ -152,8 +156,8 @@ describe("GET /v1/slack/oauth/callback", () => {
     const { GET } = await import("./route");
 
     const response = await GET(new NextRequest(
-      "http://localhost:3732/v1/slack/oauth/callback?code=mock-code&state=state-123",
-      { headers: { cookie: "prism_slack_oauth_state=state-123" } }
+      `http://localhost:3732/v1/slack/oauth/callback?code=mock-code&state=${callbackState}`,
+      { headers: { cookie: `prism_slack_oauth_state=${callbackState}` } }
     ));
 
     expect(response.headers.get("location")).toMatch(
@@ -163,7 +167,9 @@ describe("GET /v1/slack/oauth/callback", () => {
     const userCredentialCall = mockDb.query.mock.calls.find(([sql, params]) =>
       String(sql).includes("insert into slack_credentials") && (params as unknown[] | undefined)?.[2] === "user"
     );
-    expect(userCredentialCall?.[1]?.[7]).toBe("search:read,chat:write");
+    expect(userCredentialCall?.[1]?.[7]).toBe(
+      ALL_PRISM_SUPPORTED_SLACK_SCOPES.userScopes.join(",")
+    );
     expect(mockDb.query).toHaveBeenCalledWith(
       expect.stringContaining("oauth_resume_handle_hash"),
       expect.arrayContaining([delegatedRequestId])
@@ -171,6 +177,41 @@ describe("GET /v1/slack/oauth/callback", () => {
     expect(mockDb.query.mock.calls.some(([sql]) => String(sql).includes("set state = 'approved'"))).toBe(false);
   });
 });
+
+function oauthStateRow(overrides: Record<string, unknown> = {}) {
+  const rootKey = Buffer.from(process.env.PRISM_CREDENTIAL_ENCRYPTION_KEY!, "base64");
+  const fingerprintKey = deriveSlackAppConfigurationFingerprintKey(rootKey);
+  const mockOAuth = process.env.PRISM_SLACK_OAUTH_MOCK === "1";
+  const scopes = mockOAuth
+    ? canonicalizeSlackScopeSelection()
+    : canonicalizeSlackScopeSelection({
+        botScopes: (process.env.SLACK_BOT_SCOPES ?? "").split(",").filter(Boolean),
+        userScopes: (process.env.SLACK_USER_SCOPES ?? "")
+          .split(",")
+          .map((scope) => scope.trim())
+          .filter(Boolean)
+      });
+  return {
+    redirect_uri: "http://localhost:3732/v1/slack/oauth/callback",
+    oidc_authorization_request_id: null,
+    delegated_delivery_request_id: null,
+    slack_app_configuration_version_id: null,
+    setup_session_id: null,
+    environment_configuration_fingerprint: environmentFingerprint(
+      {
+        clientId: process.env.SLACK_CLIENT_ID!,
+        clientSecret: process.env.SLACK_CLIENT_SECRET!,
+        redirectUri: process.env.SLACK_OAUTH_REDIRECT_URI!,
+        publicBaseUrl: process.env.PRISM_PUBLIC_BASE_URL!,
+        botScopes: scopes.botScopes,
+        userScopes: scopes.userScopes,
+        mockOAuth
+      },
+      fingerprintKey
+    ),
+    ...overrides
+  };
+}
 
 function clearDelegatedDeliveryEnv(): void {
   for (const key of Object.keys(process.env)) {

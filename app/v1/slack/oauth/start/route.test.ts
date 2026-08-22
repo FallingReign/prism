@@ -19,7 +19,9 @@ describe("GET /v1/slack/oauth/start", () => {
     process.env.PRISM_PUBLIC_BASE_URL = "http://localhost:3732";
     process.env.PRISM_OIDC_ALLOW_INSECURE_HTTP = "1";
     process.env.SLACK_OAUTH_REDIRECT_URI = "http://localhost:3732/v1/slack/oauth/callback";
-    process.env.SLACK_USER_SCOPES = "users:read";
+    process.env.SLACK_USER_SCOPES = "users:read,chat:write";
+    process.env.PRISM_CREDENTIAL_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString("base64");
+    process.env.PRISM_CREDENTIAL_ENCRYPTION_KEY_ID = "oauth-start-test-key";
   });
 
   afterEach(() => {

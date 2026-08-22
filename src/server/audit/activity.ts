@@ -23,7 +23,10 @@ export type ActivityType =
   | "delegated_delivery_cancelled"
   | "delegated_delivery_expired"
   | "delegated_delivery_rate_limited"
-  | "delegated_delivery_outcome_unknown";
+  | "delegated_delivery_outcome_unknown"
+  | "slack_configuration_candidate_created"
+  | "slack_configuration_activated"
+  | "configuration_admin_claimed";
 
 export type ActivityStatus =
   | "attempted"

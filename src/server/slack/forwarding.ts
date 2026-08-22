@@ -4,11 +4,10 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { extractSlackObjectMetadata, type ActivityAuditInput, type ActivityAuditRecord } from "../audit/activity";
 import { isActivityAuditUnavailableError, type ActivityAuditStore } from "../audit/postgres-store";
-import { getSlackOAuthConfig } from "../config";
 import { createConfiguredCredentialCipher } from "../credentials/factory";
 import { database } from "../db";
 import type { SlackExecutionIdentityDecision } from "../token-profiles/execution-identity";
-import { createFetchSlackOAuthClient } from "./oauth-client";
+import { createConfiguredSlackOAuthClient } from "./app-configuration-factory";
 import { createPostgresSlackRateLimitStore } from "./postgres-rate-limit-store";
 import { createPostgresRefreshStore } from "./postgres-store";
 import { createSlackForwardingCredentialProvider, type SlackForwardingCredentialProvider } from "./forwarding-credentials";
@@ -94,7 +93,9 @@ export async function forwardSlackMethod({
   }
   let accessToken: string | undefined;
   if (client.requiresAccessToken) {
-    const credential = await (credentialProvider ?? createDefaultSlackForwardingCredentialProvider()).getAccessToken({
+    const effectiveCredentialProvider =
+      credentialProvider ?? (await createDefaultSlackForwardingCredentialProvider());
+    const credential = await effectiveCredentialProvider.getAccessToken({
       connectionId: identity.slackConnectionId,
       kind: identity.executionMode
     });
@@ -164,12 +165,11 @@ async function parseSlackPayload(
   return { kind: "payload", value: paramsToPayload(new URLSearchParams(await request.text())), encoding: "form" };
 }
 
-function createDefaultSlackForwardingCredentialProvider(): SlackForwardingCredentialProvider {
-  const config = getSlackOAuthConfig();
+async function createDefaultSlackForwardingCredentialProvider(): Promise<SlackForwardingCredentialProvider> {
   return createSlackForwardingCredentialProvider({
     store: createPostgresRefreshStore(database),
     cipher: createConfiguredCredentialCipher(),
-    slackOAuthClient: createFetchSlackOAuthClient({ clientId: config.clientId, clientSecret: config.clientSecret })
+    slackOAuthClient: await createConfiguredSlackOAuthClient({ database })
   });
 }
 

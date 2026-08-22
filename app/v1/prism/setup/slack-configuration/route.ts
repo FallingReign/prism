@@ -1,0 +1,35 @@
+import { NextRequest, type NextResponse } from "next/server";
+
+import { getSlackOAuthEnvironmentBundle } from "../../../../../src/server/config";
+import { createConfiguredCredentialCipher } from "../../../../../src/server/credentials/factory";
+import { database } from "../../../../../src/server/db";
+import { createSetupBootstrapService } from "../../../../../src/server/setup/bootstrap";
+import { createPostgresSetupBootstrapStore } from "../../../../../src/server/setup/bootstrap-postgres-store";
+import { createPostgresSlackAppConfigurationStore } from "../../../../../src/server/slack/app-configuration-postgres-store";
+import { handleSlackConfigurationPut } from "./handler";
+
+export const dynamic = "force-dynamic";
+
+export async function PUT(request: NextRequest): Promise<NextResponse> {
+  const setup = createSetupBootstrapService(createPostgresSetupBootstrapStore(database));
+  const configurations = createPostgresSlackAppConfigurationStore(database, createConfiguredCredentialCipher());
+  return handleSlackConfigurationPut(request, {
+    resolveSession: (token) => setup.resolveSession(token),
+    async createPendingConfiguration(input) {
+      const environment = getSlackOAuthEnvironmentBundle();
+      if (environment && !environment.mockOAuth) throw Object.assign(new Error("environment_locked"), { code: "environment_locked" });
+      const pending = await configurations.createPendingConfiguration({
+        setupSessionId: input.setupSessionId,
+        expectedPendingVersionId: input.expectedPendingVersionId,
+        clientId: input.clientId,
+        clientSecret: input.clientSecret,
+        botScopes: input.botScopes as readonly string[] | null | undefined,
+        userScopes: input.userScopes as readonly string[] | null | undefined,
+        createdVia: "bootstrap",
+        createdByPrismUserId: null,
+        audit: { endpoint: "/v1/prism/setup/slack-configuration", requestId: input.requestId }
+      });
+      return { clientId: pending.clientId, version: pending.version, botScopes: pending.botScopes, userScopes: pending.userScopes };
+    }
+  });
+}

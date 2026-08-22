@@ -34,11 +34,12 @@ values, and Slack recommends requesting only permissions the product needs:
 - https://docs.slack.dev/reference/scopes/
 - https://docs.slack.dev/reference/app-manifest/
 
-Therefore an omitted scope selection defaults only to the current Playtest
-requirement, user `chat:write`. The form provides an explicit **Select all
-Prism-supported** action over a typed, reviewable catalogue. It must never call
-that selection “all Slack scopes,” and it must warn that selecting a scope does
-not add or approve it in the Slack app.
+Per the operator requirement, an omitted scope selection defaults to every
+scope in Prism's typed, reviewed catalogue. The form also provides explicit
+**Select all Prism-supported** and per-scope controls. It must never call that
+selection “all Slack scopes,” and it must warn that selecting a scope does not
+add or approve it in the Slack app. Slack can still reject authorization when
+the existing app or workspace has not approved one of those explicit scopes.
 
 Decision confidence is **high**. There is no architectural blocker. Real QA is
 externally gated on the existing Slack app already having `chat:write`; the
@@ -79,9 +80,9 @@ slice must not request a new Slack app or claim new approval.
 - Current UI: `app/page.tsx` and `app/slack-status-panel.tsx` already model
   `setup_required`, but only tell the operator to change server settings.
 - Scope catalogue evidence: the checked-in manifest and review packet list 13
-  bot and 14 user v1 candidate scopes. Those are approved *candidates*, not
-  evidence that the real Slack app has them. `chat:write` is the only scope
-  required by the current Playtest announcement delivery slice.
+  bot and 14 user v1 candidate scopes. Those are Prism-supported candidates,
+  not evidence that the real Slack app has approved them. `chat:write` is the
+  only scope required by the current Playtest announcement delivery slice.
 - Runtime observation: no listener was present on port 3732 during this review.
   The focused existing suite passed 34 of 35 tests; the one failure was an
   existing five-second timeout in `app/page.test.tsx` (“renders the API
@@ -159,9 +160,10 @@ do not couple the first-run implementation to a broad Playtest settings page.
 3. After a valid code exchange, show a guided form:
    - Slack Client ID (plain text; it is not a bearer secret).
    - Slack Client Secret (`type=password`, never prefilled or returned).
-   - User scopes checklist with required `chat:write` selected.
-   - Bot scopes checklist, empty initially.
-   - “Select all Prism-supported” and “Reset to minimum” actions.
+   - User and bot scope checklists, with the complete reviewed catalogue
+     selected when no prior selection exists.
+   - Required user `chat:write` cannot be removed.
+   - “Select all Prism-supported” and “Reset to default” actions.
    - Copy explaining that choices must already be configured/approved on the
      existing Slack app and that no wildcard exists.
    - Read-only callback URI with a copy button.
@@ -192,11 +194,11 @@ Create one server-owned catalogue with literal IDs, token kind, product family,
 risk/help copy, and whether the scope is required/default. Derive the UI and
 OAuth validator from that same catalogue; do not duplicate string lists.
 
-Minimum default when no scope selection is stored or supplied:
+Default when no scope selection is stored or supplied:
 
 ```ts
-botScopes = [];
-userScopes = ["chat:write"];
+botScopes = ALL_PRISM_SUPPORTED_BOT_SCOPES;
+userScopes = ALL_PRISM_SUPPORTED_USER_SCOPES;
 ```
 
 The explicit “Select all Prism-supported” action selects the current manifest
@@ -217,9 +219,10 @@ and requires user `chat:write` for this Playtest slice. A saved empty/missing
 list does not mean a wildcard. The OAuth URL contains only explicit selected
 values.
 
-Legacy environment behavior should avoid silently broadening deployments:
+Legacy environment behavior follows the same explicit operator default:
 
-- If neither scope variable is configured, use the minimum default above.
+- If neither scope variable is configured, use the complete reviewed Prism
+  catalogue above.
 - If either `SLACK_BOT_SCOPES` or `SLACK_USER_SCOPES` is configured, treat both
   as an explicit legacy selection; the omitted side is empty.
 - Reject unknown scopes and reject a combined selection without user
@@ -343,6 +346,12 @@ Resolve an atomic bundle, never field-by-field:
 3. **Active DB version:** used by ordinary Slack connect/reauth.
 4. **No source:** setup required.
 
+When `next start` loads Prism's complete reserved development-mock bundle from
+a shared local environment file, production classifies that exact bundle as no
+source. It is never returned as a real OAuth client, so an active DB version or
+`/setup` can win. A mock flag combined with a non-reserved real client and every
+partial real credential pair remain sanitized setup errors.
+
 The complete bundle also includes the deployment-owned validated public base
 URL and exact callback URI. Do not persist an operator-editable redirect in the
 Slack config row. In non-production, `http://localhost:3732` may remain the
@@ -350,9 +359,10 @@ documented default; production URL/HTTPS policy remains in `src/server/config.ts
 
 Introduce an asynchronous resolver because DB-backed configuration cannot be
 safely hidden behind the current synchronous `getSlackOAuthConfig`. Keep the
-returned OAuth config shape stable for the Slack client. Update the three real
-consumers—OAuth start, callback, and homepage setup status—to use the resolver.
-Do not add a second environment loader in routes.
+returned OAuth config shape stable for the Slack client. OAuth start, callback,
+homepage setup status, forwarding refresh, display-name enrichment refresh, and
+the display-name backfill must all use the resolver. Do not add a second
+environment loader in routes or scripts.
 
 The callback must resolve the version **after** the one-time state is validated
 and consumed. Refactor `completeSlackOAuthCallback` to accept a trusted
@@ -375,8 +385,9 @@ Slack token exchange.
 - `GET /setup`: public, dynamic, no-store; renders only generic code entry until
   a valid setup session exists.
 - `POST /v1/prism/setup/session`: exact same-origin, JSON/form size bounded,
-  generic invalid/expired response, atomic capability consume + session insert,
-  issues the setup cookie and redirects to `/setup`.
+  rejects every query string before CSRF/source/body work, returns generic
+  invalid/expired responses, atomically consumes the capability and inserts the
+  session, then issues the setup cookie and redirects to `/setup`.
 - `PUT /v1/prism/setup/slack-configuration`: setup-session required, validates
   and creates/replaces that session's pending immutable version.
 - `POST /v1/prism/setup/slack-configuration/verify`: setup-session required;
@@ -418,8 +429,8 @@ explicitly permits them.
 | Attacker supplies an exfiltration redirect | Callback/public origin are deployment-owned and strictly validated; form cannot edit them; OAuth state retains exact redirect equality. |
 | Secret appears in DB/UI/audit | AES-256-GCM root cipher with version-specific AAD; presentation exposes only a boolean; audit stores only opaque version metadata. |
 | Two callbacks race to become owner | One-time OAuth state plus row locks/unique active version/primary-key config-admin claim in a single transaction; loser rolls back with a generic conflict. |
-| Environment secret manager is shadowed | Complete env pair locks the whole effective bundle; partial env pair fails closed; UI is read-only while locked. |
-| Broad scope escalation | Minimum `chat:write` default, typed allowlist, explicit select-all action, no wildcard/custom text, and real Slack approval remains an external gate. |
+| Environment secret manager is shadowed | Complete real env pair locks the whole effective bundle; partial env pair fails closed; UI is read-only while locked. A known development mock bundle is fallback-only so it cannot block migration to a verified DB configuration. |
+| Broad scope escalation | Typed allowlist, visible per-scope checklist, no wildcard/custom text, and real Slack approval remains an external gate. The requested all-supported default is explicit in the UI and can be narrowed before OAuth. |
 | Recovery silently takes ownership | `--recover` requires host access, revokes prior setup artifacts, is explicitly labelled break-glass, and is metadata-audited without secrets. |
 
 On setup callback success, the transaction must lock the pending version and
@@ -451,7 +462,8 @@ save credentials.”
 Work red-green-refactor in the following order:
 
 1. **Scope catalogue tests**
-   - Missing selection resolves to bot `[]`, user `[chat:write]`.
+   - Missing selection resolves to the exact 13 bot / 14 user reviewed
+     catalogues.
    - Select-all returns the exact 13/14 reviewed catalogues and never a wildcard.
    - Unknown/admin/optional-unapproved strings are rejected and canaries do not
      appear in errors.
@@ -466,10 +478,12 @@ Work red-green-refactor in the following order:
    - Correct AAD decrypts; moved/tampered envelope fails.
    - Candidate + audit are atomic and immutable; one active partial index holds.
 4. **Effective resolver tests**
-   - Complete env bundle wins and locks; partial env fails; DB active fallback;
-     authorized pending only for verify; no source setup-required.
-   - Environment omitted scopes use only `chat:write`; one explicit legacy scope
-     variable makes the other side explicitly empty.
+   - Complete real env bundle wins and locks; partial env fails; DB active
+     fallback; authorized pending only for verify; no source setup-required.
+   - A known development mock bundle is fallback-only and cannot lock setup or
+     outrank an active database configuration.
+   - Environment omitted scopes use the complete reviewed catalogue; one
+     explicit legacy scope variable makes the other side explicitly empty.
 5. **Setup route/UI tests**
    - Public GET leaks no configuration.
    - Same-origin and body bounds fail closed; cookie flags are exact; capability
@@ -504,13 +518,14 @@ Use a disposable QA database/schema; do not reset the user's existing data.
    plaintext.
 3. Prove wrong/expired/replayed codes fail generically. Exchange the real code
    manually and inspect Secure/HttpOnly/SameSite/expiry behavior.
-4. Save the form with a secret canary and default scope. Confirm Postgres holds
-   only an AES-GCM envelope and authorize output has explicit user
-   `chat:write`, no bot scope, and no wildcard. Scan HTML/logs/audit for canary.
-5. Use **Select all Prism-supported** only as a mock/dev rendering test unless
-   the real app is confirmed to have those existing approvals.
+4. Save the form with a secret canary and its default selection. Confirm
+   Postgres holds only an AES-GCM envelope and authorize output has the exact
+   reviewed scope catalogue with no wildcard. Scan HTML/logs/audit for canary.
+5. Before live OAuth, compare the visible selection with the existing app's
+   approved scopes and narrow it when necessary; Prism must not pretend that
+   selecting a scope grants Slack approval.
 6. With the user's real developer Slack app and explicit approval to interact,
-   complete OAuth using only `chat:write`. Confirm the exact pending version is
+   complete OAuth with the visible approved selection. Confirm the exact pending version is
    activated, the callback user becomes the sole initial configuration admin,
    setup artifacts are unusable, and a normal Prism session exists. Report no
    IDs, state, code, token, client secret, or full OAuth URL.
@@ -538,11 +553,16 @@ returns the grant and stored credential scopes include `chat:write`.
       configuration-version-bound.
 - [ ] OIDC and delegated-delivery continuation exclusivity remains intact.
 - [ ] First admin claim is authorized by the setup session, not callback order.
-- [ ] No wildcard/custom scope string; default is only user `chat:write`.
+- [ ] No wildcard/custom scope string; omitted selection defaults to the exact
+      reviewed Prism-supported catalogue.
 - [ ] Scope selection does not claim Slack approval or grant capabilities by
       itself.
 - [ ] Candidate save and activation cannot succeed without their audit records.
 - [ ] Setup, callback, admin, and status responses are no-store and secret-free.
+- [ ] Forwarding, display-name enrichment, and backfill refresh clients resolve
+      the same atomic effective app configuration instead of reading env only.
+- [ ] Development-mock refresh uses only the synthetic OAuth adapter with the
+      resolved reviewed scopes; it never constructs the real Slack fetch client.
 - [ ] General Prism admin scope and Slack administration semantics are unchanged.
 
 ## Rollback and recovery
@@ -599,7 +619,7 @@ contract; do not activate configuration in a route-local side transaction.
 ## Confidence
 
 - **High**: ownership, insertion points, bootstrap need, root-cipher reuse,
-  environment-lock precedence, minimal `chat:write` default, and immutable OAuth
+  environment-lock precedence, explicit all-supported default, and immutable OAuth
   config binding.
 - **High**: first successful callback can safely claim initial configuration
   ownership only when the setup session is carried through state and claimed in

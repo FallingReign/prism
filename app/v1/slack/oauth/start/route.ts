@@ -2,8 +2,9 @@ import { randomUUID } from "node:crypto";
 
 import { NextRequest, NextResponse } from "next/server";
 
-import { getDelegatedDeliveryConfig, getSlackOAuthConfig, isSetupRequiredError } from "../../../../../src/server/config";
+import { getDelegatedDeliveryConfig, isSetupRequiredError } from "../../../../../src/server/config";
 import { database } from "../../../../../src/server/db";
+import { createConfiguredSlackAppConfigurationResolver } from "../../../../../src/server/slack/app-configuration-factory";
 import { createSlackOAuthStart } from "../../../../../src/server/slack/oauth-flow";
 import { createPostgresOAuthFlowStore } from "../../../../../src/server/slack/postgres-store";
 
@@ -12,7 +13,6 @@ export const dynamic = "force-dynamic";
 export async function GET(request?: NextRequest): Promise<NextResponse> {
   const correlationId = randomUUID();
   try {
-    const config = getSlackOAuthConfig();
     const continuation = parseContinuation(request?.nextUrl.searchParams);
     if (continuation.kind === "invalid") {
       return secureOAuthResponse(
@@ -22,9 +22,12 @@ export async function GET(request?: NextRequest): Promise<NextResponse> {
     if (continuation.delegatedDeliveryRequestId && !getDelegatedDeliveryConfig().enabled) {
       return secureOAuthResponse(NextResponse.redirect(errorRedirect(), { status: 302 }), correlationId);
     }
+    const resolved = await createConfiguredSlackAppConfigurationResolver({ database }).resolveOrdinary();
+    const config = resolved.oauthConfig;
     const start = await createSlackOAuthStart({
       store: createPostgresOAuthFlowStore(database),
       config,
+      configurationBinding: resolved.binding,
       oidcAuthorizationRequestId: continuation.oidcAuthorizationRequestId,
       delegatedDeliveryRequestId: continuation.delegatedDeliveryRequestId
     });

@@ -47,7 +47,7 @@ describe("Postgres Slack website status", () => {
 });
 
 describe("Postgres Slack OAuth continuation state", () => {
-  it("stores and consumes only the typed delegated-delivery request binding", async () => {
+  it("stores and consumes typed delegated-delivery and immutable configuration bindings", async () => {
     const delegatedDeliveryRequestId = "ddr_12345678-1234-4123-8123-123456789012";
     const query = vi.fn(async (sql: string, params?: unknown[]) => {
       if (sql.includes("insert into slack_oauth_states")) {
@@ -57,7 +57,10 @@ describe("Postgres Slack OAuth continuation state", () => {
           "http://localhost:3732/v1/slack/oauth/callback",
           null,
           delegatedDeliveryRequestId,
-          new Date("2026-08-22T00:10:00.000Z")
+          new Date("2026-08-22T00:10:00.000Z"),
+          "configuration-version",
+          null,
+          null
         ]);
         return { rows: [], rowCount: 1 };
       }
@@ -67,7 +70,10 @@ describe("Postgres Slack OAuth continuation state", () => {
           rows: [{
             redirect_uri: "http://localhost:3732/v1/slack/oauth/callback",
             oidc_authorization_request_id: null,
-            delegated_delivery_request_id: delegatedDeliveryRequestId
+            delegated_delivery_request_id: delegatedDeliveryRequestId,
+            slack_app_configuration_version_id: "configuration-version",
+            setup_session_id: null,
+            environment_configuration_fingerprint: null
           }],
           rowCount: 1
         };
@@ -78,6 +84,11 @@ describe("Postgres Slack OAuth continuation state", () => {
     await store.saveOAuthState({
       stateHash: "state-hash",
       redirectUri: "http://localhost:3732/v1/slack/oauth/callback",
+      configurationBinding: {
+        kind: "database",
+        versionId: "configuration-version",
+        setupSessionId: null
+      },
       oidcAuthorizationRequestId: null,
       delegatedDeliveryRequestId,
       expiresAt: new Date("2026-08-22T00:10:00.000Z")
@@ -88,6 +99,11 @@ describe("Postgres Slack OAuth continuation state", () => {
       now: new Date("2026-08-22T00:00:00.000Z")
     })).resolves.toEqual({
       redirectUri: "http://localhost:3732/v1/slack/oauth/callback",
+      configurationBinding: {
+        kind: "database",
+        versionId: "configuration-version",
+        setupSessionId: null
+      },
       oidcAuthorizationRequestId: null,
       delegatedDeliveryRequestId
     });

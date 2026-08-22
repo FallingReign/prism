@@ -2,9 +2,38 @@ import { describe, expect, it } from "vitest";
 
 import { createLocalAesGcmCredentialCipher } from "../credentials/encryption";
 import { completeSlackOAuthCallback, createSlackOAuthStart, type OAuthFlowStore } from "./oauth-flow";
+import type { SlackOAuthClient } from "./oauth-client";
 
 const encryptionKey = Buffer.alloc(32, 9).toString("base64");
 const now = new Date("2026-01-01T00:00:00.000Z");
+const environmentBinding = { kind: "environment", fingerprint: "a".repeat(64) } as const;
+
+function createTestSlackOAuthStart(
+  input: Omit<Parameters<typeof createSlackOAuthStart>[0], "configurationBinding">
+) {
+  return createSlackOAuthStart({ ...input, configurationBinding: environmentBinding });
+}
+
+function completeTestSlackOAuthCallback(
+  input: Omit<
+    Parameters<typeof completeSlackOAuthCallback>[0],
+    "deployment" | "resolveRuntime" | "requestId"
+  > & {
+    config: Parameters<typeof createSlackOAuthStart>[0]["config"];
+    slackOAuthClient: SlackOAuthClient;
+  }
+) {
+  const { config, slackOAuthClient, ...rest } = input;
+  return completeSlackOAuthCallback({
+    ...rest,
+    deployment: config,
+    requestId: "oauth-flow-test-request",
+    async resolveRuntime(binding) {
+      expect(binding).toEqual(environmentBinding);
+      return { config, slackOAuthClient };
+    }
+  });
+}
 
 function createMemoryStore(): OAuthFlowStore & { rows: Record<string, unknown[]> } {
   const rows = {
@@ -32,6 +61,7 @@ function createMemoryStore(): OAuthFlowStore & { rows: Record<string, unknown[]>
       state.usedAt = consumedAt;
       return {
         redirectUri: state.redirectUri,
+        configurationBinding: state.configurationBinding,
         oidcAuthorizationRequestId: state.oidcAuthorizationRequestId ?? null,
         delegatedDeliveryRequestId: state.delegatedDeliveryRequestId ?? null
       };
@@ -59,6 +89,9 @@ function createMemoryStore(): OAuthFlowStore & { rows: Record<string, unknown[]>
     },
     async createWebsiteSession(input) {
       rows.sessions.push({ ...input });
+    },
+    async finalizeSetupConfiguration(input) {
+      rows.transactions.push({ setupFinalized: true, ...input });
     }
   };
 
@@ -69,7 +102,7 @@ describe("Slack OAuth flow", () => {
   it("creates a one-time state and Slack authorize redirect without exposing client secret", async () => {
     const store = createMemoryStore();
 
-    const start = await createSlackOAuthStart({
+    const start = await createTestSlackOAuthStart({
       store,
       config: {
         clientId: "client-id-123",
@@ -96,7 +129,7 @@ describe("Slack OAuth flow", () => {
   it("links a Slack identity, stores encrypted credentials, and creates a website session", async () => {
     const store = createMemoryStore();
     const cipher = createLocalAesGcmCredentialCipher({ key: encryptionKey, keyId: "local-test" });
-    const start = await createSlackOAuthStart({
+    const start = await createTestSlackOAuthStart({
       store,
       config: {
         clientId: "client-id-123",
@@ -110,7 +143,7 @@ describe("Slack OAuth flow", () => {
       randomBytes: () => Buffer.alloc(32, 4)
     });
 
-    const result = await completeSlackOAuthCallback({
+    const result = await completeTestSlackOAuthCallback({
       store,
       cipher,
       config: {
@@ -184,7 +217,7 @@ describe("Slack OAuth flow", () => {
   it("binds an OIDC authorization request to Slack state and returns it only after a successful callback", async () => {
     const store = createMemoryStore();
     const cipher = createLocalAesGcmCredentialCipher({ key: encryptionKey, keyId: "local-test" });
-    const start = await createSlackOAuthStart({
+    const start = await createTestSlackOAuthStart({
       store,
       config: {
         clientId: "client-id-123",
@@ -203,7 +236,7 @@ describe("Slack OAuth flow", () => {
       { oidcAuthorizationRequestId: "oidc_request_123" }
     ]);
 
-    const result = await completeSlackOAuthCallback({
+    const result = await completeTestSlackOAuthCallback({
       store,
       cipher,
       config: {
@@ -252,7 +285,7 @@ describe("Slack OAuth flow", () => {
       userScopes: ["chat:write"]
     };
     const delegatedDeliveryRequestId = "ddr_12345678-1234-4123-8123-123456789012";
-    const start = await createSlackOAuthStart({
+    const start = await createTestSlackOAuthStart({
       store,
       config,
       delegatedDeliveryRequestId,
@@ -261,7 +294,7 @@ describe("Slack OAuth flow", () => {
     });
 
     expect(store.rows.states).toMatchObject([{ delegatedDeliveryRequestId }]);
-    await expect(createSlackOAuthStart({
+    await expect(createTestSlackOAuthStart({
       store,
       config,
       oidcAuthorizationRequestId: "r".repeat(43),
@@ -269,7 +302,7 @@ describe("Slack OAuth flow", () => {
       now
     })).rejects.toThrow("slack-oauth-continuation-conflict");
 
-    const result = await completeSlackOAuthCallback({
+    const result = await completeTestSlackOAuthCallback({
       store,
       cipher: createLocalAesGcmCredentialCipher({ key: encryptionKey, keyId: "local-test" }),
       config,
@@ -306,12 +339,12 @@ describe("Slack OAuth flow", () => {
       userScopes: ["chat:write"]
     };
     const delegatedDeliveryRequestId = "ddr_12345678-1234-4123-8123-123456789012";
-    const start = await createSlackOAuthStart({
+    const start = await createTestSlackOAuthStart({
       store, config, delegatedDeliveryRequestId, now,
       randomBytes: () => Buffer.alloc(32, 14)
     });
 
-    const result = await completeSlackOAuthCallback({
+    const result = await completeTestSlackOAuthCallback({
       store,
       cipher: createLocalAesGcmCredentialCipher({ key: encryptionKey, keyId: "local-test" }),
       config,
@@ -338,7 +371,7 @@ describe("Slack OAuth flow", () => {
   it("rejects malformed Slack success identity before creating a Prism user or session", async () => {
     const store = createMemoryStore();
     const cipher = createLocalAesGcmCredentialCipher({ key: encryptionKey, keyId: "local-test" });
-    const start = await createSlackOAuthStart({
+    const start = await createTestSlackOAuthStart({
       store,
       config: {
         clientId: "client-id-123",
@@ -352,7 +385,7 @@ describe("Slack OAuth flow", () => {
       randomBytes: () => Buffer.alloc(32, 10)
     });
 
-    const result = await completeSlackOAuthCallback({
+    const result = await completeTestSlackOAuthCallback({
       store,
       cipher,
       config: {
@@ -393,7 +426,7 @@ describe("Slack OAuth flow", () => {
   it("consumes a Slack cancellation and preserves only the bound OIDC request for a safe client error", async () => {
     const store = createMemoryStore();
     const cipher = createLocalAesGcmCredentialCipher({ key: encryptionKey, keyId: "local-test" });
-    const start = await createSlackOAuthStart({
+    const start = await createTestSlackOAuthStart({
       store,
       config: {
         clientId: "client-id-123",
@@ -409,7 +442,7 @@ describe("Slack OAuth flow", () => {
     });
     let exchanged = false;
 
-    const result = await completeSlackOAuthCallback({
+    const result = await completeTestSlackOAuthCallback({
       store,
       cipher,
       config: {
@@ -448,7 +481,7 @@ describe("Slack OAuth flow", () => {
   it("rejects replayed state before exchanging a Slack code", async () => {
     const store = createMemoryStore();
     const cipher = createLocalAesGcmCredentialCipher({ key: encryptionKey, keyId: "local-test" });
-    const start = await createSlackOAuthStart({
+    const start = await createTestSlackOAuthStart({
       store,
       config: {
         clientId: "client-id-123",
@@ -464,7 +497,7 @@ describe("Slack OAuth flow", () => {
     await store.consumeOAuthState({ stateHash: start.stateHash, now });
     let exchanged = false;
 
-    const result = await completeSlackOAuthCallback({
+    const result = await completeTestSlackOAuthCallback({
       store,
       cipher,
       config: {
@@ -494,5 +527,74 @@ describe("Slack OAuth flow", () => {
     expect(result.kind).toBe("invalid_state");
     expect(exchanged).toBe(false);
     expect(result.redirectUrl).toBe("http://localhost:3732/?slack=error");
+  });
+
+  it("finalizes the exact setup configuration before creating the website session", async () => {
+    const store = createMemoryStore();
+    const cipher = createLocalAesGcmCredentialCipher({ key: encryptionKey, keyId: "local-test" });
+    const config = {
+      clientId: "client-id-123",
+      clientSecret: "client-secret-must-not-appear",
+      redirectUri: "http://localhost:3732/v1/slack/oauth/callback",
+      publicBaseUrl: "http://localhost:3732",
+      botScopes: [],
+      userScopes: ["chat:write"]
+    };
+    const configurationBinding = {
+      kind: "database" as const,
+      versionId: "configuration-version",
+      setupSessionId: "setup-session"
+    };
+    const start = await createSlackOAuthStart({
+      store,
+      config,
+      configurationBinding,
+      now,
+      randomBytes: () => Buffer.alloc(32, 15)
+    });
+    const slackOAuthClient: SlackOAuthClient = {
+      async exchangeCode() {
+        return {
+          ok: true,
+          appId: "A123",
+          team: { id: "T123" },
+          enterprise: null,
+          authedUser: { id: "U123", scope: "chat:write" }
+        };
+      },
+      async refreshToken() {
+        throw new Error("not used");
+      }
+    };
+
+    const result = await completeSlackOAuthCallback({
+      store,
+      cipher,
+      deployment: config,
+      async resolveRuntime(binding) {
+        expect(binding).toEqual(configurationBinding);
+        return { config, slackOAuthClient };
+      },
+      code: "valid-code",
+      state: start.state,
+      cookieState: start.state,
+      requestId: "setup-callback-request",
+      now,
+      randomBytes: () => Buffer.alloc(32, 16)
+    });
+
+    expect(result).toMatchObject({
+      kind: "linked",
+      redirectUrl: "http://localhost:3732/setup?status=complete",
+      setupConfigurationActivated: true
+    });
+    expect(store.rows.transactions).toContainEqual(expect.objectContaining({
+      setupFinalized: true,
+      configurationVersionId: "configuration-version",
+      setupSessionId: "setup-session",
+      prismUserId: "user_1",
+      slackConnectionId: "conn_1"
+    }));
+    expect(store.rows.sessions).toHaveLength(1);
   });
 });

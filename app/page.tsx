@@ -5,10 +5,11 @@ import { resolvePrismAdmin } from "../src/server/admin/authorization";
 import { createPostgresAdminIdentityStore } from "../src/server/admin/postgres-store";
 import { createPostgresActivityAuditStore } from "../src/server/audit/postgres-store";
 import { toActivityAuditSummary, type ActivityAuditSummary } from "../src/server/audit/presentation";
-import { getCredentialEncryptionConfig, getSlackOAuthConfig, isSetupRequiredError } from "../src/server/config";
+import { isSetupRequiredError } from "../src/server/config";
 import { database } from "../src/server/db";
 import { prismSessionCookieName } from "../src/server/slack/oauth-flow";
 import { getSlackLinkStatusWithDisplayNameEnrichment } from "../src/server/slack/connection-status";
+import { createConfiguredSlackAppConfigurationResolver } from "../src/server/slack/app-configuration-factory";
 import { createPostgresGlobalTokenProfilePolicyStore } from "../src/server/token-profiles/global-policy-store";
 import { listTokenProfiles } from "../src/server/token-profiles/service";
 import { createPostgresTokenProfileStore } from "../src/server/token-profiles/store";
@@ -138,8 +139,8 @@ async function HomeContent() {
 
 async function readSlackWebsiteStatus(sessionToken: string | undefined): Promise<SlackWebsiteStatus> {
   try {
-    getSlackOAuthConfig();
-    getCredentialEncryptionConfig();
+    const configuration = await createConfiguredSlackAppConfigurationResolver().getStatus();
+    if (configuration.kind === "setup_required") return { kind: "setup_required" };
   } catch (error) {
     if (isSetupRequiredError(error)) return { kind: "setup_required" };
     return { kind: "not_linked" };

@@ -60,11 +60,13 @@ The Prism website exposes Slack linking at `GET /v1/slack/oauth/start` and recei
 `GET /v1/slack/oauth/callback`. The callback stores Slack access and refresh credentials only as encrypted server-side
 envelopes in Postgres; Local tools and browser responses never receive Slack credentials.
 
-For local mock QA without contacting Slack, keep the mock-only Slack client, secret, and
+For local mock QA without contacting Slack, prefer the mock-only Slack client, secret, and
 `PRISM_SLACK_OAUTH_MOCK=1` overrides in ignored `.env.development.local`. Request the start route to create the
 one-time state cookie, then request the callback with a synthetic `code` and the returned `state`. Keep real Slack
-app values in managed production environment variables or ignored `.env.production.local`; `npm start` fails closed
-to the local **Setup required** state when the mock flag or Prism's reserved mock client ID reaches production.
+app values in managed production environment variables or ignored `.env.production.local`. If `npm start` loads the
+complete reserved development-mock bundle from `.env.local`, Prism treats it as absent so active database configuration
+or `/setup` can win; the bundle is never promoted into a real Slack request. A mock flag paired with a non-reserved real
+client and partial real credential pairs remain invalid.
 
 ## Reference MCP adapter
 

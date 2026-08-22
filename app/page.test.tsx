@@ -11,11 +11,15 @@ const mockDb = vi.hoisted(() => ({
 }));
 const mockCookies = vi.hoisted(() => vi.fn());
 const mockReadSlackStatus = vi.hoisted(() => vi.fn());
+const mockReadConfigurationStatus = vi.hoisted(() => vi.fn());
 
 vi.mock("../src/server/db", () => ({ database: mockDb }));
 vi.mock("next/headers", () => ({ cookies: mockCookies }));
 vi.mock("../src/server/slack/connection-status", () => ({
   getSlackLinkStatusWithDisplayNameEnrichment: mockReadSlackStatus
+}));
+vi.mock("../src/server/slack/app-configuration-factory", () => ({
+  createConfiguredSlackAppConfigurationResolver: () => ({ getStatus: mockReadConfigurationStatus })
 }));
 
 const tempDirs: string[] = [];
@@ -29,6 +33,8 @@ describe("/", () => {
     mockCookies.mockResolvedValue({ get: () => undefined });
     mockReadSlackStatus.mockReset();
     mockReadSlackStatus.mockResolvedValue({ kind: "not_linked" });
+    mockReadConfigurationStatus.mockReset();
+    mockReadConfigurationStatus.mockResolvedValue({ kind: "environment_locked", summary: {} });
     vi.stubEnv("NODE_ENV", "development");
     vi.stubEnv("SLACK_CLIENT_ID", "client-id-123");
     vi.stubEnv("SLACK_CLIENT_SECRET", "homepage-client-secret-canary");
@@ -61,13 +67,15 @@ describe("/", () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("PRISM_SLACK_OAUTH_MOCK", "1");
     vi.stubEnv("SLACK_CLIENT_ID", "mock-playtest-client");
+    mockReadConfigurationStatus.mockResolvedValue({ kind: "setup_required", developmentMockAvailable: false });
     const { default: HomePage } = await import("./page");
 
     const html = renderToStaticMarkup(await HomePage());
 
     expect(html).toContain("Setup required");
     expect(html).toContain("Configuration needed");
-    expect(html).toContain("missing or invalid");
+    expect(html).toContain("Configure Slack in Prism");
+    expect(html).toContain('href="/setup"');
     expect(html).not.toContain('href="/v1/slack/oauth/start"');
     expect(html).not.toContain("homepage-client-secret-canary");
     expect(html).not.toContain("mock-playtest-client");

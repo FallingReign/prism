@@ -8,6 +8,18 @@ vi.mock("next/navigation", () => ({
 }));
 
 describe("Prism website Slack status", () => {
+  it("links setup-required deployments to the guided Prism configuration flow", () => {
+    const panel = renderToStaticMarkup(<SlackStatusPanel status={{ kind: "setup_required" }} />);
+    const compact = renderToStaticMarkup(<SlackStatusPanel status={{ kind: "setup_required" }} variant="compact" />);
+
+    for (const html of [panel, compact]) {
+      expect(html).toContain("Configure Slack in Prism");
+      expect(html).toContain('href="/setup"');
+      expect(html).not.toContain("Update the server-side settings");
+      expect(html).not.toMatch(/client_secret|xox[bp]-|access_token|refresh_token/i);
+    }
+  });
+
   it("shows Connect Slack when no identity is linked", () => {
     const html = renderToStaticMarkup(<SlackStatusPanel status={{ kind: "not_linked" }} />);
 

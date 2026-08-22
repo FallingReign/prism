@@ -2,6 +2,11 @@ import "server-only";
 
 import { createPublicKey } from "node:crypto";
 
+import {
+  SlackAppConfigurationValidationError,
+  canonicalizeSlackScopeSelection
+} from "./slack/app-configuration";
+
 export type ServerConfig = {
   databaseUrl?: string;
 };
@@ -25,10 +30,19 @@ export type CredentialEncryptionConfig = {
   keyId: string;
 };
 
+export type SetupAbuseProtectionConfig = {
+  trustProxyHeaders: boolean;
+};
+
 export type DeveloperTokenServerConfig = {
   pepper: string;
   pepperId: string;
 };
+
+export type SlackOAuthDeploymentConfig = Pick<
+  SlackOAuthServerConfig,
+  "redirectUri" | "publicBaseUrl"
+>;
 
 export type OidcClientConfig = {
   clientId: string;
@@ -182,43 +196,100 @@ export function getDatabaseUrl(env: NodeJS.ProcessEnv = process.env): string | u
 }
 
 export function getSlackOAuthConfig(env: NodeJS.ProcessEnv = process.env): SlackOAuthServerConfig {
+  const configuration = getSlackOAuthEnvironmentBundle(env);
+  if (!configuration) throw new Error("setup-required:SLACK_CLIENT_ID");
+  return configuration;
+}
+
+/**
+ * Parses the legacy/secret-manager Slack bundle atomically. A complete pair is
+ * authoritative; an absent pair permits the DB-backed configuration resolver;
+ * and a partial pair never falls through to Postgres.
+ */
+export function getSlackOAuthEnvironmentBundle(
+  env: NodeJS.ProcessEnv = process.env
+): SlackOAuthServerConfig | null {
   const mockOAuthRequested = env.PRISM_SLACK_OAUTH_MOCK === "1";
-  if (env.NODE_ENV === "production" && mockOAuthRequested) {
+  const clientId = configuredValue(env.SLACK_CLIENT_ID);
+  const clientSecret = configuredValue(env.SLACK_CLIENT_SECRET);
+  const production = env.NODE_ENV === "production";
+
+  // Local development files can be loaded by `next start`. Treat only the
+  // reserved, complete mock bundle (or a mock flag with no credentials) as
+  // absent so it can never become a real Slack client and DB/setup may win.
+  if (
+    production &&
+    ((clientId === RESERVED_SLACK_OAUTH_MOCK_CLIENT_ID && Boolean(clientSecret)) ||
+      (mockOAuthRequested && !clientId && !clientSecret))
+  ) {
+    return null;
+  }
+  if (Boolean(clientId) !== Boolean(clientSecret)) {
+    throw new Error("setup-required:SLACK_OAUTH_CREDENTIAL_PAIR");
+  }
+  if (!clientId || !clientSecret) {
+    if (mockOAuthRequested) throw new Error("setup-required:SLACK_OAUTH_CREDENTIAL_PAIR");
+    // Deployment URLs are validated when a DB configuration is resolved. Do
+    // not let absent app credentials turn into an environment-owned bundle.
+    return null;
+  }
+  if (production && mockOAuthRequested) {
     throw new Error("setup-required:PRISM_SLACK_OAUTH_MOCK");
   }
+  const deployment = getSlackOAuthDeploymentConfig(env);
 
-  const clientId = requiredConfiguredValue(env.SLACK_CLIENT_ID, "SLACK_CLIENT_ID");
-  if (env.NODE_ENV === "production" && clientId === RESERVED_SLACK_OAUTH_MOCK_CLIENT_ID) {
-    throw new Error("setup-required:SLACK_CLIENT_ID");
-  }
-  const clientSecret = requiredConfiguredValue(env.SLACK_CLIENT_SECRET, "SLACK_CLIENT_SECRET");
-  const configuredPublicBaseUrl = requiredConfiguredValue(env.PRISM_PUBLIC_BASE_URL, "PRISM_PUBLIC_BASE_URL");
-  const publicBase = parsePublicBaseUrl(configuredPublicBaseUrl);
-  validateHttpDeploymentUrl(publicBase, env, "PRISM_PUBLIC_BASE_URL");
-  const publicBaseUrl = publicBase.toString().replace(/\/$/, "");
-  const redirectUri =
-    configuredValue(env.SLACK_OAUTH_REDIRECT_URI) ?? `${publicBaseUrl.replace(/\/$/, "")}/v1/slack/oauth/callback`;
-  const parsedRedirectUri = parseSlackRedirectUri(redirectUri);
-  validateHttpDeploymentUrl(parsedRedirectUri, env, "SLACK_OAUTH_REDIRECT_URI");
-
-  const botScopes = parseScopes(env.SLACK_BOT_SCOPES) ?? [];
-  const userScopes = parseScopes(env.SLACK_USER_SCOPES) ?? [];
-  const mockOAuth = mockOAuthRequested;
-  if (!mockOAuth && botScopes.length === 0 && userScopes.length === 0) {
-    throw new Error("setup-required:SLACK_OAUTH_SCOPES");
+  // The built-in mock represents Prism's complete reviewed capability set.
+  // Ignore stale local scope overrides in mock mode so a legacy .env.local
+  // cannot block the database-backed setup UI before it is even reachable.
+  const hasExplicitScopeSelection =
+    !mockOAuthRequested &&
+    (env.SLACK_BOT_SCOPES !== undefined || env.SLACK_USER_SCOPES !== undefined);
+  let scopeSelection;
+  try {
+    scopeSelection = canonicalizeSlackScopeSelection(
+      hasExplicitScopeSelection
+        ? {
+            botScopes: parseScopes(env.SLACK_BOT_SCOPES) ?? [],
+            userScopes: parseScopes(env.SLACK_USER_SCOPES) ?? []
+          }
+        : undefined
+    );
+  } catch (error) {
+    if (error instanceof SlackAppConfigurationValidationError) {
+      throw new Error("setup-required:SLACK_OAUTH_SCOPES");
+    }
+    throw error;
   }
 
   return {
     clientId,
     clientSecret,
-    redirectUri: parsedRedirectUri.toString(),
-    publicBaseUrl,
+    redirectUri: deployment.redirectUri,
+    publicBaseUrl: deployment.publicBaseUrl,
     // Slack's authorization request must explicitly carry the already-approved
     // scopes. These values select a subset; they do not grant app permissions.
-    botScopes,
-    userScopes,
-    mockOAuth
+    botScopes: scopeSelection.botScopes,
+    userScopes: scopeSelection.userScopes,
+    mockOAuth: mockOAuthRequested
   };
+}
+
+export function getSlackOAuthDeploymentConfig(
+  env: NodeJS.ProcessEnv = process.env
+): SlackOAuthDeploymentConfig {
+  const configuredPublicBaseUrl = requiredConfiguredValue(
+    env.PRISM_PUBLIC_BASE_URL,
+    "PRISM_PUBLIC_BASE_URL"
+  );
+  const publicBase = parsePublicBaseUrl(configuredPublicBaseUrl);
+  validateHttpDeploymentUrl(publicBase, env, "PRISM_PUBLIC_BASE_URL");
+  const publicBaseUrl = publicBase.toString().replace(/\/$/, "");
+  const redirectUri =
+    configuredValue(env.SLACK_OAUTH_REDIRECT_URI) ??
+    `${publicBaseUrl}/v1/slack/oauth/callback`;
+  const parsedRedirectUri = parseSlackRedirectUri(redirectUri);
+  validateHttpDeploymentUrl(parsedRedirectUri, env, "SLACK_OAUTH_REDIRECT_URI");
+  return { publicBaseUrl, redirectUri: parsedRedirectUri.toString() };
 }
 
 export function getSlackWebApiConfig(env: NodeJS.ProcessEnv = process.env): SlackWebApiConfig {
@@ -238,6 +309,14 @@ export function getDeveloperTokenConfig(env: NodeJS.ProcessEnv = process.env): D
   return {
     pepper: requiredConfiguredValue(env.PRISM_DEVELOPER_TOKEN_PEPPER, "PRISM_DEVELOPER_TOKEN_PEPPER"),
     pepperId: configuredValue(env.PRISM_DEVELOPER_TOKEN_PEPPER_ID) ?? "local-dev-pepper-v1"
+  };
+}
+
+export function getSetupAbuseProtectionConfig(
+  env: NodeJS.ProcessEnv = process.env
+): SetupAbuseProtectionConfig {
+  return {
+    trustProxyHeaders: env.PRISM_SETUP_TRUST_PROXY_HEADERS === "1"
   };
 }
 

@@ -29,6 +29,11 @@ export function AdminConsoleShell({ decision }: { decision: AuthorizedAdminDecis
           <a className="inline-flex min-h-11 items-center rounded-full px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground" href="/admin/token-profile-policy">
             Global policy
           </a>
+          {decision.scope.kind === "global" ? (
+            <a className="inline-flex min-h-11 items-center rounded-full px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground" href="/admin/configuration">
+              Slack configuration
+            </a>
+          ) : null}
           <a className="inline-flex min-h-11 items-center rounded-full px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-muted hover:text-foreground" href="/">
             User workspace
           </a>
@@ -71,6 +76,7 @@ export function AdminConsoleShell({ decision }: { decision: AuthorizedAdminDecis
         <LinkButton href="/admin/token-profile-policy" variant="secondary">
           Open global policy
         </LinkButton>
+        {decision.scope.kind === "global" ? <LinkButton href="/admin/configuration" variant="secondary">View Slack configuration</LinkButton> : null}
       </Panel>
     </main>
   );

@@ -1,5 +1,15 @@
 # Architecture Integration Brief: Slack OAuth mock client under production startup
 
+> **Partially superseded by the configuration-center integration.** The original
+> rejection design below prevented mock-to-real promotion, but it also blocked
+> the new active-DB and `/setup` fallback whenever `next start` loaded a shared
+> local mock bundle. Current policy treats only Prism's complete reserved mock
+> bundle, or a mock flag with no credentials, as absent in production. It is
+> never sent to Slack. A mock flag paired with a non-reserved real client and
+> partial real credential pairs still throw sanitized setup errors. Statements
+> below requiring the reserved bundle itself to throw are historical rather
+> than current behavior.
+
 ## Scope and conclusion
 
 This slice prevents a production `npm start` process from ever turning local Slack OAuth mock configuration into a real redirect to `https://slack.com/oauth/v2/authorize`. Local mock QA under `npm run dev` remains supported. The change belongs in Prism's existing server configuration boundary, with a small website setup-error integration and documentation clarification; it does not require a second OAuth flow, a Slack SDK, schema changes, or changes to credential custody.

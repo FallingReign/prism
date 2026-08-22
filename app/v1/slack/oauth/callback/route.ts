@@ -2,15 +2,17 @@ import { randomUUID } from "node:crypto";
 
 import { NextRequest, NextResponse } from "next/server";
 
-import { getDelegatedDeliveryConfig, getSlackOAuthConfig, isSetupRequiredError } from "../../../../../src/server/config";
+import { getDelegatedDeliveryConfig, getSlackOAuthDeploymentConfig, isSetupRequiredError } from "../../../../../src/server/config";
 import { createConfiguredCredentialCipher } from "../../../../../src/server/credentials/factory";
 import { database } from "../../../../../src/server/db";
 import { createPostgresDelegatedDeliveryStore } from "../../../../../src/server/delegated-delivery/postgres-store";
 import { createDelegationOAuthResume, denyDelegationAfterOAuth } from "../../../../../src/server/delegated-delivery/service";
 import { createFetchSlackOAuthClient } from "../../../../../src/server/slack/oauth-client";
+import { createConfiguredSlackAppConfigurationResolver } from "../../../../../src/server/slack/app-configuration-factory";
 import { completeSlackOAuthCallback, slackOAuthStateCookieName } from "../../../../../src/server/slack/oauth-flow";
 import { createMockSlackOAuthClient } from "../../../../../src/server/slack/mock-oauth-client";
 import { createPostgresOAuthFlowStore } from "../../../../../src/server/slack/postgres-store";
+import { setupSessionCookieName } from "../../../prism/setup/session/handler";
 
 export const dynamic = "force-dynamic";
 
@@ -19,23 +21,36 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   let redirectUrl = fallbackRedirect("error");
 
   try {
-    const config = getSlackOAuthConfig();
-    redirectUrl = `${config.publicBaseUrl.replace(/\/$/, "")}/?slack=error`;
-    const url = new URL(request.url);
+    const deployment = getSlackOAuthDeploymentConfig();
+    redirectUrl = `${deployment.publicBaseUrl.replace(/\/$/, "")}/?slack=error`;
+    const callback = parseAuthorizationResponse(request.nextUrl.searchParams);
+    if (!callback) {
+      return secureOAuthResponse(NextResponse.redirect(redirectUrl, { status: 302 }), correlationId);
+    }
+    const cipher = createConfiguredCredentialCipher();
+    const resolver = createConfiguredSlackAppConfigurationResolver({ database });
     const result = await completeSlackOAuthCallback({
-      store: createPostgresOAuthFlowStore(database),
-      cipher: createConfiguredCredentialCipher(),
-      config,
-      code: url.searchParams.get("code"),
-      state: url.searchParams.get("state"),
-      oauthError: url.searchParams.get("error"),
+      store: createPostgresOAuthFlowStore(database, { credentialCipher: cipher }),
+      cipher,
+      deployment,
+      code: callback.code,
+      state: callback.state,
+      oauthError: callback.error,
       cookieState: request.cookies.get(slackOAuthStateCookieName)?.value ?? null,
-      slackOAuthClient: config.mockOAuth
-        ? createMockSlackOAuthClient({ botScopes: config.botScopes, userScopes: config.userScopes })
-        : createFetchSlackOAuthClient({ clientId: config.clientId, clientSecret: config.clientSecret })
+      requestId: correlationId,
+      async resolveRuntime(binding) {
+        const resolved = await resolver.resolveBinding({ binding });
+        const config = resolved.oauthConfig;
+        return {
+          config,
+          slackOAuthClient: config.mockOAuth
+            ? createMockSlackOAuthClient({ botScopes: config.botScopes, userScopes: config.userScopes })
+            : createFetchSlackOAuthClient({ clientId: config.clientId, clientSecret: config.clientSecret })
+        };
+      }
     });
     let continuationUrl = oidcResumeUrl(
-        config.publicBaseUrl,
+        deployment.publicBaseUrl,
         result.oidcAuthorizationRequestId,
         result.kind === "linked" ? null : "access_denied"
       );
@@ -58,7 +73,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       }
     }
     const response = NextResponse.redirect(continuationUrl ?? result.redirectUrl, { status: 302 });
-    response.cookies.delete(slackOAuthStateCookieName);
+    if (result.kind !== "invalid_state") response.cookies.delete(slackOAuthStateCookieName);
     if (result.sessionCookie) {
       response.cookies.set(result.sessionCookie.name, result.sessionCookie.value, {
         httpOnly: result.sessionCookie.httpOnly,
@@ -67,6 +82,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         path: result.sessionCookie.path,
         maxAge: result.sessionCookie.maxAge
       });
+    }
+    if (result.kind === "linked" && result.setupConfigurationActivated) {
+      response.cookies.delete(setupSessionCookieName);
     }
     return secureOAuthResponse(response, correlationId);
   } catch (error) {
@@ -77,6 +95,39 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     response.cookies.delete(slackOAuthStateCookieName);
     return secureOAuthResponse(response, correlationId);
   }
+}
+
+type ParsedAuthorizationResponse = {
+  state: string;
+  code: string | null;
+  error: string | null;
+};
+
+function parseAuthorizationResponse(params: URLSearchParams): ParsedAuthorizationResponse | null {
+  if ([...params.keys()].some((key) => key !== "state" && key !== "code" && key !== "error")) {
+    return null;
+  }
+  const states = params.getAll("state");
+  const codes = params.getAll("code");
+  const errors = params.getAll("error");
+  if (
+    states.length !== 1 ||
+    !/^[A-Za-z0-9_-]{43}$/.test(states[0]!) ||
+    codes.length > 1 ||
+    errors.length > 1 ||
+    (codes.length === 1) === (errors.length === 1)
+  ) {
+    return null;
+  }
+  const code = codes[0] ?? null;
+  const error = errors[0] ?? null;
+  if (
+    (code !== null && (!code || code.length > 2048 || /[\u0000-\u001f\u007f]/.test(code))) ||
+    (error !== null && (!/^[A-Za-z0-9._-]{1,120}$/.test(error)))
+  ) {
+    return null;
+  }
+  return { state: states[0]!, code, error };
 }
 
 function oidcResumeUrl(

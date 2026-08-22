@@ -2,31 +2,55 @@ import "server-only";
 
 import { randomUUID } from "node:crypto";
 
-import type { CredentialEnvelope } from "../credentials/encryption";
+import { insertActivityAuditRecord } from "../audit/postgres-store";
+import type { CredentialCipher, CredentialEnvelope } from "../credentials/encryption";
 import type { Database } from "../db";
+import { createPostgresSetupBootstrapStore } from "../setup/bootstrap-postgres-store";
+import { createPostgresSlackAppConfigurationStore } from "./app-configuration-postgres-store";
 import type { SlackConnectionDisplayNameStore, SlackConnectionDisplayRecord } from "./connection-display-names";
 import type { OAuthFlowStore } from "./oauth-flow";
 import { hashSecret } from "./oauth-flow";
 import type { RefreshStore } from "./refresh";
 
-export function createPostgresOAuthFlowStore(database: Database): OAuthFlowStore {
+export function createPostgresOAuthFlowStore(
+  database: Database,
+  options: { credentialCipher?: CredentialCipher } = {}
+): OAuthFlowStore {
   return {
     async transaction(callback) {
       return database.transaction((transactionDatabase) =>
-        callback(createPostgresOAuthFlowStore(transactionDatabase))
+        callback(createPostgresOAuthFlowStore(transactionDatabase, options))
       );
     },
     async saveOAuthState(input) {
+      const environmentFingerprint =
+        input.configurationBinding.kind === "environment"
+          ? input.configurationBinding.fingerprint
+          : null;
+      const configurationVersionId =
+        input.configurationBinding.kind === "database"
+          ? input.configurationBinding.versionId
+          : null;
+      const setupSessionId =
+        input.configurationBinding.kind === "database"
+          ? input.configurationBinding.setupSessionId
+          : null;
       await database.query(
         `insert into slack_oauth_states
-           (state_hash, redirect_uri, oidc_authorization_request_id, delegated_delivery_request_id, expires_at)
-         values ($1, $2, $3, $4, $5)`,
+           (state_hash, redirect_uri, oidc_authorization_request_id,
+            delegated_delivery_request_id, expires_at,
+            slack_app_configuration_version_id, setup_session_id,
+            environment_configuration_fingerprint)
+         values ($1, $2, $3, $4, $5, $6, $7, $8)`,
         [
           input.stateHash,
           input.redirectUri,
           input.oidcAuthorizationRequestId ?? null,
           input.delegatedDeliveryRequestId ?? null,
-          input.expiresAt
+          input.expiresAt,
+          configurationVersionId,
+          setupSessionId,
+          environmentFingerprint
         ]
       );
     },
@@ -35,22 +59,42 @@ export function createPostgresOAuthFlowStore(database: Database): OAuthFlowStore
         redirect_uri: string;
         oidc_authorization_request_id: string | null;
         delegated_delivery_request_id: string | null;
+        slack_app_configuration_version_id: string | null;
+        setup_session_id: string | null;
+        environment_configuration_fingerprint: string | null;
       }>(
         `update slack_oauth_states
          set used_at = $2
          where state_hash = $1 and used_at is null and expires_at > $2
-         returning redirect_uri, oidc_authorization_request_id, delegated_delivery_request_id`,
+         returning redirect_uri, oidc_authorization_request_id,
+                   delegated_delivery_request_id,
+                   slack_app_configuration_version_id, setup_session_id,
+                   environment_configuration_fingerprint`,
         [stateHash, now]
       );
       const row = result.rows[0];
-      return row
-        ? {
-            redirectUri: row.redirect_uri,
-            oidcAuthorizationRequestId:
-              row.oidc_authorization_request_id ?? null,
-            delegatedDeliveryRequestId: row.delegated_delivery_request_id ?? null
-          }
-        : null;
+      if (!row) return null;
+      const configurationBinding = row.slack_app_configuration_version_id
+        ? row.environment_configuration_fingerprint
+          ? null
+          : {
+              kind: "database" as const,
+              versionId: row.slack_app_configuration_version_id,
+              setupSessionId: row.setup_session_id ?? null
+            }
+        : row.environment_configuration_fingerprint && !row.setup_session_id
+          ? {
+              kind: "environment" as const,
+              fingerprint: row.environment_configuration_fingerprint
+            }
+          : null;
+      if (!configurationBinding) return null;
+      return {
+        redirectUri: row.redirect_uri,
+        configurationBinding,
+        oidcAuthorizationRequestId: row.oidc_authorization_request_id ?? null,
+        delegatedDeliveryRequestId: row.delegated_delivery_request_id ?? null
+      };
     },
     async upsertPrismUser(input) {
       const result = await database.query<{ id: string }>(
@@ -104,6 +148,52 @@ export function createPostgresOAuthFlowStore(database: Database): OAuthFlowStore
         "insert into prism_sessions (session_token_hash, prism_user_id, expires_at) values ($1, $2, $3)",
         [input.sessionTokenHash, input.prismUserId, input.expiresAt]
       );
+    },
+    async finalizeSetupConfiguration(input) {
+      if (!options.credentialCipher) {
+        throw new Error("slack-configuration-finalizer-unavailable");
+      }
+      const configurationStore = createPostgresSlackAppConfigurationStore(
+        database,
+        options.credentialCipher
+      );
+      await configurationStore.activatePendingConfigurationInTransaction({
+        versionId: input.configurationVersionId,
+        setupSessionId: input.setupSessionId,
+        activatedByPrismUserId: input.prismUserId,
+        now: input.now,
+        audit: {
+          endpoint: "/v1/slack/oauth/callback",
+          requestId: input.requestId
+        }
+      });
+      const claim = await createPostgresSetupBootstrapStore(
+        database
+      ).claimSessionAndConfigurationAdmin({
+        setupSessionId: input.setupSessionId,
+        configurationVersionId: input.configurationVersionId,
+        prismUserId: input.prismUserId,
+        now: input.now
+      });
+      if (!claim) throw new Error("slack-configuration-claim-unavailable");
+
+      await insertActivityAuditRecord(database, {
+        prismUserId: input.prismUserId,
+        slackConnectionId: input.slackConnectionId,
+        slackUserId: input.slackUserId,
+        slackTeamId: input.slackTeamId,
+        activityType: "configuration_admin_claimed",
+        endpoint: "/v1/slack/oauth/callback",
+        actionCategory: "settings",
+        surface: "configuration_bootstrap",
+        objectType: "slack_app_configuration",
+        objectId: input.configurationVersionId,
+        executionMode: claim.recovery ? "recovery" : "bootstrap",
+        status: "created",
+        requestId: input.requestId,
+        upstreamCalled: false,
+        occurredAt: input.now
+      });
     }
   };
 }

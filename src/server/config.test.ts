@@ -10,6 +10,8 @@ import {
   getDeveloperTokenConfig,
   getOidcProviderConfig,
   getSlackOAuthConfig,
+  getSlackOAuthEnvironmentBundle,
+  getSetupAbuseProtectionConfig,
   getSlackWebApiConfig,
   isSetupRequiredError
 } from "./config";
@@ -169,7 +171,7 @@ describe("server setup config", () => {
 
   it("throws sanitized setup-required errors without echoing missing secret values", () => {
     expect(() => getSlackOAuthConfig({ SLACK_CLIENT_ID: "replace-with-client", SLACK_CLIENT_SECRET: "super-secret-canary" })).toThrow(
-      "setup-required:SLACK_CLIENT_ID"
+      "setup-required:SLACK_OAUTH_CREDENTIAL_PAIR"
     );
 
     try {
@@ -202,7 +204,17 @@ describe("server setup config", () => {
     expect(getSlackWebApiConfig({ PRISM_SLACK_WEB_API_MOCK: "1", NODE_ENV: "production" })).toEqual({ mockWebApi: false });
   });
 
-  it("requires explicit approved Slack scopes for a real OAuth authorization request", () => {
+  it("trusts setup forwarding headers only after the exact deployment opt-in", () => {
+    expect(getSetupAbuseProtectionConfig({ NODE_ENV: "test" })).toEqual({ trustProxyHeaders: false });
+    expect(getSetupAbuseProtectionConfig({ NODE_ENV: "test", PRISM_SETUP_TRUST_PROXY_HEADERS: "yes" })).toEqual({
+      trustProxyHeaders: false
+    });
+    expect(getSetupAbuseProtectionConfig({ NODE_ENV: "test", PRISM_SETUP_TRUST_PROXY_HEADERS: "1" })).toEqual({
+      trustProxyHeaders: true
+    });
+  });
+
+  it("defaults an omitted Slack scope selection to every reviewed Prism-supported scope", () => {
     const base = {
       NODE_ENV: "development",
       SLACK_CLIENT_ID: "client-id",
@@ -211,49 +223,133 @@ describe("server setup config", () => {
       PRISM_OIDC_ALLOW_INSECURE_HTTP: "1"
     };
 
-    expect(() => getSlackOAuthConfig(base)).toThrow("setup-required:SLACK_OAUTH_SCOPES");
+    expect(getSlackOAuthConfig(base)).toMatchObject({
+      botScopes: expect.arrayContaining(["channels:read", "chat:write", "users:read"]),
+      userScopes: expect.arrayContaining(["channels:read", "chat:write", "search:read"]),
+      mockOAuth: false
+    });
     expect(
       getSlackOAuthConfig({ ...base, SLACK_USER_SCOPES: "users:read,chat:write" })
-    ).toMatchObject({ botScopes: [], userScopes: ["users:read", "chat:write"], mockOAuth: false });
+    ).toMatchObject({ botScopes: [], userScopes: ["chat:write", "users:read"], mockOAuth: false });
     expect(
-      getSlackOAuthConfig({ ...base, PRISM_SLACK_OAUTH_MOCK: "1" })
-    ).toMatchObject({ botScopes: [], userScopes: [], mockOAuth: true });
+      getSlackOAuthConfig({
+        ...base,
+        PRISM_SLACK_OAUTH_MOCK: "1",
+        SLACK_BOT_SCOPES: "",
+        SLACK_USER_SCOPES: "users:read"
+      })
+    ).toMatchObject({
+      botScopes: expect.arrayContaining(["channels:read", "chat:write", "users:read"]),
+      userScopes: expect.arrayContaining(["channels:read", "chat:write", "search:read"]),
+      mockOAuth: true
+    });
   });
 
-  it("rejects local Slack OAuth mock configuration in production without echoing credentials", () => {
+  it("parses the legacy environment credentials as one authoritative bundle", () => {
+    const deployment = {
+      NODE_ENV: "development",
+      PRISM_PUBLIC_BASE_URL: "http://localhost:3732",
+      PRISM_OIDC_ALLOW_INSECURE_HTTP: "1"
+    };
+    expect(getSlackOAuthEnvironmentBundle(deployment)).toBeNull();
+    expect(() => getSlackOAuthEnvironmentBundle({ ...deployment, SLACK_CLIENT_ID: "client-id" })).toThrow(
+      "setup-required:SLACK_OAUTH_CREDENTIAL_PAIR"
+    );
+    expect(() => getSlackOAuthEnvironmentBundle({
+      ...deployment,
+      SLACK_CLIENT_SECRET: "secret-canary"
+    })).toThrow("setup-required:SLACK_OAUTH_CREDENTIAL_PAIR");
+
+    expect(getSlackOAuthEnvironmentBundle({
+      ...deployment,
+      SLACK_CLIENT_ID: "client-id",
+      SLACK_CLIENT_SECRET: "secret-canary",
+      SLACK_USER_SCOPES: "chat:write,channels:read",
+      SLACK_BOT_SCOPES: ""
+    })).toMatchObject({
+      botScopes: [],
+      userScopes: ["channels:read", "chat:write"]
+    });
+
+    expect(() => getSlackOAuthEnvironmentBundle({
+      ...deployment,
+      SLACK_CLIENT_ID: "client-id",
+      SLACK_CLIENT_SECRET: "secret-canary",
+      SLACK_BOT_SCOPES: "chat:write"
+    })).toThrow("setup-required:SLACK_OAUTH_SCOPES");
+    expect(() => getSlackOAuthEnvironmentBundle({
+      ...deployment,
+      SLACK_CLIENT_ID: "client-id",
+      SLACK_CLIENT_SECRET: "secret-canary",
+      SLACK_USER_SCOPES: "chat:write,admin.secret-canary"
+    })).toThrow("setup-required:SLACK_OAUTH_SCOPES");
+  });
+
+  it("treats only the reserved local mock as absent in production without echoing credentials", () => {
     const production: NodeJS.ProcessEnv = {
       NODE_ENV: "production",
       SLACK_CLIENT_ID: "33336676.569200954261",
       SLACK_CLIENT_SECRET: "production-client-secret-canary",
       PRISM_PUBLIC_BASE_URL: "https://prism.invalid",
       SLACK_OAUTH_REDIRECT_URI: "https://prism.invalid/v1/slack/oauth/callback",
-      SLACK_USER_SCOPES: "users:read"
+      SLACK_USER_SCOPES: "chat:write,users:read"
     };
 
-    for (const env of [
-      { ...production, PRISM_SLACK_OAUTH_MOCK: "1" },
-      { ...production, SLACK_CLIENT_ID: "mock-playtest-client", PRISM_SLACK_OAUTH_MOCK: "0" }
-    ]) {
-      try {
-        getSlackOAuthConfig(env);
-        throw new Error("expected production mock configuration to be rejected");
-      } catch (error) {
-        expect(isSetupRequiredError(error)).toBe(true);
-        expect(String(error)).not.toContain("production-client-secret-canary");
-        expect(String(error)).not.toContain("mock-playtest-client");
-      }
-    }
+    const reservedMock = {
+      ...production,
+      SLACK_CLIENT_ID: "mock-playtest-client",
+      PRISM_SLACK_OAUTH_MOCK: "1"
+    };
+    expect(getSlackOAuthEnvironmentBundle(reservedMock)).toBeNull();
+    expect(getSlackOAuthEnvironmentBundle({
+      NODE_ENV: "production",
+      PRISM_SLACK_OAUTH_MOCK: "1"
+    })).toBeNull();
+    expect(() => getSlackOAuthConfig(reservedMock)).toThrow(
+      "setup-required:SLACK_CLIENT_ID"
+    );
 
     expect(() => getSlackOAuthConfig({ ...production, PRISM_SLACK_OAUTH_MOCK: "1" })).toThrow(
       "setup-required:PRISM_SLACK_OAUTH_MOCK"
     );
-    expect(() => getSlackOAuthConfig({ ...production, SLACK_CLIENT_ID: "mock-playtest-client" })).toThrow(
-      "setup-required:SLACK_CLIENT_ID"
-    );
+    expect(() => getSlackOAuthEnvironmentBundle({
+      ...production,
+      SLACK_CLIENT_SECRET: undefined,
+      PRISM_SLACK_OAUTH_MOCK: "1"
+    })).toThrow("setup-required:SLACK_OAUTH_CREDENTIAL_PAIR");
+    expect(() => getSlackOAuthEnvironmentBundle({
+      ...production,
+      SLACK_CLIENT_ID: undefined,
+      PRISM_SLACK_OAUTH_MOCK: "1"
+    })).toThrow("setup-required:SLACK_OAUTH_CREDENTIAL_PAIR");
+    expect(String(captureError(() => getSlackOAuthConfig(reservedMock))))
+      .not.toMatch(/production-client-secret-canary|mock-playtest-client/);
+    expect(getSlackOAuthEnvironmentBundle({
+      ...reservedMock,
+      PRISM_SLACK_OAUTH_MOCK: "0"
+    })).toBeNull();
     expect(getSlackOAuthConfig(production)).toMatchObject({
       clientId: "33336676.569200954261",
       mockOAuth: false
     });
+  });
+
+  it("rejects a production mock flag paired with a non-reserved real client", () => {
+    const production: NodeJS.ProcessEnv = {
+      NODE_ENV: "production",
+      SLACK_CLIENT_ID: "33336676.569200954261",
+      SLACK_CLIENT_SECRET: "production-client-secret-canary",
+      PRISM_PUBLIC_BASE_URL: "https://prism.invalid",
+      SLACK_OAUTH_REDIRECT_URI: "https://prism.invalid/v1/slack/oauth/callback",
+      SLACK_USER_SCOPES: "chat:write,users:read",
+      PRISM_SLACK_OAUTH_MOCK: "1"
+    };
+
+    expect(() => getSlackOAuthEnvironmentBundle(production)).toThrow(
+      "setup-required:PRISM_SLACK_OAUTH_MOCK"
+    );
+    expect(String(captureError(() => getSlackOAuthEnvironmentBundle(production))))
+      .not.toContain("production-client-secret-canary");
   });
 
   it("loads one strict Playtest OIDC client and derives the issuer from the public base URL", () => {
@@ -346,7 +442,7 @@ describe("server setup config", () => {
       NODE_ENV: "development",
       SLACK_CLIENT_ID: "client-id",
       SLACK_CLIENT_SECRET: "secret-canary",
-      SLACK_USER_SCOPES: "users:read",
+      SLACK_USER_SCOPES: "chat:write,users:read",
       PRISM_PUBLIC_BASE_URL: "http://localhost:3732/",
       SLACK_OAUTH_REDIRECT_URI: "http://localhost:3732/v1/slack/oauth/callback?ignored=1",
       PRISM_OIDC_ALLOW_INSECURE_HTTP: "1"
@@ -472,4 +568,13 @@ function delegatedDeliveryEnv(): NodeJS.ProcessEnv {
     PRISM_DELEGATED_SLACK_DELIVERY_GRANT_PEPPER: "delegated-grant-pepper-secret-canary-32-bytes",
     PRISM_DELEGATED_SLACK_DELIVERY_GRANT_PEPPER_ID: "delegated-grants-v1"
   };
+}
+
+function captureError(callback: () => unknown): unknown {
+  try {
+    callback();
+    throw new Error("expected callback to throw");
+  } catch (error) {
+    return error;
+  }
 }

@@ -31,7 +31,8 @@ export function SlackStatusPanel({ status, variant = "panel" }: { status: SlackW
         accent="warning"
         badge={<StatusBadge tone="warning">Configuration needed</StatusBadge>}
       >
-        <p>Slack OAuth or credential encryption configuration is missing or invalid. Update the server-side settings, then retry.</p>
+        <p>Prism needs a Slack app connection before people can sign in or send Playtest announcements.</p>
+        <LinkButton href="/setup">Configure Slack in Prism</LinkButton>
       </Panel>
     );
   }
@@ -59,9 +60,8 @@ export function SlackStatusPanel({ status, variant = "panel" }: { status: SlackW
       return (
         <section className="rounded-2xl border border-[color:var(--prism-warning)]/55 bg-[color:var(--prism-warning-soft)]/55 p-4" aria-labelledby="slack-status-title">
           <CompactHeading title="Setup required" tone="warning" badge="Configuration needed" />
-          <p className="mt-3 text-sm leading-6 text-muted-foreground">
-            Slack OAuth or credential encryption configuration is missing or invalid. Update the server-side settings, then retry.
-          </p>
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">Use the guided setup to enter Slack app credentials, choose approved scopes, and verify the connection.</p>
+          <LinkButton href="/setup" className="mt-4" variant="secondary">Configure Slack in Prism</LinkButton>
         </section>
       );
     }
