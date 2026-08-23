@@ -15,6 +15,8 @@ describe("Prism setup view", () => {
 
     expect(html).toContain("Enter your one-time setup code");
     expect(html).toContain('action="/v1/prism/setup/session"');
+    expect(html).toContain('method="post"');
+    expect(html).toContain('name="setupProof"');
     expect(html).toContain('type="password"');
     expect(html).toContain("http://localhost:3732/v1/slack/oauth/callback");
     expect(html).not.toMatch(/client_secret|xox[bp]-|access_token|refresh_token/i);
@@ -45,6 +47,10 @@ describe("Prism setup view", () => {
     expect(html).toContain("must already be configured and approved");
     expect(html).toContain("defaults to every scope in this reviewed list");
     expect(html).toContain('value="chat:write"');
+    expect(html).toContain('action="/v1/prism/setup/slack-configuration"');
+    expect(html).toContain('method="post"');
+    expect(html).toContain('name="userScope"');
+    expect(html).toContain('name="botScope"');
     expect(html).not.toContain('value="*"');
   });
 
@@ -58,8 +64,9 @@ describe("Prism setup view", () => {
 
     expect(html).toContain("Not verified");
     expect(html).toContain("Stored securely");
-    expect(html).toContain("Verify and connect Slack");
+    expect(html).toContain("Preparing secure verification");
     expect(html).toContain('action="/v1/prism/setup/slack-configuration/verify"');
+    expect(html).toContain('name="setupProof"');
     expect(html).not.toMatch(/client_secret|secret-canary|xox[bp]-|access_token|refresh_token/i);
   });
 

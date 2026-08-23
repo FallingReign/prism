@@ -1,11 +1,12 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 import { Button, LinkButton, Notice, Panel, StatusBadge } from "../ui";
+import { prepareSetupBrowserTransaction } from "./setup-browser-navigation";
 
 export type SetupScopeOption = {
   id: string;
@@ -24,8 +25,8 @@ export type SetupPendingConfiguration = {
 };
 
 export type SetupViewState =
-  | { kind: "code_required"; error?: "invalid_or_expired" | "rate_limited" | "session_expired" }
-  | { kind: "configure"; scopes: SetupScopeOption[]; selectedBotScopes: string[]; selectedUserScopes: string[]; pending: SetupPendingConfiguration | null; error?: "verification_unavailable" }
+  | { kind: "code_required"; error?: "invalid_or_expired" | "rate_limited" | "session_expired" | "secure_form_expired" }
+  | { kind: "configure"; scopes: SetupScopeOption[]; selectedBotScopes: string[]; selectedUserScopes: string[]; pending: SetupPendingConfiguration | null; error?: "verification_unavailable" | "invalid_configuration" | "configuration_conflict" | "session_expired" | "environment_locked" | "configuration_unavailable" | "secure_form_expired" }
   | { kind: "environment_locked"; botScopes: string[]; userScopes: string[] }
   | { kind: "complete" };
 
@@ -76,7 +77,8 @@ function SetupProgress({ activeStep }: { activeStep: number }) {
   );
 }
 
-function CodeEntry({ callbackUri, error }: { callbackUri: string; error?: "invalid_or_expired" | "rate_limited" | "session_expired" }) {
+function CodeEntry({ callbackUri, error }: { callbackUri: string; error?: "invalid_or_expired" | "rate_limited" | "session_expired" | "secure_form_expired" }) {
+  const { proof: browserProof, failed: preparationFailed } = useSetupProof();
   return (
     <Panel title="Enter your one-time setup code" titleId="setup-code-title" eyebrow="Step 1" accent="primary">
       <p>Run <code>npm run setup:bootstrap</code> on the Prism host. Paste the code printed once in that terminal.</p>
@@ -84,9 +86,12 @@ function CodeEntry({ callbackUri, error }: { callbackUri: string; error?: "inval
       {error === "invalid_or_expired" ? <p className="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive" role="alert">That setup code is invalid or expired. Mint a new code on the Prism host and try again.</p> : null}
       {error === "rate_limited" ? <p className="rounded-xl border border-[color:var(--prism-warning)]/60 bg-[color:var(--prism-warning-soft)] px-4 py-3 text-sm text-[color:var(--prism-warning-foreground)]" role="alert">Too many setup attempts were made. Wait a minute, then try again with your one-time code.</p> : null}
       {error === "session_expired" ? <p className="rounded-xl border border-[color:var(--prism-warning)]/60 bg-[color:var(--prism-warning-soft)] px-4 py-3 text-sm text-[color:var(--prism-warning-foreground)]" role="alert">Your setup session expired. Mint a new one-time code on the Prism host to continue.</p> : null}
+      {error === "secure_form_expired" ? <p className="rounded-xl border border-[color:var(--prism-warning)]/60 bg-[color:var(--prism-warning-soft)] px-4 py-3 text-sm text-[color:var(--prism-warning-foreground)]" role="alert">The secure form expired before submission. It has been refreshed; try again.</p> : null}
+      {preparationFailed ? <p className="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive" role="alert">Prism could not prepare the secure setup form. Refresh this page and try again.</p> : null}
       <form className="grid max-w-xl gap-4" action="/v1/prism/setup/session" method="post">
+        <input type="hidden" name="setupProof" value={browserProof ?? ""} />
         <div className="grid gap-2"><Label htmlFor="setup-code">One-time setup code</Label><Input id="setup-code" name="setupCode" type="password" required minLength={32} maxLength={512} autoComplete="off" spellCheck={false} /></div>
-        <Button type="submit" className="w-fit">Unlock setup</Button>
+        <Button type="submit" className="w-fit" disabled={!browserProof}>{browserProof ? "Unlock setup" : "Preparing secure form..."}</Button>
       </form>
       <CallbackUri value={callbackUri} />
     </Panel>
@@ -94,46 +99,13 @@ function CodeEntry({ callbackUri, error }: { callbackUri: string; error?: "inval
 }
 
 function SlackConfigurationForm({ callbackUri, initialState }: { callbackUri: string; initialState: Extract<SetupViewState, { kind: "configure" }> }) {
-  const [pending, setPending] = useState(initialState.pending);
+  const pending = initialState.pending;
   const [clientId, setClientId] = useState(initialState.pending?.clientId ?? "");
   const [botScopes, setBotScopes] = useState(() => new Set(initialState.pending?.botScopes ?? initialState.selectedBotScopes));
   const [userScopes, setUserScopes] = useState(() => new Set(initialState.pending?.userScopes ?? initialState.selectedUserScopes));
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { proof: setupProof, failed: setupProofFailed } = useSetupProof();
   const botOptions = useMemo(() => initialState.scopes.filter((scope) => scope.tokenKind === "bot"), [initialState.scopes]);
   const userOptions = useMemo(() => initialState.scopes.filter((scope) => scope.tokenKind === "user"), [initialState.scopes]);
-
-  async function save(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const formElement = event.currentTarget;
-    setSaving(true);
-    setMessage(null);
-    setError(null);
-    const form = new FormData(formElement);
-    try {
-      const response = await fetch("/v1/prism/setup/slack-configuration", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ clientId, clientSecret: form.get("clientSecret"), botScopes: [...botScopes], userScopes: [...userScopes] })
-      });
-      const body = (await response.json()) as { configuration?: SetupPendingConfiguration; error?: string };
-      if (!response.ok || !body.configuration) {
-        setError(configurationError(body.error));
-        return;
-      }
-      setPending(body.configuration);
-      setClientId(body.configuration.clientId);
-      setBotScopes(new Set(body.configuration.botScopes));
-      setUserScopes(new Set(body.configuration.userScopes));
-      formElement.reset();
-      setMessage("Slack configuration saved securely. Verify it with Slack before Prism activates it.");
-    } catch {
-      setError("Could not reach Prism. Your secret was not saved; check the server and try again.");
-    } finally {
-      setSaving(false);
-    }
-  }
 
   const selectAll = () => {
     setBotScopes(new Set(botOptions.map((scope) => scope.id)));
@@ -146,11 +118,13 @@ function SlackConfigurationForm({ callbackUri, initialState }: { callbackUri: st
 
   return (
     <div className="grid gap-6">
-      {initialState.error === "verification_unavailable" ? <Notice title="Slack verification could not start" tone="warning">The pending configuration was not changed. Check Prism availability, then try verification again.</Notice> : null}
+      {initialState.error ? <Notice title={initialState.error === "verification_unavailable" ? "Slack verification could not start" : "Slack configuration was not saved"} tone="warning">{configurationError(initialState.error)}</Notice> : null}
+      {setupProofFailed ? <Notice title="Secure form preparation failed" tone="warning">Refresh this page before saving or verifying the Slack configuration.</Notice> : null}
       <Panel title="Slack app credentials" titleId="slack-configuration-title" eyebrow="Step 2" accent="primary" badge={pending ? <StatusBadge tone="warning">Not verified</StatusBadge> : <StatusBadge>Not saved</StatusBadge>}>
         <CallbackUri value={callbackUri} />
         <Notice title="Use an existing approved Slack app" tone="info">Copy the Client ID and Client Secret from Slack app management. Scope choices here must already be configured and approved on that app.</Notice>
-        <form className="grid gap-5" onSubmit={save}>
+        <form className="grid gap-5" action="/v1/prism/setup/slack-configuration" method="post">
+          <input type="hidden" name="setupProof" value={setupProof ?? ""} />
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="grid gap-2"><Label htmlFor="slack-client-id">Slack Client ID</Label><Input id="slack-client-id" name="clientId" value={clientId} onChange={(event) => setClientId(event.currentTarget.value)} required maxLength={255} autoComplete="off" spellCheck={false} /></div>
             <div className="grid gap-2">
@@ -168,15 +142,13 @@ function SlackConfigurationForm({ callbackUri, initialState }: { callbackUri: st
             <ScopeGroup legend="User scopes" options={userOptions} selected={userScopes} onChange={setUserScopes} />
             <ScopeGroup legend="Bot scopes" options={botOptions} selected={botScopes} onChange={setBotScopes} />
           </section>
-          {message ? <p className="rounded-xl border border-[color:var(--prism-success)]/45 bg-[color:var(--prism-success-soft)] px-4 py-3 text-sm text-[color:var(--prism-success-foreground)]" role="status">{message}</p> : null}
-          {error ? <p className="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive" role="alert">{error}</p> : null}
-          <div className="flex flex-wrap justify-end gap-2"><Button type="submit" disabled={saving}>{saving ? "Saving securely..." : pending ? "Replace pending configuration" : "Save Slack configuration"}</Button></div>
+          <div className="flex flex-wrap justify-end gap-2"><Button type="submit" disabled={!setupProof}>{setupProof ? pending ? "Replace pending configuration" : "Save Slack configuration" : "Preparing secure form..."}</Button></div>
         </form>
       </Panel>
       {pending ? (
         <Panel title="Verify with Slack" titleId="verify-slack-title" eyebrow="Step 3" accent="warning" badge={<StatusBadge tone="warning">Not verified</StatusBadge>}>
           <p>Prism will open Slack using this exact immutable configuration. It becomes active only after Slack completes OAuth successfully.</p>
-          <form action="/v1/prism/setup/slack-configuration/verify" method="post"><Button type="submit">Verify and connect Slack</Button></form>
+          <form action="/v1/prism/setup/slack-configuration/verify" method="post"><input type="hidden" name="setupProof" value={setupProof ?? ""} /><Button type="submit" disabled={!setupProof}>{setupProof ? "Verify and connect Slack" : "Preparing secure verification..."}</Button></form>
         </Panel>
       ) : null}
     </div>
@@ -191,7 +163,8 @@ function ScopeGroup({ legend, options, selected, onChange }: { legend: string; o
         <div className="grid gap-2 sm:grid-cols-2">
           {options.map((scope) => (
             <label key={`${scope.tokenKind}:${scope.id}`} className="flex min-h-14 items-start gap-3 rounded-lg border border-border/70 bg-card px-3 py-3 text-sm text-foreground">
-              <input className="mt-1 size-4" type="checkbox" name={`${scope.tokenKind}Scopes`} value={scope.id} checked={selected.has(scope.id)} disabled={scope.required} onChange={(event) => { const next = new Set(selected); if (event.currentTarget.checked) next.add(scope.id); else next.delete(scope.id); onChange(next); }} />
+              {scope.required ? <input type="hidden" name={`${scope.tokenKind}Scope`} value={scope.id} /> : null}
+              <input className="mt-1 size-4" type="checkbox" name={scope.required ? undefined : `${scope.tokenKind}Scope`} value={scope.id} checked={selected.has(scope.id)} disabled={scope.required} onChange={(event) => { const next = new Set(selected); if (event.currentTarget.checked) next.add(scope.id); else next.delete(scope.id); onChange(next); }} />
               <span className="grid gap-1"><span className="font-medium">{scope.id}{scope.required ? " — required" : ""}</span><span className="text-xs leading-5 text-muted-foreground">{scope.description}</span></span>
             </label>
           ))}
@@ -235,9 +208,50 @@ function ScopeSummary({ label, values }: { label: string; values: string[] }) {
 }
 
 function configurationError(error: string | undefined): string {
+  if (error === "verification_unavailable") return "The pending configuration was not changed. Check Prism availability, then try verification again.";
+  if (error === "secure_form_expired") return "The secure form expired before submission. It has been refreshed; try again.";
   if (error === "invalid_configuration") return "Check the client credentials and selected scopes. Prism did not save this configuration.";
   if (error === "session_expired" || error === "unauthorized") return "Your setup session expired. Mint a new one-time setup code on the Prism host.";
   if (error === "configuration_conflict") return "The pending configuration changed in another window. Refresh before trying again.";
   if (error === "environment_locked") return "This deployment manages Slack credentials outside the browser.";
   return "Prism could not save the Slack configuration.";
+}
+
+function useSetupProof(): { proof: string | null; failed: boolean } {
+  const [proof, setProof] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let active = true;
+    let timer: number | undefined;
+    let refreshing = false;
+    const refresh = async () => {
+      if (!active || refreshing) return;
+      if (timer !== undefined) window.clearTimeout(timer);
+      timer = undefined;
+      refreshing = true;
+      try {
+        const next = await prepareSetupBrowserTransaction();
+        if (!active) return;
+        setProof(next);
+        setFailed(false);
+        timer = window.setTimeout(refresh, 4 * 60_000);
+      } catch {
+        if (!active) return;
+        setProof(null);
+        setFailed(true);
+        timer = window.setTimeout(refresh, 10_000);
+      } finally {
+        refreshing = false;
+      }
+    };
+    const refreshWhenVisible = () => { if (document.visibilityState === "visible") void refresh(); };
+    void refresh();
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      active = false;
+      if (timer !== undefined) window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, []);
+  return { proof, failed };
 }

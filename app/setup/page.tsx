@@ -23,7 +23,7 @@ export default async function SetupPage({ searchParams }: { searchParams?: Promi
   const sessionToken = cookieStore.get(setupSessionCookieName)?.value;
   if (!sessionToken && status.kind === "active") return <SetupView callbackUri={deployment.redirectUri} state={{ kind: "complete" }} />;
   if (!sessionToken) {
-    const error = query.error === "invalid_or_expired" || query.error === "rate_limited" || query.error === "session_expired" ? query.error : undefined;
+    const error = query.error === "invalid_or_expired" || query.error === "rate_limited" || query.error === "session_expired" || query.error === "secure_form_expired" ? query.error : undefined;
     return <SetupView callbackUri={deployment.redirectUri} state={{ kind: "code_required", ...(error ? { error } : {}) }} />;
   }
 
@@ -47,7 +47,11 @@ export default async function SetupPage({ searchParams }: { searchParams?: Promi
     selectedBotScopes: defaults.botScopes,
     selectedUserScopes: defaults.userScopes,
     pending: pending ? { clientId: pending.summary.clientId, secretStored: true, botScopes: pending.summary.botScopes, userScopes: pending.summary.userScopes, version: pending.summary.version ?? "unknown" } : null,
-    ...(query.error === "verification_unavailable" || pendingUnavailable ? { error: "verification_unavailable" as const } : {})
+    ...(() => {
+      const allowed = new Set(["verification_unavailable", "invalid_configuration", "configuration_conflict", "session_expired", "environment_locked", "configuration_unavailable", "secure_form_expired"] as const);
+      const error = pendingUnavailable ? "verification_unavailable" : typeof query.error === "string" && allowed.has(query.error as never) ? query.error : undefined;
+      return error ? { error: error as NonNullable<Extract<SetupViewState, { kind: "configure" }>["error"]> } : {};
+    })()
   };
   return <SetupView callbackUri={deployment.redirectUri} state={state} />;
 }

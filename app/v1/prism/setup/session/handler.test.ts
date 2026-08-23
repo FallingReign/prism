@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { handleSetupSessionPost } from "./handler";
 
+const SETUP_PROOF = `v1.${"1".repeat(13)}.${"a".repeat(43)}.${"b".repeat(43)}`;
+
 describe("POST /v1/prism/setup/session", () => {
   beforeEach(() => {
     vi.stubEnv("NODE_ENV", "development");
@@ -120,7 +122,7 @@ describe("POST /v1/prism/setup/session", () => {
 
     expect(response.status).toBe(303);
     expect(response.headers.get("location")).toBe("http://localhost:3732/setup?error=invalid_or_expired");
-    expect(response.headers.get("set-cookie")).toBeNull();
+    expect(response.headers.get("set-cookie")).toMatch(/prism_setup_browser_transaction=;/i);
     expect(response.headers.get("location")).not.toContain(code);
     expect(await response.text()).not.toContain(code);
   });
@@ -137,10 +139,23 @@ describe("POST /v1/prism/setup/session", () => {
     expect(text).not.toContain(code);
   });
 
+  it("uses the configured public origin for invalid, rate-limited, and successful redirects", async () => {
+    const internalUrl = "http://0.0.0.0:3732/v1/prism/setup/session";
+    const dependencies = (exchangeCapability: ReturnType<typeof vi.fn>) => ({ exchangeCapability, expectedOrigin: "http://localhost:3732" });
+    const invalidResponse = await handleSetupSessionPost(formRequest("x".repeat(40), "http://localhost:3732", {}, internalUrl), dependencies(vi.fn().mockResolvedValue(null)));
+    const rateError = Object.assign(new Error("rate limited"), { retryAfterSeconds: 10 });
+    const rateResponse = await handleSetupSessionPost(formRequest("x".repeat(40), "http://localhost:3732", {}, internalUrl), dependencies(vi.fn().mockRejectedValue(rateError)));
+    const successResponse = await handleSetupSessionPost(formRequest("x".repeat(40), "http://localhost:3732", {}, internalUrl), dependencies(vi.fn().mockResolvedValue({ sessionToken: "session", expiresAt: new Date(Date.now() + 60_000) })));
+
+    expect(invalidResponse.headers.get("location")).toBe("http://localhost:3732/setup?error=invalid_or_expired");
+    expect(rateResponse.headers.get("location")).toBe("http://localhost:3732/setup?error=rate_limited");
+    expect(successResponse.headers.get("location")).toBe("http://localhost:3732/setup");
+  });
+
   it("rejects duplicate and unknown form fields before exchange", async () => {
     const exchangeCapability = vi.fn();
-    const duplicate = new NextRequest("http://localhost:3732/v1/prism/setup/session", { method: "POST", headers: sameOriginHeaders({ "content-type": "application/x-www-form-urlencoded" }), body: `setupCode=${"a".repeat(40)}&setupCode=${"b".repeat(40)}` });
-    const unknown = new NextRequest("http://localhost:3732/v1/prism/setup/session", { method: "POST", headers: sameOriginHeaders({ "content-type": "application/x-www-form-urlencoded" }), body: `setupCode=${"a".repeat(40)}&returnTo=%2Fadmin` });
+    const duplicate = new NextRequest("http://localhost:3732/v1/prism/setup/session", { method: "POST", headers: sameOriginHeaders({ "content-type": "application/x-www-form-urlencoded" }), body: `setupCode=${"a".repeat(40)}&setupCode=${"b".repeat(40)}&setupProof=${SETUP_PROOF}` });
+    const unknown = new NextRequest("http://localhost:3732/v1/prism/setup/session", { method: "POST", headers: sameOriginHeaders({ "content-type": "application/x-www-form-urlencoded" }), body: `setupCode=${"a".repeat(40)}&setupProof=${SETUP_PROOF}&returnTo=%2Fadmin` });
 
     expect((await handleSetupSessionPost(duplicate, { exchangeCapability })).status).toBe(303);
     expect((await handleSetupSessionPost(unknown, { exchangeCapability })).status).toBe(303);
@@ -160,13 +175,106 @@ describe("POST /v1/prism/setup/session", () => {
     expect(streamedOversized.status).toBe(413);
     expect(exchangeCapability).not.toHaveBeenCalled();
   });
+
+  it("requires the exact form media-type essence while accepting normal casing, whitespace, and parameters", async () => {
+    const exchangeCapability = vi.fn().mockResolvedValue({ sessionToken: "browser-session-token", expiresAt: new Date(Date.now() + 60_000) });
+    const code = "one-time-code-canary-value-that-is-long-enough";
+    const prefixed = await handleSetupSessionPost(formRequest(code, "http://localhost:3732", {
+      "content-type": "application/x-www-form-urlencoded-evil"
+    }), { exchangeCapability });
+    const parameterized = await handleSetupSessionPost(formRequest(code, "http://localhost:3732", {
+      "content-type": " Application/X-WWW-Form-Urlencoded ; charset=UTF-8 "
+    }), { exchangeCapability });
+
+    expect(prefixed.status).toBe(415);
+    expect(parameterized.status).toBe(303);
+    expect(exchangeCapability).toHaveBeenCalledOnce();
+  });
+
+  it("returns a friendly configured-origin redirect when a native form proof is unavailable", async () => {
+    const exchangeCapability = vi.fn();
+    const request = new NextRequest("http://localhost:3732/v1/prism/setup/session", {
+      method: "POST",
+      headers: { "sec-fetch-site": "none", "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ setupCode: "x".repeat(40), setupProof: SETUP_PROOF }).toString()
+    });
+
+    const response = await handleSetupSessionPost(request, { exchangeCapability });
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe("http://localhost:3732/setup?error=secure_form_expired");
+    expect(exchangeCapability).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["exact origin with none and cookie", "http://localhost:3732", "none", true],
+    ["opaque origin with none", "null", "none", true],
+    ["missing metadata", null, null, true]
+  ])("accepts a valid browser synchronizer for %s", async (_label, origin, fetchSite, withCookie) => {
+    const exchangeCapability = vi.fn().mockResolvedValue(null);
+    const response = await handleSetupSessionPost(browserProofRequest(origin, fetchSite, SETUP_PROOF, withCookie), browserProofDependencies(exchangeCapability));
+
+    expect(response.status).toBe(303);
+    expect(exchangeCapability).toHaveBeenCalledOnce();
+    expect(response.headers.get("set-cookie")).toMatch(/prism_setup_browser_transaction=;/i);
+    expect(response.headers.get("set-cookie")).toMatch(/Max-Age=0/i);
+  });
+
+  it.each([
+    ["attacker origin", "https://attacker.invalid", "none", SETUP_PROOF],
+    ["cross-site", null, "cross-site", SETUP_PROOF],
+    ["same-site", null, "same-site", SETUP_PROOF],
+    ["mismatched proof", null, "none", `v1.${"1".repeat(13)}.${"a".repeat(43)}.${"c".repeat(43)}`]
+  ])("rejects a synchronizer with %s", async (_label, origin, fetchSite, proof) => {
+    const exchangeCapability = vi.fn();
+    const response = await handleSetupSessionPost(browserProofRequest(origin, fetchSite, proof), browserProofDependencies(exchangeCapability));
+
+    const hostileMetadata = origin === "https://attacker.invalid" || fetchSite === "cross-site" || fetchSite === "same-site";
+    expect(response.status).toBe(hostileMetadata ? 403 : 303);
+    if (!hostileMetadata) expect(response.headers.get("location")).toBe("http://localhost:3732/setup?error=secure_form_expired");
+    expect(exchangeCapability).not.toHaveBeenCalled();
+  });
+
+  it("rejects duplicate raw browser-transaction cookies before proof validation", async () => {
+    const exchangeCapability = vi.fn().mockResolvedValue(null);
+    const response = await handleSetupSessionPost(
+      browserProofRequest(null, null, SETUP_PROOF, true, "prism_setup_browser_transaction=signed-browser-cookie; prism_setup_browser_transaction=signed-browser-cookie"),
+      browserProofDependencies(exchangeCapability)
+    );
+
+    expect(response.status).toBe(303);
+    expect(response.headers.get("location")).toBe("http://localhost:3732/setup?error=secure_form_expired");
+    expect(exchangeCapability).not.toHaveBeenCalled();
+  });
 });
 
-function formRequest(code: string, origin = "http://localhost:3732", forwardingHeaders: Record<string, string> = {}) {
+function browserProofDependencies(exchangeCapability: ReturnType<typeof vi.fn>) {
+  return {
+    exchangeCapability,
+    expectedOrigin: "http://localhost:3732",
+    secureBrowserTransactionCookie: false,
+    validateBrowserTransaction: (cookieValue: string | undefined, proof: string) => cookieValue === "signed-browser-cookie" && proof === SETUP_PROOF
+  };
+}
+
+function browserProofRequest(origin: string | null, fetchSite: string | null, proof = SETUP_PROOF, withCookie = true, cookieHeader?: string) {
   return new NextRequest("http://localhost:3732/v1/prism/setup/session", {
     method: "POST",
+    headers: {
+      ...(origin !== null ? { origin } : {}),
+      ...(fetchSite !== null ? { "sec-fetch-site": fetchSite } : {}),
+      "content-type": "application/x-www-form-urlencoded",
+      ...(withCookie ? { cookie: cookieHeader ?? "prism_setup_browser_transaction=signed-browser-cookie" } : {})
+    },
+    body: new URLSearchParams({ setupCode: "x".repeat(40), setupProof: proof }).toString()
+  });
+}
+
+function formRequest(code: string, origin = "http://localhost:3732", forwardingHeaders: Record<string, string> = {}, requestUrl = "http://localhost:3732/v1/prism/setup/session") {
+  return new NextRequest(requestUrl, {
+    method: "POST",
     headers: sameOriginHeaders({ "content-type": "application/x-www-form-urlencoded", origin, ...forwardingHeaders }),
-    body: new URLSearchParams({ setupCode: code }).toString()
+    body: new URLSearchParams({ setupCode: code, setupProof: SETUP_PROOF }).toString()
   });
 }
 
