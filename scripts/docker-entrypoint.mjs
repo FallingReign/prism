@@ -2,19 +2,10 @@
 import { spawn } from "node:child_process";
 import { setTimeout as wait } from "node:timers/promises";
 import { Client } from "pg";
+import { missingBootstrapConfiguration } from "./bootstrap-config.mjs";
 
 const DB_WAIT_ATTEMPTS = Number(process.env.DB_WAIT_ATTEMPTS ?? 60);
 const DB_WAIT_MS = Number(process.env.DB_WAIT_MS ?? 1000);
-const REQUIRED_ENV = [
-  "PRISM_PUBLIC_BASE_URL",
-  "PRISM_CREDENTIAL_ENCRYPTION_KEY",
-  "PRISM_CREDENTIAL_ENCRYPTION_KEY_ID",
-  "PRISM_DEVELOPER_TOKEN_PEPPER",
-  "PRISM_DEVELOPER_TOKEN_PEPPER_ID",
-  "POSTGRES_USER",
-  "POSTGRES_PASSWORD",
-  "POSTGRES_DB"
-];
 
 function getDbConfig() {
   if (process.env.DATABASE_URL) return { connectionString: process.env.DATABASE_URL };
@@ -27,14 +18,12 @@ function getDbConfig() {
   };
 }
 
-function isPlaceholder(value) {
-  return !value || value.includes("replace-with");
-}
-
 function assertRequiredEnv() {
-  const missing = REQUIRED_ENV.filter((name) => isPlaceholder(process.env[name]));
+  const missing = missingBootstrapConfiguration(process.env);
   if (missing.length > 0) {
-    throw new Error(`Missing required configuration in .env.local: ${missing.join(", ")}`);
+    throw new Error(
+      `Prism bootstrap configuration is incomplete: ${missing.join(", ")}. Run npm run setup on the host, then run docker compose up -d again.`,
+    );
   }
 }
 

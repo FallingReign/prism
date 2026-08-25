@@ -6,28 +6,44 @@ Prism is an internal Slack-compatible bridge for developer-owned **Local tools**
 
 ```bash
 npm install
-cp .env.example .env.local
 npm start
-curl -i http://localhost:3732/v1/prism/health
 ```
 
-`npm start` is the one-command local runtime: on Windows it starts Docker
-Desktop when necessary, starts the Compose PostgreSQL service, applies pending
-migrations, and then starts Prism's hot-reloading development server on port
-`3732`. It does not start the Compose `web` service.
+`npm start` runs Prism on the host. It starts only Prism's PostgreSQL dependency
+with Docker, applies pending migrations, and then starts the hot-reloading web
+server on port `3732`. It never starts or manages Playtest.
+
+On first use, `npm start` opens a short terminal setup. The wizard creates the
+ignored `.env.local` shared by host and Docker runs, then offers to run Prism on
+the host, run the complete stack with Docker in the background, or stop after
+configuration. Later `npm start` calls go straight to the host runtime without
+asking again.
+
+To reconfigure Prism, run:
+
+```bash
+npm run setup
+```
+
+Existing generated security keys are preserved by default, as are the
+PostgreSQL database and Slack connections. Setup never launches Playtest.
 
 `npm run dev` remains available when PostgreSQL is already running and migrated.
 
 ## Docker Compose startup (automatic migrations)
 
 ```bash
-cp .env.example .env.local
-# Fill .env.local with local values (do not commit it).
-docker compose up --build
+npm run setup
+# Choose "Not now" if this machine will run Compose later.
+docker compose --env-file .env.local up -d --build
 ```
 
-Compose startup now waits for Postgres, runs `npm run db:migrate` automatically, and then starts the Next.js server on port `3732`.
-If `.env.local` is missing required values or still contains `replace-with-*` placeholders for required Prism server secrets, startup fails fast with a clear error.
+The setup wizard can also choose Docker for you; it runs the same Compose stack
+detached and waits for its health checks. Container startup is deliberately
+noninteractive. If configuration is incomplete, it exits with a message to run
+`npm run setup` on the host. Compose waits for PostgreSQL, runs migrations, and
+starts Prism without requiring an attached terminal. The production-mode Docker
+server requires an HTTPS public URL; use host `npm start` for localhost HTTP.
 
 The local development server uses port `3732` to avoid common default-port conflicts and binds to `0.0.0.0` so the pilot host VM can receive Slack OAuth redirects.
 
@@ -68,7 +84,7 @@ envelopes in Postgres; Local tools and browser responses never receive Slack cre
 For local mock QA without contacting Slack, prefer the mock-only Slack client, secret, and
 `PRISM_SLACK_OAUTH_MOCK=1` overrides in ignored `.env.development.local`. Request the start route to create the
 one-time state cookie, then request the callback with a synthetic `code` and the returned `state`. Keep real Slack
-app values in managed production environment variables or ignored `.env.production.local`. If `npm start` loads the
+app values through Prism's web setup or the same ignored `.env.local` bootstrap file. If `npm start` loads the
 complete reserved development-mock bundle from `.env.local`, Prism treats it as absent so active database configuration
 or `/setup` can win; the bundle is never promoted into a real Slack request. A mock flag paired with a non-reserved real
 client and partial real credential pairs remain invalid.

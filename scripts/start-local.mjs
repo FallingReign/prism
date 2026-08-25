@@ -4,11 +4,15 @@ import { resolve } from "node:path";
 import { setTimeout as wait } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
+import { inspectBootstrapConfig, runSetupWizard } from "./setup.mjs";
+
 const DEFAULT_DOCKER_WAIT_ATTEMPTS = 60;
 const DEFAULT_DOCKER_WAIT_MS = 1_000;
 
 export async function startLocalPrism({
-  startWeb = true,
+  setupIfMissing = true,
+  inspectConfig = inspectBootstrapConfig,
+  setupWizard = runSetupWizard,
   platform = process.platform,
   nodeExecutable = process.execPath,
   npmCliPath = process.env.npm_execpath,
@@ -20,11 +24,86 @@ export async function startLocalPrism({
   dockerWaitAttempts = DEFAULT_DOCKER_WAIT_ATTEMPTS,
   dockerWaitMs = DEFAULT_DOCKER_WAIT_MS,
 } = {}) {
-  const npmInvocation = resolveNpmInvocation({ platform, nodeExecutable, npmCliPath });
-  let dockerReady = await probeDocker();
+  const config = inspectConfig();
+  if (!config.configured) {
+    if (!setupIfMissing) {
+      throw new Error(`Prism configuration is incomplete: ${config.missing.join(", ")}`);
+    }
+    const setup = await setupWizard();
+    if (setup.selection === "none") {
+      log("Prism is configured and was not started.");
+      return;
+    }
+    if (setup.selection === "docker") {
+      await startDockerPrism({
+        platform,
+        probeDocker,
+        run,
+        pause,
+        log,
+        dockerWaitAttempts,
+        dockerWaitMs,
+        inspectConfig,
+      });
+      return;
+    }
+  }
 
+  const npmInvocation = resolveNpmInvocation({ platform, nodeExecutable, npmCliPath });
+  await ensureDocker({ platform, probeDocker, run, pause, log, dockerWaitAttempts, dockerWaitMs });
+
+  log("Starting Prism PostgreSQL...");
+  await run("docker", ["compose", "--env-file", ".env.local", "up", "-d", "postgres"]);
+
+  log("Applying Prism database migrations...");
+  await run(npmInvocation.command, [...npmInvocation.prefixArgs, "run", "db:migrate"]);
+
+  if (await probeService()) {
+    log("Prism's existing web server is healthy at http://localhost:3732.");
+    return;
+  }
+
+  log("Starting Prism at http://localhost:3732 ...");
+  await run(npmInvocation.command, [...npmInvocation.prefixArgs, "run", "dev"]);
+}
+
+export async function startDockerPrism({
+  platform = process.platform,
+  probeDocker = () => commandSucceeds("docker", ["info", "--format", "{{.ServerVersion}}"]),
+  run = runCommand,
+  pause = wait,
+  log = console.log,
+  dockerWaitAttempts = DEFAULT_DOCKER_WAIT_ATTEMPTS,
+  dockerWaitMs = DEFAULT_DOCKER_WAIT_MS,
+  inspectConfig = inspectBootstrapConfig,
+} = {}) {
+  const config = inspectConfig();
+  if (!config.configured) {
+    throw new Error(`Prism configuration is incomplete: ${config.missing.join(", ")}. Run npm run setup first.`);
+  }
+  if (!config.env?.PRISM_PUBLIC_BASE_URL?.startsWith("https://")) {
+    throw new Error(
+      "Prism's detached Docker server requires an HTTPS public URL. Run `npm run setup` and enter the deployed HTTPS URL, or use `npm start` for localhost/private HTTP.",
+    );
+  }
+  await ensureDocker({ platform, probeDocker, run, pause, log, dockerWaitAttempts, dockerWaitMs });
+  log("Building and starting Prism with Docker in the background...");
+  await run("docker", ["compose", "--env-file", ".env.local", "up", "-d", "--build", "--wait"]);
+  log("Prism is healthy in Docker at the configured public URL.");
+}
+
+async function ensureDocker({
+  platform,
+  probeDocker,
+  run,
+  pause,
+  log,
+  dockerWaitAttempts,
+  dockerWaitMs,
+}) {
+  let dockerReady = await probeDocker();
   if (!dockerReady && platform === "win32") {
-    log("Docker Desktop is not running. Starting it for Prism local development...");
+    log("Docker Desktop is not running. Starting it for Prism...");
     await run("docker", ["desktop", "start"]);
     for (let attempt = 0; attempt < dockerWaitAttempts; attempt += 1) {
       if (await probeDocker()) {
@@ -34,31 +113,11 @@ export async function startLocalPrism({
       await pause(dockerWaitMs);
     }
   }
-
   if (!dockerReady) {
     throw new Error(
-      "Prism local startup requires a working Docker engine for PostgreSQL. Start Docker, then run npm start again.",
+      "Prism requires a working Docker engine for PostgreSQL. Start Docker, then try again.",
     );
   }
-
-  log("Starting Prism PostgreSQL...");
-  await run("docker", ["compose", "--env-file", ".env.local", "up", "-d", "postgres"]);
-
-  log("Applying Prism database migrations...");
-  await run(npmInvocation.command, [...npmInvocation.prefixArgs, "run", "db:migrate"]);
-
-  if (!startWeb) {
-    log("Prism local dependencies are ready.");
-    return;
-  }
-
-  if (await probeService()) {
-    log("Prism's existing web server is healthy at http://localhost:3732.");
-    return;
-  }
-
-  log("Starting Prism at http://localhost:3732 ...");
-  await run(npmInvocation.command, [...npmInvocation.prefixArgs, "run", "dev"]);
 }
 
 async function prismServiceReady() {
@@ -116,7 +175,7 @@ const invokedPath = process.argv[1]
   ? fileURLToPath(import.meta.url) === resolve(process.argv[1])
   : false;
 if (invokedPath) {
-  startLocalPrism({ startWeb: !process.argv.includes("--prepare-only") }).catch((error) => {
+  startLocalPrism().catch((error) => {
     console.error(error instanceof Error ? error.message : "Prism local startup failed.");
     process.exitCode = 1;
   });
