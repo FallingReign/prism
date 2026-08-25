@@ -8,10 +8,12 @@ const DEFAULT_DOCKER_WAIT_ATTEMPTS = 60;
 const DEFAULT_DOCKER_WAIT_MS = 1_000;
 
 export async function startLocalPrism({
+  startWeb = true,
   platform = process.platform,
   nodeExecutable = process.execPath,
   npmCliPath = process.env.npm_execpath,
   probeDocker = () => commandSucceeds("docker", ["info", "--format", "{{.ServerVersion}}"]),
+  probeService = prismServiceReady,
   run = runCommand,
   pause = wait,
   log = console.log,
@@ -45,8 +47,32 @@ export async function startLocalPrism({
   log("Applying Prism database migrations...");
   await run(npmInvocation.command, [...npmInvocation.prefixArgs, "run", "db:migrate"]);
 
+  if (!startWeb) {
+    log("Prism local dependencies are ready.");
+    return;
+  }
+
+  if (await probeService()) {
+    log("Prism's existing web server is healthy at http://localhost:3732.");
+    return;
+  }
+
   log("Starting Prism at http://localhost:3732 ...");
   await run(npmInvocation.command, [...npmInvocation.prefixArgs, "run", "dev"]);
+}
+
+async function prismServiceReady() {
+  try {
+    const response = await fetch("http://localhost:3732/v1/prism/health", {
+      cache: "no-store",
+      signal: AbortSignal.timeout(2_000),
+    });
+    if (!response.ok) return false;
+    const health = await response.json();
+    return health?.service === "ok" && health?.database === "ok";
+  } catch {
+    return false;
+  }
 }
 
 export function resolveNpmInvocation({ platform, nodeExecutable, npmCliPath }) {
@@ -90,7 +116,7 @@ const invokedPath = process.argv[1]
   ? fileURLToPath(import.meta.url) === resolve(process.argv[1])
   : false;
 if (invokedPath) {
-  startLocalPrism().catch((error) => {
+  startLocalPrism({ startWeb: !process.argv.includes("--prepare-only") }).catch((error) => {
     console.error(error instanceof Error ? error.message : "Prism local startup failed.");
     process.exitCode = 1;
   });
