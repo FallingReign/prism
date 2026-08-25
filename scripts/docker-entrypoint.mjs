@@ -87,7 +87,7 @@ async function main() {
     }
 
     console.log("Starting server...");
-    const server = spawn("npm", ["start"], { stdio: "inherit", env: process.env });
+    const server = spawn("npm", ["run", "start:web"], { stdio: "inherit", env: process.env });
     server.on("exit", (code) => process.exit(code ?? 0));
     const signals = ["SIGINT", "SIGTERM", "SIGHUP"];
     for (const s of signals) process.on(s, () => server.kill(s));

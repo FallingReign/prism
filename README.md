@@ -7,11 +7,16 @@ Prism is an internal Slack-compatible bridge for developer-owned **Local tools**
 ```bash
 npm install
 cp .env.example .env.local
-npm run db:up
-npm run db:migrate
-npm run dev
+npm start
 curl -i http://localhost:3732/v1/prism/health
 ```
+
+`npm start` is the one-command local runtime: on Windows it starts Docker
+Desktop when necessary, starts the Compose PostgreSQL service, applies pending
+migrations, and then starts Prism's hot-reloading development server on port
+`3732`. It does not start the Compose `web` service.
+
+`npm run dev` remains available when PostgreSQL is already running and migrated.
 
 ## Docker Compose startup (automatic migrations)
 
