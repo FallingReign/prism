@@ -1,8 +1,15 @@
 #!/usr/bin/env node
 import { generateKeyPairSync, randomBytes } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { createInterface } from "node:readline/promises";
-import { resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { stdin, stdout } from "node:process";
 
@@ -148,11 +155,14 @@ export async function runSetupWizard({
     rotate,
   );
 
-  for (const key of MANAGED_ENV_KEYS) {
-    const value = values[key];
-    if (isConfigured(value) || requiredEvenWhenZero(key)) text = setEnvValue(text, key, value);
-  }
-  writeFileSync(envPath, ensureFinalNewline(text), { encoding: "utf8", mode: 0o600 });
+  const managedValues = Object.fromEntries(
+    MANAGED_ENV_KEYS.flatMap((key) => {
+      const value = values[key];
+      return isConfigured(value) || requiredEvenWhenZero(key) ? [[key, value]] : [];
+    }),
+  );
+  text = updateManagedEnvValues(text, managedValues);
+  writeEnvFileAtomically(envPath, text);
 
   const status = inspectBootstrapConfig({ envPath });
   if (!status.configured) {
@@ -164,7 +174,7 @@ export async function runSetupWizard({
   output.log("Slack apps and workspace connections remain managed in Prism's web setup.");
   output.log("");
 
-  const selection = await askRunSelection(prompt, output);
+  const selection = await askRunSelection(prompt, output, publicBaseUrl);
   prompt.close?.();
   return { selection, envPath };
 }
@@ -214,6 +224,10 @@ async function askUrl(prompt, { label, current, originOnly, output }) {
       ) {
         throw new Error("invalid");
       }
+      if (url.protocol === "http:" && !isAllowedInsecureHttpHost(url.hostname)) {
+        output.log("HTTP is allowed only for localhost, private-network, or link-local addresses. Use HTTPS for public hosts.");
+        continue;
+      }
       return originOnly ? url.origin : url.toString();
     } catch {
       output.log(originOnly ? "Enter an HTTP(S) origin without a path." : "Enter a complete HTTP(S) callback URL.");
@@ -231,7 +245,7 @@ async function askYesNo(prompt, label, defaultValue) {
   }
 }
 
-async function askRunSelection(prompt, output) {
+async function askRunSelection(prompt, output, publicBaseUrl) {
   output.log("How would you like to continue?");
   output.log("  1. Run on this host");
   output.log("  2. Run with Docker in the background (HTTPS public URL required)");
@@ -239,19 +253,78 @@ async function askRunSelection(prompt, output) {
   while (true) {
     const answer = (await prompt.ask("Choose [1]: ")).trim() || "1";
     if (answer === "1") return "host";
-    if (answer === "2") return "docker";
+    if (answer === "2") {
+      if (!publicBaseUrl.startsWith("https://")) {
+        output.log("Detached Docker uses Prism's production server and requires an HTTPS public URL.");
+        output.log("Choose host for this private HTTP configuration, choose Not now, or rerun setup with HTTPS.");
+        continue;
+      }
+      return "docker";
+    }
     if (answer === "3") return "none";
     output.log("Choose 1, 2, or 3.");
   }
 }
 
-function setEnvValue(text, key, value) {
-  if (/[\r\n]/.test(value)) throw new Error(`Invalid multiline value for ${key}.`);
-  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const expression = new RegExp(`^${escaped}=.*$`, "m");
-  const line = `${key}=${value}`;
-  if (expression.test(text)) return text.replace(expression, line);
-  return `${text.replace(/\s*$/, "\n")}${line}\n`;
+export function updateManagedEnvValues(text, managedValues) {
+  for (const [key, value] of Object.entries(managedValues)) {
+    if (/[\r\n]/.test(value)) throw new Error(`Invalid multiline value for ${key}.`);
+  }
+
+  const managedKeys = new Set(Object.keys(managedValues));
+  const seen = new Set();
+  const lines = text.split(/\r?\n/);
+  const output = [];
+
+  for (const line of lines) {
+    const match = /^([A-Z0-9_]+)=/.exec(line);
+    const key = match?.[1];
+    if (!key || !managedKeys.has(key)) {
+      output.push(line);
+      continue;
+    }
+    if (seen.has(key)) continue;
+    seen.add(key);
+    output.push(`${key}=${managedValues[key]}`);
+  }
+
+  if (output.at(-1) === "") output.pop();
+  for (const [key, value] of Object.entries(managedValues)) {
+    if (!seen.has(key)) output.push(`${key}=${value}`);
+  }
+  return `${output.join("\n")}\n`;
+}
+
+export function writeEnvFileAtomically(envPath, text, {
+  write = writeFileSync,
+  rename = renameSync,
+  remove = rmSync,
+  chmod = chmodSync,
+} = {}) {
+  const temporaryPath = join(
+    dirname(envPath),
+    `.${basename(envPath)}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`,
+  );
+  try {
+    write(temporaryPath, text, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    try {
+      chmod(temporaryPath, 0o600);
+    } catch {
+      // Windows and some mounted filesystems do not expose POSIX modes.
+    }
+    rename(temporaryPath, envPath);
+    try {
+      chmod(envPath, 0o600);
+    } catch {
+      // Best effort only when the host filesystem does not expose POSIX modes.
+    }
+  } finally {
+    try {
+      remove(temporaryPath, { force: true });
+    } catch {
+      // The successful rename already moved the temporary file into place.
+    }
+  }
 }
 
 function configuredOr(value, fallback) {
@@ -289,8 +362,33 @@ function stripMatchingQuotes(value) {
   return value;
 }
 
-function ensureFinalNewline(text) {
-  return `${text.replace(/\s*$/, "")}\n`;
+export function isAllowedInsecureHttpHost(hostname) {
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (normalized === "localhost" || normalized === "::1") return true;
+
+  if (normalized.includes(":")) {
+    const first = Number.parseInt(normalized.split(":", 1)[0], 16);
+    return (
+      (Number.isInteger(first) && first >= 0xfc00 && first <= 0xfdff) ||
+      (Number.isInteger(first) && first >= 0xfe80 && first <= 0xfebf)
+    );
+  }
+
+  const octets = normalized.split(".").map((part) => Number(part));
+  if (
+    octets.length !== 4 ||
+    octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)
+  ) {
+    return false;
+  }
+  const [first, second] = octets;
+  return (
+    first === 10 ||
+    first === 127 ||
+    (first === 169 && second === 254) ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168)
+  );
 }
 
 const invokedPath = process.argv[1] ? resolve(process.argv[1]) : "";
