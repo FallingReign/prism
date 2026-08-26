@@ -1,5 +1,7 @@
 import "server-only";
 
+const SLACK_OAUTH_TIMEOUT_MS = 15_000;
+
 export type SlackOAuthSuccess = {
   ok: true;
   appId: string;
@@ -24,14 +26,44 @@ export type SlackOAuthSuccess = {
 
 export type SlackOAuthFailure = {
   ok: false;
-  errorClass: "invalid_refresh_token" | "invalid_grant" | "token_revoked" | "slack_error" | "network_error";
+  errorClass:
+    | "invalid_refresh_token"
+    | "invalid_grant"
+    | "token_revoked"
+    | "token_expired"
+    | "account_inactive"
+    | "invalid_auth"
+    | "invalid_client_id"
+    | "bad_client_secret"
+    | "ratelimited"
+    | "service_unavailable"
+    | "request_timeout"
+    | "internal_error"
+    | "fatal_error"
+    | "refresh_token_kind_mismatch"
+    | "malformed_refresh_response"
+    | "slack_error"
+    | "network_error";
 };
 
 export type SlackOAuthResult = SlackOAuthSuccess | SlackOAuthFailure;
 
+export type SlackCredentialRefreshSuccess = {
+  ok: true;
+  credential: {
+    accessToken: string;
+    refreshToken: string;
+    tokenType: "bot" | "user";
+    expiresIn: number;
+    scope?: string;
+  };
+};
+
+export type SlackCredentialRefreshResult = SlackCredentialRefreshSuccess | SlackOAuthFailure;
+
 export type SlackOAuthClient = {
   exchangeCode(input: { code: string; redirectUri: string }): Promise<SlackOAuthResult>;
-  refreshToken(input: { refreshToken: string; kind: "bot" | "user" }): Promise<SlackOAuthResult>;
+  refreshToken(input: { refreshToken: string; kind: "bot" | "user" }): Promise<SlackCredentialRefreshResult>;
 };
 
 export function createFetchSlackOAuthClient({
@@ -43,10 +75,7 @@ export function createFetchSlackOAuthClient({
   clientSecret: string;
   fetchImpl?: typeof fetch;
 }): SlackOAuthClient {
-  async function postToSlack(
-    fields: Record<string, string>,
-    topLevelTokenKind: "bot" | "user" = "bot"
-  ): Promise<SlackOAuthResult> {
+  async function postToSlack(fields: Record<string, string>): Promise<Record<string, unknown> | SlackOAuthFailure> {
     try {
       const response = await fetchImpl("https://slack.com/api/oauth.v2.access", {
         method: "POST",
@@ -54,37 +83,39 @@ export function createFetchSlackOAuthClient({
           Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
           "Content-Type": "application/x-www-form-urlencoded"
         },
-        body: new URLSearchParams(fields)
+        body: new URLSearchParams(fields),
+        signal: AbortSignal.timeout(SLACK_OAUTH_TIMEOUT_MS)
       });
-      const body = (await response.json()) as Record<string, any>;
+      const body = (await response.json()) as Record<string, unknown>;
       if (!body.ok) {
         return { ok: false, errorClass: classifySlackOAuthError(String(body.error ?? "slack_error")) };
       }
-
-      return normalizeSlackOAuthSuccess(body, topLevelTokenKind);
+      return body;
     } catch {
       return { ok: false, errorClass: "network_error" };
     }
   }
 
   return {
-    exchangeCode({ code, redirectUri }) {
-      return postToSlack({ code, redirect_uri: redirectUri });
+    async exchangeCode({ code, redirectUri }) {
+      const result = await postToSlack({ code, redirect_uri: redirectUri });
+      return isOAuthFailure(result) ? result : normalizeSlackOAuthSuccess(result);
     },
-    refreshToken({ refreshToken, kind }) {
-      return postToSlack({ grant_type: "refresh_token", refresh_token: refreshToken }, kind);
+    async refreshToken({ refreshToken, kind }) {
+      const result = await postToSlack({ grant_type: "refresh_token", refresh_token: refreshToken });
+      return isOAuthFailure(result) ? result : normalizeSlackCredentialRefresh(result, kind);
     }
   };
 }
 
 export function classifySlackOAuthError(error: string): SlackOAuthFailure["errorClass"] {
-  if (error === "invalid_refresh_token" || error === "invalid_grant" || error === "token_revoked") {
-    return error;
+  if (knownSlackOAuthErrorClasses.has(error as SlackOAuthFailure["errorClass"])) {
+    return error as SlackOAuthFailure["errorClass"];
   }
   return "slack_error";
 }
 
-function normalizeSlackOAuthSuccess(body: Record<string, any>, topLevelTokenKind: "bot" | "user"): SlackOAuthResult {
+function normalizeSlackOAuthSuccess(body: Record<string, any>): SlackOAuthResult {
   const appId = body.app_id;
   const teamId = body.team?.id;
   const authedUserId = body.authed_user?.id;
@@ -113,14 +144,74 @@ function normalizeSlackOAuthSuccess(body: Record<string, any>, topLevelTokenKind
     enterprise: body.enterprise ? { id: enterpriseId, name: body.enterprise.name } : null,
     authedUser: {
       id: authedUserId,
-      accessToken: topLevelTokenKind === "user" ? topLevelToken.accessToken : body.authed_user?.access_token,
-      refreshToken: topLevelTokenKind === "user" ? topLevelToken.refreshToken : body.authed_user?.refresh_token,
-      tokenType: topLevelTokenKind === "user" ? topLevelToken.tokenType : body.authed_user?.token_type,
-      expiresIn: topLevelTokenKind === "user" ? topLevelToken.expiresIn : body.authed_user?.expires_in,
-      scope: topLevelTokenKind === "user" ? topLevelToken.scope : body.authed_user?.scope
+      accessToken: body.authed_user?.access_token,
+      refreshToken: body.authed_user?.refresh_token,
+      tokenType: body.authed_user?.token_type,
+      expiresIn: body.authed_user?.expires_in,
+      scope: body.authed_user?.scope
     },
-    bot: topLevelTokenKind === "bot" ? topLevelToken : undefined
+    bot: topLevelToken
   };
+}
+
+function normalizeSlackCredentialRefresh(
+  body: Record<string, unknown>,
+  requestedKind: "bot" | "user"
+): SlackCredentialRefreshResult {
+  const tokenType = body.token_type;
+  if (tokenType !== requestedKind) {
+    return { ok: false, errorClass: "refresh_token_kind_mismatch" };
+  }
+
+  const accessToken = boundedSecret(body.access_token);
+  const refreshToken = boundedSecret(body.refresh_token);
+  const expiresIn = body.expires_in;
+  if (
+    !accessToken ||
+    !refreshToken ||
+    typeof expiresIn !== "number" ||
+    !Number.isSafeInteger(expiresIn) ||
+    expiresIn <= 0 ||
+    expiresIn > 31 * 24 * 60 * 60 ||
+    (body.scope !== undefined && (typeof body.scope !== "string" || body.scope.length > 8192))
+  ) {
+    return { ok: false, errorClass: "malformed_refresh_response" };
+  }
+
+  return {
+    ok: true,
+    credential: {
+      accessToken,
+      refreshToken,
+      tokenType: requestedKind,
+      expiresIn,
+      ...(typeof body.scope === "string" ? { scope: body.scope } : {})
+    }
+  };
+}
+
+const knownSlackOAuthErrorClasses = new Set<SlackOAuthFailure["errorClass"]>([
+  "invalid_refresh_token",
+  "invalid_grant",
+  "token_revoked",
+  "token_expired",
+  "account_inactive",
+  "invalid_auth",
+  "invalid_client_id",
+  "bad_client_secret",
+  "ratelimited",
+  "service_unavailable",
+  "request_timeout",
+  "internal_error",
+  "fatal_error"
+]);
+
+function isOAuthFailure(value: Record<string, unknown> | SlackOAuthFailure): value is SlackOAuthFailure {
+  return value.ok === false && typeof value.errorClass === "string";
+}
+
+function boundedSecret(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 && value.length <= 16_384 ? value : null;
 }
 
 function nonemptySlackIdentifier(value: unknown): value is string {

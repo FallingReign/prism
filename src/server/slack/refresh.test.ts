@@ -62,10 +62,7 @@ describe("Slack credential refresh", () => {
           expect(refreshToken).toBe("old-refresh-secret-canary");
           return {
             ok: true,
-            appId: "A123",
-            team: { id: "T123" },
-            authedUser: { id: "U123" },
-            bot: {
+            credential: {
               accessToken: "xoxb-new-access-canary",
               refreshToken: "new-refresh-secret-canary",
               tokenType: "bot",
@@ -112,10 +109,7 @@ describe("Slack credential refresh", () => {
           expect(kind).toBe("user");
           return {
             ok: true,
-            appId: "A123",
-            team: { id: "T123" },
-            authedUser: {
-              id: "U123",
+            credential: {
               accessToken: "xoxp-new-access-canary",
               refreshToken: "new-user-refresh-secret-canary",
               tokenType: "user",
@@ -163,9 +157,62 @@ describe("Slack credential refresh", () => {
       }
     });
 
-    expect(result).toEqual({ status: "reauth_required" });
+    expect(result).toEqual({ status: "reauth_required", errorClass: "invalid_refresh_token" });
     expect(rows.connections[0]).toMatchObject({ status: "reauth_required", lastErrorClass: "invalid_refresh_token" });
     expect(rows.tokenProfiles).toEqual([{ id: "profile_1", slackConnectionId: "conn_1" }]);
     expect(rows.credentials).toHaveLength(1);
+  });
+
+  it("serializes a single-use refresh token and lets waiting callers reuse the rotated credential", async () => {
+    const { rows, store, cipher } = createStore();
+    rows.credentials.push({
+      connectionId: "conn_1",
+      kind: "user",
+      tokenType: "user",
+      accessTokenEnvelope: await cipher.encrypt("xoxp-old-access-canary", "slack-connection:conn_1:user:access"),
+      refreshTokenEnvelope: await cipher.encrypt("old-user-refresh-secret-canary", "slack-connection:conn_1:user:refresh"),
+      expiresAt: now,
+      scopes: "chat:write"
+    });
+    let lockTail = Promise.resolve();
+    const lockedStore: RefreshStore = {
+      ...store,
+      async withCredentialRefreshLock(_input, callback) {
+        const previous = lockTail;
+        let release!: () => void;
+        lockTail = new Promise<void>((resolve) => { release = resolve; });
+        await previous;
+        try {
+          return await callback(store);
+        } finally {
+          release();
+        }
+      }
+    };
+    let refreshCalls = 0;
+    const slackOAuthClient = {
+      async exchangeCode() {
+        throw new Error("not used");
+      },
+      async refreshToken() {
+        refreshCalls += 1;
+        return {
+          ok: true as const,
+          credential: {
+            accessToken: "xoxp-new-access-canary",
+            refreshToken: "new-user-refresh-secret-canary",
+            tokenType: "user" as const,
+            expiresIn: 3600,
+            scope: "chat:write"
+          }
+        };
+      }
+    };
+
+    await expect(Promise.all([
+      refreshSlackCredential({ store: lockedStore, cipher, slackOAuthClient, connectionId: "conn_1", kind: "user", now }),
+      refreshSlackCredential({ store: lockedStore, cipher, slackOAuthClient, connectionId: "conn_1", kind: "user", now })
+    ])).resolves.toEqual([{ status: "refreshed" }, { status: "refreshed" }]);
+    expect(refreshCalls).toBe(1);
   });
 });

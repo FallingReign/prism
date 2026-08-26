@@ -200,6 +200,15 @@ export function createPostgresOAuthFlowStore(
 
 export function createPostgresRefreshStore(database: Database): RefreshStore {
   return {
+    async withCredentialRefreshLock({ connectionId, kind }, callback) {
+      return database.transaction(async (transactionDatabase) => {
+        await transactionDatabase.query(
+          "select pg_advisory_xact_lock(hashtextextended($1, 0))",
+          [`slack-credential-refresh:${connectionId}:${kind}`]
+        );
+        return callback(createPostgresRefreshStore(transactionDatabase));
+      });
+    },
     async getCredentialForRefresh({ connectionId, kind }) {
       const result = await database.query<{
         connection_id: string;

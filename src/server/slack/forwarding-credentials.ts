@@ -9,6 +9,7 @@ export type SlackForwardingCredentialProvider = {
     connectionId: string | null | undefined;
     kind: "bot" | "user";
   }): Promise<{ kind: "available"; accessToken: string } | { kind: "unavailable"; error: "not_authed"; errorClass: string }>;
+  markReauthRequired?(input: { connectionId: string | null | undefined; errorClass: string }): Promise<void>;
 };
 
 export function createSlackForwardingCredentialProvider({
@@ -35,8 +36,7 @@ export function createSlackForwardingCredentialProvider({
         if (!slackOAuthClient) return unavailable("slack_credential_expired");
         try {
           const refresh = await refreshSlackCredential({ store, cipher, slackOAuthClient, connectionId, kind, now: currentTime });
-          if (refresh.status === "reauth_required") return unavailable("slack_reauth_required");
-          if (refresh.status !== "refreshed") return unavailable("slack_refresh_unavailable");
+          if (refresh.status !== "refreshed") return unavailable(refresh.errorClass);
           credential = await store.getCredentialForRefresh({ connectionId, kind });
         } catch {
           return unavailable("slack_refresh_failed");
@@ -50,6 +50,10 @@ export function createSlackForwardingCredentialProvider({
       } catch {
         return unavailable("credential_decryption_failed");
       }
+    },
+    async markReauthRequired({ connectionId, errorClass }) {
+      if (!connectionId) return;
+      await store.markConnectionReauthRequired(connectionId, errorClass);
     }
   };
 }

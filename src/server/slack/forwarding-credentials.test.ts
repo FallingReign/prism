@@ -92,10 +92,7 @@ describe("Slack forwarding credential provider", () => {
           expect(kind).toBe("bot");
           return {
             ok: true,
-            appId: "A123",
-            team: { id: "T123" },
-            authedUser: { id: "U123" },
-            bot: {
+            credential: {
               accessToken: "xoxb-refreshed-access-token-canary",
               refreshToken: "bot-refreshed-refresh-secret-canary",
               tokenType: "bot",
@@ -113,5 +110,50 @@ describe("Slack forwarding credential provider", () => {
     });
     expect(JSON.stringify(rows)).not.toContain("xoxb-refreshed-access-token-canary");
     expect(JSON.stringify(rows)).not.toContain("bot-refreshed-refresh-secret-canary");
+  });
+
+  it("preserves a terminal refresh reason and never returns an expired access token", async () => {
+    const cipher = createLocalAesGcmCredentialCipher({ key, keyId: "forwarding-test" });
+    const store = {
+      async getCredentialForRefresh() {
+        return {
+          connectionId: "conn_1",
+          kind: "user" as const,
+          tokenType: "user",
+          accessTokenEnvelope: await cipher.encrypt("expired-access-canary", "slack-connection:conn_1:user:access"),
+          refreshTokenEnvelope: await cipher.encrypt("invalid-refresh-canary", "slack-connection:conn_1:user:refresh"),
+          expiresAt: now,
+          scopes: "chat:write"
+        };
+      },
+      async saveRefreshedCredential() {
+        throw new Error("not used");
+      },
+      async markConnectionHealthy() {
+        throw new Error("not used");
+      },
+      async markConnectionReauthRequired(_connectionId: string, errorClass: string) {
+        expect(errorClass).toBe("invalid_refresh_token");
+      }
+    };
+    const provider = createSlackForwardingCredentialProvider({
+      store,
+      cipher,
+      now: () => now,
+      slackOAuthClient: {
+        async exchangeCode() {
+          throw new Error("not used");
+        },
+        async refreshToken() {
+          return { ok: false, errorClass: "invalid_refresh_token" };
+        }
+      }
+    });
+
+    await expect(provider.getAccessToken({ connectionId: "conn_1", kind: "user" })).resolves.toEqual({
+      kind: "unavailable",
+      error: "not_authed",
+      errorClass: "invalid_refresh_token"
+    });
   });
 });

@@ -302,6 +302,37 @@ describe("Slack forwarding service", () => {
     );
   });
 
+  it("marks the resolved connection for reauthorization when Slack rejects its access token", async () => {
+    const markReauthRequired = vi.fn(async () => undefined);
+    const response = await forwardSlackMethod({
+      request: new NextRequest("http://localhost:3732/v1/slack/api/chat.postMessage", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ channel: "C123", text: "hello" })
+      }),
+      method: "chat.postMessage",
+      identity,
+      requestId: "req_rejected_credential",
+      client: {
+        requiresAccessToken: true,
+        async callMethod() {
+          return { status: 200, body: { ok: false, error: "token_revoked" } };
+        }
+      },
+      rateLimiter: allowRateLimiter,
+      credentialProvider: {
+        async getAccessToken() {
+          return { kind: "available" as const, accessToken: "xoxb-revoked-canary" };
+        },
+        markReauthRequired
+      }
+    });
+
+    expect(markReauthRequired).toHaveBeenCalledWith({ connectionId: "conn_1", errorClass: "token_revoked" });
+    expect(response.headers.get("x-prism-upstream-called")).toBe("true");
+    expect(await response.json()).toEqual({ ok: false, error: "token_revoked" });
+  });
+
   it("preserves the Slack response when the final audit outcome update fails after upstream", async () => {
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const client: SlackWebApiClient = {

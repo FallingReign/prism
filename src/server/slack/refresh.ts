@@ -1,9 +1,13 @@
 import "server-only";
 
 import type { CredentialCipher, CredentialEnvelope } from "../credentials/encryption";
-import type { SlackOAuthClient, SlackOAuthFailure, SlackOAuthSuccess } from "./oauth-client";
+import type { SlackOAuthClient, SlackOAuthFailure } from "./oauth-client";
 
 export type RefreshStore = {
+  withCredentialRefreshLock?<T>(
+    input: { connectionId: string; kind: "bot" | "user" },
+    callback: (lockedStore: RefreshStore) => Promise<T>
+  ): Promise<T>;
   getCredentialForRefresh(input: {
     connectionId: string;
     kind: "bot" | "user";
@@ -43,11 +47,48 @@ export async function refreshSlackCredential({
   connectionId: string;
   kind: "bot" | "user";
   now?: Date;
-}): Promise<{ status: "refreshed" | "reauth_required" | "unchanged" }> {
+}): Promise<
+  | { status: "refreshed" }
+  | { status: "reauth_required"; errorClass: string }
+  | { status: "unavailable"; errorClass: string }
+> {
+  if (store.withCredentialRefreshLock) {
+    return store.withCredentialRefreshLock({ connectionId, kind }, (lockedStore) =>
+      refreshSlackCredentialUnlocked({ store: lockedStore, cipher, slackOAuthClient, connectionId, kind, now })
+    );
+  }
+  return refreshSlackCredentialUnlocked({ store, cipher, slackOAuthClient, connectionId, kind, now });
+}
+
+async function refreshSlackCredentialUnlocked({
+  store,
+  cipher,
+  slackOAuthClient,
+  connectionId,
+  kind,
+  now
+}: {
+  store: RefreshStore;
+  cipher: CredentialCipher;
+  slackOAuthClient: SlackOAuthClient;
+  connectionId: string;
+  kind: "bot" | "user";
+  now: Date;
+}): Promise<
+  | { status: "refreshed" }
+  | { status: "reauth_required"; errorClass: string }
+  | { status: "unavailable"; errorClass: string }
+> {
   const current = await store.getCredentialForRefresh({ connectionId, kind });
   if (!current?.refreshTokenEnvelope) {
     await store.markConnectionReauthRequired(connectionId, "missing_refresh_token");
-    return { status: "reauth_required" };
+    return { status: "reauth_required", errorClass: "missing_refresh_token" };
+  }
+
+  // A concurrent request may have completed rotation while this caller waited
+  // for the database-backed credential lock. Reuse the freshly persisted row.
+  if (current.expiresAt && current.expiresAt.getTime() > now.getTime() + 60_000) {
+    return { status: "refreshed" };
   }
 
   const aad = `slack-connection:${connectionId}:${kind}`;
@@ -57,36 +98,32 @@ export async function refreshSlackCredential({
   if (!result.ok) {
     if (isReauthFailure(result.errorClass)) {
       await store.markConnectionReauthRequired(connectionId, result.errorClass);
-      return { status: "reauth_required" };
+      return { status: "reauth_required", errorClass: result.errorClass };
     }
-    return { status: "unchanged" };
+    return { status: "unavailable", errorClass: result.errorClass };
   }
 
-  const token = tokenForKind(result, kind);
-  if (!token?.accessToken) {
-    await store.markConnectionReauthRequired(connectionId, "missing_access_token");
-    return { status: "reauth_required" };
-  }
+  const token = result.credential;
 
   await store.saveRefreshedCredential({
     connectionId,
     kind,
-    tokenType: token.tokenType ?? current.tokenType,
+    tokenType: token.tokenType,
     accessTokenEnvelope: await cipher.encrypt(token.accessToken, `${aad}:access`),
-    refreshTokenEnvelope: token.refreshToken
-      ? await cipher.encrypt(token.refreshToken, `${aad}:refresh`)
-      : current.refreshTokenEnvelope,
-    expiresAt: token.expiresIn ? new Date(now.getTime() + token.expiresIn * 1000) : current.expiresAt,
+    refreshTokenEnvelope: await cipher.encrypt(token.refreshToken, `${aad}:refresh`),
+    expiresAt: new Date(now.getTime() + token.expiresIn * 1000),
     scopes: token.scope ?? current.scopes
   });
   await store.markConnectionHealthy(connectionId);
   return { status: "refreshed" };
 }
 
-function tokenForKind(result: SlackOAuthSuccess, kind: "bot" | "user"): SlackOAuthSuccess["bot"] | SlackOAuthSuccess["authedUser"] {
-  return kind === "bot" ? result.bot : result.authedUser;
-}
-
 function isReauthFailure(errorClass: SlackOAuthFailure["errorClass"] | string): boolean {
-  return errorClass === "invalid_refresh_token" || errorClass === "invalid_grant" || errorClass === "token_revoked";
+  return (
+    errorClass === "invalid_refresh_token" ||
+    errorClass === "invalid_grant" ||
+    errorClass === "token_revoked" ||
+    errorClass === "token_expired" ||
+    errorClass === "account_inactive"
+  );
 }

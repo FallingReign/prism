@@ -42,29 +42,13 @@ export function createMockSlackOAuthClient({
     async refreshToken({ kind }) {
       return {
         ok: true,
-        appId: MOCK_APP_ID,
-        team: { id: MOCK_TEAM_ID },
-        authedUser:
-          kind === "user"
-            ? {
-                id: MOCK_USER_ID,
-                accessToken: "xoxp-mock-refreshed-token-canary",
-                refreshToken: "mock-refreshed-user-refresh-secret-canary",
-                tokenType: "user",
-                expiresIn: 3600,
-                scope: userScope
-              }
-            : { id: MOCK_USER_ID },
-        bot:
-          kind === "bot"
-            ? {
-                accessToken: "xoxb-mock-refreshed-token-canary",
-                refreshToken: "mock-refreshed-refresh-secret-canary",
-                tokenType: "bot",
-                expiresIn: 3600,
-                scope: botScope
-              }
-            : undefined
+        credential: {
+          accessToken: kind === "user" ? "xoxp-mock-refreshed-token-canary" : "xoxb-mock-refreshed-token-canary",
+          refreshToken: kind === "user" ? "mock-refreshed-user-refresh-secret-canary" : "mock-refreshed-refresh-secret-canary",
+          tokenType: kind,
+          expiresIn: 3600,
+          scope: kind === "user" ? userScope : botScope
+        }
       };
     }
   };

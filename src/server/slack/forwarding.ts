@@ -92,8 +92,9 @@ export async function forwardSlackMethod({
     }
   }
   let accessToken: string | undefined;
+  let effectiveCredentialProvider: SlackForwardingCredentialProvider | undefined;
   if (client.requiresAccessToken) {
-    const effectiveCredentialProvider =
+    effectiveCredentialProvider =
       credentialProvider ?? (await createDefaultSlackForwardingCredentialProvider());
     const credential = await effectiveCredentialProvider.getAccessToken({
       connectionId: identity.slackConnectionId,
@@ -122,6 +123,20 @@ export async function forwardSlackMethod({
     ...(accessToken ? { accessToken } : {})
   };
   const upstream = await client.callMethod(call);
+  if (isSlackError(upstream.body) && isCredentialRejection(upstream.body.error) && effectiveCredentialProvider?.markReauthRequired) {
+    try {
+      await effectiveCredentialProvider.markReauthRequired({
+        connectionId: identity.slackConnectionId,
+        errorClass: upstream.body.error
+      });
+    } catch (error) {
+      console.error("prism_slack_connection_reauth_status_update_failed", {
+        requestId,
+        method,
+        errorName: error instanceof Error ? error.name : typeof error
+      });
+    }
+  }
   if (audit && auditAttempt) {
     await updateAuditOutcome({
       audit,
@@ -200,6 +215,16 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isSlackError(body: unknown): body is { ok: false; error: string } {
   return isRecord(body) && body.ok === false && typeof body.error === "string";
+}
+
+function isCredentialRejection(error: string): boolean {
+  return (
+    error === "not_authed" ||
+    error === "invalid_auth" ||
+    error === "token_revoked" ||
+    error === "token_expired" ||
+    error === "account_inactive"
+  );
 }
 
 function auditUnavailableResponse(requestId: string, executionMode: ResolvedExecutionIdentity["executionMode"]): NextResponse {

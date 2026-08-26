@@ -318,7 +318,14 @@ describe("Slack OAuth flow", () => {
             appId: "A0123456789",
             team: { id: "T0123456789" },
             enterprise: null,
-            authedUser: { id: "U0123456789", scope: "chat:write" }
+            authedUser: {
+              id: "U0123456789",
+              scope: "chat:write",
+              accessToken: "xoxp-delegated-user-token-canary",
+              refreshToken: "delegated-user-refresh-canary",
+              tokenType: "user",
+              expiresIn: 3600
+            }
           };
         },
         async refreshToken() { throw new Error("not used"); }
@@ -419,6 +426,55 @@ describe("Slack OAuth flow", () => {
     expect(result.kind).toBe("slack_error");
     expect(store.rows.users).toHaveLength(0);
     expect(store.rows.connections).toHaveLength(0);
+    expect(store.rows.sessions).toHaveLength(0);
+    expect(store.rows.transactions).toHaveLength(0);
+  });
+
+  it("rejects a reconnect that omits a configured user credential before marking the connection healthy", async () => {
+    const store = createMemoryStore();
+    const cipher = createLocalAesGcmCredentialCipher({ key: encryptionKey, keyId: "local-test" });
+    const config = {
+      clientId: "client-id-123",
+      clientSecret: "client-secret-must-not-appear",
+      redirectUri: "http://localhost:3732/v1/slack/oauth/callback",
+      publicBaseUrl: "http://localhost:3732",
+      botScopes: [],
+      userScopes: ["chat:write"]
+    };
+    const start = await createTestSlackOAuthStart({
+      store,
+      config,
+      now,
+      randomBytes: () => Buffer.alloc(32, 18)
+    });
+
+    const result = await completeTestSlackOAuthCallback({
+      store,
+      cipher,
+      config,
+      code: "valid-code",
+      state: start.state,
+      cookieState: start.state,
+      now,
+      slackOAuthClient: {
+        async exchangeCode() {
+          return {
+            ok: true,
+            appId: "A123",
+            team: { id: "T123" },
+            enterprise: null,
+            authedUser: { id: "U123", scope: "chat:write" }
+          };
+        },
+        async refreshToken() {
+          throw new Error("not used");
+        }
+      }
+    });
+
+    expect(result.kind).toBe("slack_error");
+    expect(store.rows.connections).toHaveLength(0);
+    expect(store.rows.credentials).toHaveLength(0);
     expect(store.rows.sessions).toHaveLength(0);
     expect(store.rows.transactions).toHaveLength(0);
   });
@@ -559,7 +615,14 @@ describe("Slack OAuth flow", () => {
           appId: "A123",
           team: { id: "T123" },
           enterprise: null,
-          authedUser: { id: "U123", scope: "chat:write" }
+          authedUser: {
+            id: "U123",
+            scope: "chat:write",
+            accessToken: "xoxp-setup-user-token-canary",
+            refreshToken: "setup-user-refresh-canary",
+            tokenType: "user",
+            expiresIn: 3600
+          }
         };
       },
       async refreshToken() {

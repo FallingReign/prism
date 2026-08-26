@@ -236,7 +236,9 @@ export async function completeSlackOAuthCallback({
   if (
     !nonemptySlackIdentifier(slackResult.appId) ||
     !nonemptySlackIdentifier(slackResult.team.id) ||
-    !nonemptySlackIdentifier(slackResult.authedUser.id)
+    !nonemptySlackIdentifier(slackResult.authedUser.id) ||
+    (runtime.config.userScopes.length > 0 && !usableInstallationCredential(slackResult.authedUser, "user")) ||
+    (runtime.config.botScopes.length > 0 && !usableInstallationCredential(slackResult.bot, "bot"))
   ) {
     return {
       kind: "slack_error",
@@ -333,6 +335,25 @@ function equalSecret(leftValue: string, rightValue: string): boolean {
 
 function nonemptySlackIdentifier(value: string): boolean {
   return value.trim().length > 0 && value.length <= 255;
+}
+
+function usableInstallationCredential(
+  token: SlackOAuthSuccess["bot"] | SlackOAuthSuccess["authedUser"] | undefined,
+  expectedKind: "bot" | "user"
+): boolean {
+  if (!boundedCredentialValue(token?.accessToken)) return false;
+  if (token?.tokenType && token.tokenType !== expectedKind) return false;
+  if (token?.expiresIn === undefined) return token.refreshToken === undefined || boundedCredentialValue(token.refreshToken);
+  return (
+    Number.isSafeInteger(token.expiresIn) &&
+    token.expiresIn > 0 &&
+    token.expiresIn <= 31 * 24 * 60 * 60 &&
+    boundedCredentialValue(token.refreshToken)
+  );
+}
+
+function boundedCredentialValue(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= 16_384;
 }
 
 function oauthStateCookie(value: string, publicBaseUrl: string): CookieSpec {

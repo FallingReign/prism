@@ -24,9 +24,6 @@ describe("Slack OAuth client", () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
       json: async () => ({
         ok: true,
-        app_id: "A123",
-        team: { id: "T123" },
-        authed_user: { id: "U123" },
         access_token: "xoxp-new-user-token-canary",
         refresh_token: "new-user-refresh-secret-canary",
         token_type: "user",
@@ -40,15 +37,64 @@ describe("Slack OAuth client", () => {
 
     expect(result).toMatchObject({
       ok: true,
-      authedUser: {
-        id: "U123",
+      credential: {
         accessToken: "xoxp-new-user-token-canary",
         refreshToken: "new-user-refresh-secret-canary",
         tokenType: "user",
         expiresIn: 3600,
         scope: "search:read"
-      },
-      bot: undefined
+      }
+    });
+  });
+
+  it("maps token-only bot refresh responses without installation identity", async () => {
+    const client = createFetchSlackOAuthClient({
+      clientId: "client-id",
+      clientSecret: "client-secret-canary",
+      fetchImpl: vi.fn<typeof fetch>().mockResolvedValue({
+        json: async () => ({
+          ok: true,
+          access_token: "xoxb-new-bot-token-canary",
+          refresh_token: "new-bot-refresh-secret-canary",
+          token_type: "bot",
+          expires_in: 43200,
+          scope: "chat:write"
+        })
+      } as Response)
+    });
+
+    await expect(client.refreshToken({ refreshToken: "old-bot-refresh-canary", kind: "bot" })).resolves.toMatchObject({
+      ok: true,
+      credential: { tokenType: "bot", expiresIn: 43200, scope: "chat:write" }
+    });
+  });
+
+  it.each([
+    ["wrong token kind", { token_type: "bot", access_token: "xoxb-canary", refresh_token: "refresh-canary", expires_in: 3600 }, "refresh_token_kind_mismatch"],
+    ["missing replacement refresh token", { token_type: "user", access_token: "xoxp-canary", expires_in: 3600 }, "malformed_refresh_response"],
+    ["invalid expiry", { token_type: "user", access_token: "xoxp-canary", refresh_token: "refresh-canary", expires_in: 0 }, "malformed_refresh_response"]
+  ])("rejects %s without exposing credential material", async (_label, responseBody, errorClass) => {
+    const client = createFetchSlackOAuthClient({
+      clientId: "client-id",
+      clientSecret: "client-secret-canary",
+      fetchImpl: vi.fn<typeof fetch>().mockResolvedValue({ json: async () => ({ ok: true, ...responseBody }) } as Response)
+    });
+
+    const result = await client.refreshToken({ refreshToken: "old-user-refresh-canary", kind: "user" });
+    expect(result).toEqual({ ok: false, errorClass });
+    expect(JSON.stringify(result)).not.toMatch(/xox[bp]-|refresh-canary/i);
+  });
+
+  it("preserves a safe definitive Slack refresh error class", async () => {
+    const client = createFetchSlackOAuthClient({
+      clientId: "client-id",
+      clientSecret: "client-secret-canary",
+      fetchImpl: vi.fn<typeof fetch>().mockResolvedValue({ json: async () => ({ ok: false, error: "token_expired" }) } as Response)
+    });
+
+    await expect(client.refreshToken({ refreshToken: "expired-refresh-canary", kind: "user" })).resolves.toEqual({
+      ok: false,
+      errorClass: "token_expired"
     });
   });
 
