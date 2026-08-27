@@ -325,13 +325,21 @@ export function createPostgresDelegatedDeliveryStore(database: Database): Delega
            join slack_delivery_delegation_requests r on r.id = c.request_id
            join slack_connections sc on sc.id = r.approved_slack_connection_id
                                     and sc.prism_user_id = r.approved_prism_user_id
-                                    and sc.team_id = r.approved_slack_team_id
                                     and sc.authed_user_id = r.approved_slack_user_id
+           left join slack_connection_workspace_grants wg
+             on wg.slack_connection_id = sc.id
+            and wg.team_id = r.approved_slack_team_id
+            and wg.status = 'active'
            join slack_credentials cred on cred.connection_id = sc.id and cred.kind = 'user'
            where c.code_hash = $1 and c.used_at is null and c.expires_at > $5
              and r.client_id = $2 and r.callback_uri = $3 and r.code_challenge = $4
              and r.state = 'approved' and r.delivery_expires_at > $5
              and sc.status = 'healthy'
+             and (
+               (sc.installation_scope = 'workspace' and sc.team_id = r.approved_slack_team_id)
+               or
+               (sc.installation_scope = 'organization' and wg.team_id = r.approved_slack_team_id)
+             )
            for update of c, r, sc, cred`,
           [input.codeHash, input.clientId, input.redirectUri, input.codeChallenge, input.now]
         );
@@ -475,6 +483,8 @@ export function createPostgresDelegatedDeliveryStore(database: Database): Delega
            from slack_delivery_grants g
            join slack_delivery_delegation_requests r on r.id = g.request_id
            left join slack_connections sc on sc.id = g.slack_connection_id
+           left join slack_connection_workspace_grants wg on wg.slack_connection_id = sc.id
+             and wg.team_id = g.team_id and wg.status = 'active'
            left join slack_credentials cred on cred.connection_id = sc.id and cred.kind = 'user'
            where g.id = $1`,
           [input.grantId]
@@ -500,7 +510,13 @@ const EXECUTION_COLUMNS = `g.id as grant_id, g.request_id, r.external_job_id, r.
   g.dpop_jkt, g.prism_user_id, g.slack_connection_id, g.connection_id_snapshot,
   g.slack_user_id, g.team_id, g.channel_id, r.payload_envelope, r.payload_sha256,
   r.not_before, g.expires_at, g.state, g.slack_ts, g.last_error_code,
-  g.lease_expires_at, sc.status as connection_status, cred.scopes as user_scopes`;
+  g.lease_expires_at,
+  case
+    when sc.installation_scope = 'workspace' and sc.team_id = g.team_id then sc.status
+    when sc.installation_scope = 'organization' and wg.team_id = g.team_id then sc.status
+    else null
+  end as connection_status,
+  cred.scopes as user_scopes`;
 
 function executionSelect(lock: boolean): string {
   return `select ${EXECUTION_COLUMNS}
@@ -508,7 +524,8 @@ function executionSelect(lock: boolean): string {
     join slack_delivery_delegation_requests r on r.id = g.request_id
     left join slack_connections sc on sc.id = g.slack_connection_id
       and sc.prism_user_id = g.prism_user_id and sc.authed_user_id = g.slack_user_id
-      and sc.team_id = g.team_id
+    left join slack_connection_workspace_grants wg on wg.slack_connection_id = sc.id
+      and wg.team_id = g.team_id and wg.status = 'active'
     left join slack_credentials cred on cred.connection_id = sc.id and cred.kind = 'user'
     where g.grant_hash = $1 and g.pepper_id = $2${lock ? " for update of g, r" : ""}`;
 }
@@ -579,13 +596,23 @@ async function resolveEligibleIdentity(
   const result = await database.query<IdentityRow>(
     `select s.prism_user_id, c.id as slack_connection_id, c.authed_user_id as slack_user_id,
             nullif(c.authed_user_display_name, '') as slack_user_display_name,
-            c.team_id, nullif(c.team_name, '') as team_name, cred.scopes as user_scopes
+            $4::text as team_id, nullif(coalesce(g.team_name, c.team_name), '') as team_name,
+            cred.scopes as user_scopes
      from prism_sessions s
      join slack_connections c on c.prism_user_id = s.prism_user_id
      join slack_credentials cred on cred.connection_id = c.id and cred.kind = 'user'
+     left join slack_connection_workspace_grants g
+       on g.slack_connection_id = c.id and g.team_id = $4 and g.status = 'active'
      where s.session_token_hash = $1 and s.expires_at > $2
-       and s.prism_user_id = $3 and c.team_id = $4 and c.status = 'healthy'
-     order by c.updated_at desc
+       and s.prism_user_id = $3 and c.status = 'healthy'
+       and (
+         (c.installation_scope = 'workspace' and c.team_id = $4)
+         or
+         (c.installation_scope = 'organization' and g.team_id = $4)
+       )
+     order by case when c.installation_scope = 'workspace' then 0 else 1 end,
+              c.updated_at desc,
+              c.id
      limit 1${lock ? " for update of s, c, cred" : ""}`,
     [sessionTokenHash, now, request.expectedPrismUserId, request.teamId]
   );

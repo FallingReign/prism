@@ -203,7 +203,11 @@ describe("Postgres delegated delivery issuance store", () => {
       if (sql.includes("join slack_credentials cred")) {
         expect(sql).toContain("cred.kind = 'user'");
         expect(sql).toContain("s.prism_user_id = $3");
-        expect(sql).toContain("c.team_id = $4");
+        expect(sql).toContain("slack_connection_workspace_grants");
+        expect(sql).toContain("g.status = 'active'");
+        expect(sql).toContain("c.installation_scope = 'workspace'");
+        expect(sql).toContain("c.installation_scope = 'organization'");
+        expect(sql).toContain("case when c.installation_scope = 'workspace' then 0 else 1 end");
         expect(sql).toContain("c.status = 'healthy'");
         return {
           rows: [{
@@ -370,7 +374,10 @@ describe("Postgres delegated delivery issuance store", () => {
       if (sql.includes("insert into slack_delivery_dpop_replay")) return { rows: [], rowCount: 1 };
       if (sql.includes("from slack_delivery_authorization_codes c") && sql.includes("for update of c, r, sc, cred")) {
         expect(sql).toContain("sc.prism_user_id = r.approved_prism_user_id");
-        expect(sql).toContain("sc.team_id = r.approved_slack_team_id");
+        expect(sql).toContain("slack_connection_workspace_grants wg");
+        expect(sql).toContain("wg.status = 'active'");
+        expect(sql).toContain("sc.installation_scope = 'workspace'");
+        expect(sql).toContain("sc.installation_scope = 'organization'");
         expect(sql).toContain("sc.authed_user_id = r.approved_slack_user_id");
         expect(sql).toContain("cred.kind = 'user'");
         expect(sql).toContain("sc.status = 'healthy'");

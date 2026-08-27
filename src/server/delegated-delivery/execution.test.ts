@@ -66,29 +66,36 @@ async function fixture(slackResult: { status: number; body: unknown }) {
     trustProxyHeaders: false,
     limits: DEFAULT_DELEGATED_DELIVERY_LIMITS,
   };
+  const slackClient = { callMethod: vi.fn().mockResolvedValue(slackResult) };
   const decision = await executeDelegatedSlackMessage({
     grantToken,
     dpopProof: proof,
     store,
     cipher: { encrypt: vi.fn(), decrypt: vi.fn().mockResolvedValue(canonical) },
     credentialProvider: { getAccessToken: vi.fn().mockResolvedValue({ kind: "available", accessToken: "xoxp-test" }) },
-    slackClient: { callMethod: vi.fn().mockResolvedValue(slackResult) },
+    slackClient,
     config,
     now,
     randomId: () => "lease-1",
   });
-  return { decision, store };
+  return { decision, store, slackClient };
 }
 
 describe("delegated Slack execution", () => {
   it("delivers the immutable approved payload once as the bound user", async () => {
-    const { decision, store } = await fixture({
+    const { decision, store, slackClient } = await fixture({
       status: 200,
       body: { ok: true, channel: "C12345678", ts: "1787710000.000100" },
     });
     expect(decision).toMatchObject({ kind: "success", body: { state: "sent", slack_ts: "1787710000.000100" } });
     expect(store.markGrantUpstreamCalled).toHaveBeenCalledOnce();
     expect(store.finishGrantExecution).toHaveBeenCalledWith(expect.objectContaining({ state: "sent", upstreamCalled: true }));
+    expect(slackClient.callMethod).toHaveBeenCalledWith(expect.objectContaining({
+      payload: expect.objectContaining({
+        channel: "C12345678",
+        client_context_team_id: "T12345678"
+      })
+    }));
   });
 
   it("marks every Slack 5xx as outcome unknown instead of retrying", async () => {

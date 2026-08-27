@@ -99,7 +99,7 @@ export async function executeDelegatedSlackMessage(input: {
     method: "chat.postMessage",
     httpMethod: "POST",
     payloadEncoding: "json",
-    payload,
+    payload: { ...payload, client_context_team_id: binding.teamId },
     executionMode: "user",
     accessToken: credential.accessToken
   });
