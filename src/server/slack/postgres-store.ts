@@ -97,24 +97,40 @@ export function createPostgresOAuthFlowStore(
       };
     },
     async upsertPrismUser(input) {
+      const organization = input.identityScope === "organization";
       const result = await database.query<{ id: string }>(
-        `insert into prism_users (id, slack_team_id, slack_user_id, slack_enterprise_id)
-         values ($1, $2, $3, $4)
-         on conflict (slack_team_id, slack_user_id)
-         do update set slack_enterprise_id = excluded.slack_enterprise_id, updated_at = now()
+        `insert into prism_users
+           (id, identity_scope, identity_scope_id, slack_team_id, slack_user_id, slack_enterprise_id)
+         values ($1, $2, $3, $4, $5, $6)
+         on conflict (${organization ? "slack_enterprise_id, slack_user_id) where identity_scope = 'organization'" : "slack_team_id, slack_user_id)"}
+         do update set
+           identity_scope_id = excluded.identity_scope_id,
+           slack_enterprise_id = excluded.slack_enterprise_id,
+           updated_at = now()
          returning id`,
-        [randomUUID(), input.slackTeamId, input.slackUserId, input.slackEnterpriseId]
+        [
+          randomUUID(),
+          input.identityScope,
+          organization ? input.slackEnterpriseId : input.slackTeamId,
+          input.slackTeamId,
+          input.slackUserId,
+          input.slackEnterpriseId
+        ]
       );
       return { id: result.rows[0]!.id };
     },
     async upsertSlackConnection(input) {
       const result = await database.query<{ id: string }>(
         `insert into slack_connections
-          (id, prism_user_id, team_id, team_name, enterprise_id, enterprise_name, authed_user_id, app_id, bot_scopes, user_scopes, status, last_error_class)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'healthy', null)
-         on conflict (team_id, authed_user_id)
+          (id, prism_user_id, installation_scope, is_enterprise_install, team_id, team_name,
+           enterprise_id, enterprise_name, authed_user_id, app_id, bot_scopes, user_scopes, status, last_error_class)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'healthy', null)
+         on conflict (${input.installationScope === "organization"
+           ? "app_id, enterprise_id, authed_user_id) where installation_scope = 'organization'"
+           : "app_id, team_id, authed_user_id) where installation_scope = 'workspace'"})
          do update set
-           prism_user_id = excluded.prism_user_id,
+          prism_user_id = excluded.prism_user_id,
+           is_enterprise_install = excluded.is_enterprise_install,
            team_name = excluded.team_name,
            enterprise_id = excluded.enterprise_id,
            enterprise_name = excluded.enterprise_name,
@@ -128,6 +144,8 @@ export function createPostgresOAuthFlowStore(
         [
           randomUUID(),
           input.prismUserId,
+          input.installationScope,
+          input.isEnterpriseInstall,
           input.teamId,
           input.teamName,
           input.enterpriseId,
@@ -139,6 +157,22 @@ export function createPostgresOAuthFlowStore(
         ]
       );
       return { id: result.rows[0]!.id };
+    },
+    async upsertWorkspaceGrant(input) {
+      await database.query(
+        `insert into slack_connection_workspace_grants
+           (id, slack_connection_id, team_id, team_name, status, source, discovered_at, last_verified_at)
+         values ($1, $2, $3, $4, 'active', $5, $6, $6)
+         on conflict (slack_connection_id, team_id)
+         do update set
+           team_name = excluded.team_name,
+           status = 'active',
+           source = excluded.source,
+           last_verified_at = excluded.last_verified_at,
+           revoked_at = null,
+           updated_at = now()`,
+        [randomUUID(), input.connectionId, input.teamId, input.teamName, input.source, input.verifiedAt]
+      );
     },
     async saveSlackCredential(input) {
       await saveCredential(database, input);

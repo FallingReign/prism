@@ -5,7 +5,9 @@ const SLACK_OAUTH_TIMEOUT_MS = 15_000;
 export type SlackOAuthSuccess = {
   ok: true;
   appId: string;
-  team: { id: string; name?: string };
+  installationScope: "workspace" | "organization";
+  isEnterpriseInstall: boolean;
+  team: { id: string; name?: string } | null;
   enterprise?: { id: string; name?: string } | null;
   authedUser: {
     id: string;
@@ -120,10 +122,17 @@ function normalizeSlackOAuthSuccess(body: Record<string, any>): SlackOAuthResult
   const teamId = body.team?.id;
   const authedUserId = body.authed_user?.id;
   const enterpriseId = body.enterprise?.id;
+  const isEnterpriseInstall = body.is_enterprise_install === true;
+  const hasWorkspace = nonemptySlackIdentifier(teamId);
+  const hasEnterprise = nonemptySlackIdentifier(enterpriseId);
+  const validInstallationShape = isEnterpriseInstall
+    ? !hasWorkspace && hasEnterprise
+    : hasWorkspace;
   if (
     !nonemptySlackIdentifier(appId) ||
-    !nonemptySlackIdentifier(teamId) ||
     !nonemptySlackIdentifier(authedUserId) ||
+    !validInstallationShape ||
+    (body.is_enterprise_install !== undefined && typeof body.is_enterprise_install !== "boolean") ||
     (body.enterprise !== undefined && body.enterprise !== null && !nonemptySlackIdentifier(enterpriseId))
   ) {
     return { ok: false, errorClass: "slack_error" };
@@ -140,7 +149,9 @@ function normalizeSlackOAuthSuccess(body: Record<string, any>): SlackOAuthResult
   return {
     ok: true,
     appId,
-    team: { id: teamId, name: body.team?.name },
+    installationScope: isEnterpriseInstall ? "organization" : "workspace",
+    isEnterpriseInstall,
+    team: hasWorkspace ? { id: teamId, name: body.team?.name } : null,
     enterprise: body.enterprise ? { id: enterpriseId, name: body.enterprise.name } : null,
     authedUser: {
       id: authedUserId,

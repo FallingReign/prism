@@ -47,10 +47,17 @@ export type OAuthFlowStore = {
     oidcAuthorizationRequestId: string | null;
     delegatedDeliveryRequestId?: string | null;
   } | null>;
-  upsertPrismUser(input: { slackTeamId: string; slackUserId: string; slackEnterpriseId: string | null }): Promise<{ id: string }>;
+  upsertPrismUser(input: {
+    identityScope: "workspace" | "organization";
+    slackTeamId: string | null;
+    slackUserId: string;
+    slackEnterpriseId: string | null;
+  }): Promise<{ id: string }>;
   upsertSlackConnection(input: {
     prismUserId: string;
-    teamId: string;
+    installationScope: "workspace" | "organization";
+    isEnterpriseInstall: boolean;
+    teamId: string | null;
     teamName: string | null;
     enterpriseId: string | null;
     enterpriseName: string | null;
@@ -59,6 +66,13 @@ export type OAuthFlowStore = {
     botScopes: string;
     userScopes: string;
   }): Promise<{ id: string }>;
+  upsertWorkspaceGrant(input: {
+    connectionId: string;
+    teamId: string;
+    teamName: string | null;
+    source: "oauth" | "legacy_backfill" | "auth_teams_list" | "event";
+    verifiedAt: Date;
+  }): Promise<void>;
   saveSlackCredential(input: {
     connectionId: string;
     kind: "bot" | "user";
@@ -74,7 +88,7 @@ export type OAuthFlowStore = {
     setupSessionId: string;
     prismUserId: string;
     slackConnectionId: string;
-    slackTeamId: string;
+    slackTeamId: string | null;
     slackUserId: string;
     requestId: string;
     now: Date;
@@ -235,7 +249,8 @@ export async function completeSlackOAuthCallback({
 
   if (
     !nonemptySlackIdentifier(slackResult.appId) ||
-    !nonemptySlackIdentifier(slackResult.team.id) ||
+    (slackResult.installationScope === "workspace" && !nonemptySlackIdentifier(slackResult.team?.id ?? "")) ||
+    (slackResult.installationScope === "organization" && !nonemptySlackIdentifier(slackResult.enterprise?.id ?? "")) ||
     !nonemptySlackIdentifier(slackResult.authedUser.id) ||
     (runtime.config.userScopes.length > 0 && !usableInstallationCredential(slackResult.authedUser, "user")) ||
     (runtime.config.botScopes.length > 0 && !usableInstallationCredential(slackResult.bot, "bot"))
@@ -252,14 +267,17 @@ export async function completeSlackOAuthCallback({
   try {
     await store.transaction(async (transactionStore) => {
       const prismUser = await transactionStore.upsertPrismUser({
-        slackTeamId: slackResult.team.id,
+        identityScope: slackResult.installationScope,
+        slackTeamId: slackResult.team?.id ?? null,
         slackUserId: slackResult.authedUser.id,
         slackEnterpriseId: slackResult.enterprise?.id ?? null
       });
       const connection = await transactionStore.upsertSlackConnection({
         prismUserId: prismUser.id,
-        teamId: slackResult.team.id,
-        teamName: slackResult.team.name ?? null,
+        installationScope: slackResult.installationScope,
+        isEnterpriseInstall: slackResult.isEnterpriseInstall,
+        teamId: slackResult.team?.id ?? null,
+        teamName: slackResult.team?.name ?? null,
         enterpriseId: slackResult.enterprise?.id ?? null,
         enterpriseName: slackResult.enterprise?.name ?? null,
         authedUserId: slackResult.authedUser.id,
@@ -267,6 +285,16 @@ export async function completeSlackOAuthCallback({
         botScopes: slackResult.bot?.scope ?? "",
         userScopes: slackResult.authedUser.scope ?? ""
       });
+
+      if (slackResult.team) {
+        await transactionStore.upsertWorkspaceGrant({
+          connectionId: connection.id,
+          teamId: slackResult.team.id,
+          teamName: slackResult.team.name ?? null,
+          source: "oauth",
+          verifiedAt: now
+        });
+      }
 
       await storeCredentialIfPresent({
         store: transactionStore,
@@ -291,7 +319,7 @@ export async function completeSlackOAuthCallback({
           setupSessionId: setupBinding.setupSessionId,
           prismUserId: prismUser.id,
           slackConnectionId: connection.id,
-          slackTeamId: slackResult.team.id,
+          slackTeamId: slackResult.team?.id ?? null,
           slackUserId: slackResult.authedUser.id,
           requestId,
           now

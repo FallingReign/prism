@@ -40,6 +40,7 @@ function createMemoryStore(): OAuthFlowStore & { rows: Record<string, unknown[]>
     states: [] as any[],
     users: [] as any[],
     connections: [] as any[],
+    workspaceGrants: [] as any[],
     credentials: [] as any[],
     sessions: [] as any[],
     tokenProfiles: [] as any[],
@@ -82,6 +83,11 @@ function createMemoryStore(): OAuthFlowStore & { rows: Record<string, unknown[]>
       const connection = { id: `conn_${rows.connections.length + 1}`, ...input, status: "healthy", lastErrorClass: null };
       rows.connections.push(connection);
       return connection;
+    },
+    async upsertWorkspaceGrant(input) {
+      const existing = rows.workspaceGrants.find((row) => row.connectionId === input.connectionId && row.teamId === input.teamId);
+      if (existing) Object.assign(existing, input, { status: "active" });
+      else rows.workspaceGrants.push({ ...input, status: "active" });
     },
     async saveSlackCredential(input) {
       rows.credentials = rows.credentials.filter((row) => !(row.connectionId === input.connectionId && row.kind === input.kind));
@@ -164,6 +170,8 @@ describe("Slack OAuth flow", () => {
           return {
             ok: true,
             appId: "A123",
+            installationScope: "workspace",
+            isEnterpriseInstall: false,
             team: { id: "T123", name: "Example" },
             enterprise: { id: "E123", name: "Example Enterprise" },
             authedUser: {
@@ -257,6 +265,8 @@ describe("Slack OAuth flow", () => {
           return {
             ok: true,
             appId: "A123",
+            installationScope: "workspace",
+            isEnterpriseInstall: false,
             team: { id: "T123" },
             enterprise: null,
             authedUser: { id: "U123" }
@@ -316,6 +326,8 @@ describe("Slack OAuth flow", () => {
           return {
             ok: true,
             appId: "A0123456789",
+            installationScope: "workspace",
+            isEnterpriseInstall: false,
             team: { id: "T0123456789" },
             enterprise: null,
             authedUser: {
@@ -412,6 +424,8 @@ describe("Slack OAuth flow", () => {
           return {
             ok: true,
             appId: "",
+            installationScope: "workspace",
+            isEnterpriseInstall: false,
             team: { id: "" },
             enterprise: null,
             authedUser: { id: "" }
@@ -461,6 +475,8 @@ describe("Slack OAuth flow", () => {
           return {
             ok: true,
             appId: "A123",
+            installationScope: "workspace",
+            isEnterpriseInstall: false,
             team: { id: "T123" },
             enterprise: null,
             authedUser: { id: "U123", scope: "chat:write" }
@@ -613,6 +629,8 @@ describe("Slack OAuth flow", () => {
         return {
           ok: true,
           appId: "A123",
+          installationScope: "workspace",
+          isEnterpriseInstall: false,
           team: { id: "T123" },
           enterprise: null,
           authedUser: {

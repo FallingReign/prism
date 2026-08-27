@@ -20,6 +20,8 @@ export function createMockSlackOAuthClient({
       return {
         ok: true,
         appId: MOCK_APP_ID,
+        installationScope: "workspace",
+        isEnterpriseInstall: false,
         team: { id: MOCK_TEAM_ID, name: "Mock workspace" },
         enterprise: null,
         authedUser: {

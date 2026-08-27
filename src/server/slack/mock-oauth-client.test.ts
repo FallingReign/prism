@@ -14,7 +14,7 @@ describe("mock Slack OAuth client", () => {
     expect(result.ok).toBe(true);
     if (!result.ok) throw new Error("expected mock OAuth success");
     expect(result.appId).toMatch(/^A[A-Z0-9]{8,}$/);
-    expect(result.team.id).toMatch(/^T[A-Z0-9]{8,}$/);
+    expect(result.team?.id).toMatch(/^T[A-Z0-9]{8,}$/);
     expect(result.authedUser.id).toMatch(/^U[A-Z0-9]{8,}$/);
     expect(result.authedUser.scope).toBe("search:read,chat:write");
     expect(result.bot?.scope).toBe("channels:read");
