@@ -52,6 +52,28 @@ describe("Postgres OIDC store", () => {
     expect(query).toHaveBeenCalledWith(expect.stringContaining("c.status = 'healthy'"), [hashSecret("session-token"), now]);
   });
 
+  it("derives Playtest initial-admin eligibility only from a live global configuration admin row", async () => {
+    const query = vi.fn(async (sql: string, params?: unknown[]) => {
+      expect(sql).toContain("from prism_configuration_admins");
+      expect(sql).toContain("role = 'global_configuration_admin'");
+      expect(sql).toContain("revoked_at is null");
+      expect(params).toEqual(["user-1"]);
+      return { rows: [{ eligible: true }], rowCount: 1 };
+    });
+
+    await expect(createPostgresOidcStore(fakeDatabase(query)).resolvePlaytestInitialAdminEligibility({
+      prismUserId: "user-1"
+    })).resolves.toBe(true);
+  });
+
+  it("denies Playtest initial-admin eligibility when no live configuration admin row exists", async () => {
+    const query = vi.fn(async () => ({ rows: [{ eligible: false }], rowCount: 1 }));
+
+    await expect(createPostgresOidcStore(fakeDatabase(query)).resolvePlaytestInitialAdminEligibility({
+      prismUserId: "revoked-user"
+    })).resolves.toBe(false);
+  });
+
   it("uses shared Postgres client/source buckets and performs bounded expiry cleanup", async () => {
     const now = new Date("2026-08-21T00:00:00.000Z");
     const buckets = new Map<string, { request_count: number; window_reset_at: Date }>();

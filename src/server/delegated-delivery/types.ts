@@ -100,6 +100,20 @@ export type DelegatedTokenResponse = {
   expires_at: string;
 };
 
+export type DelegatedExecutionResponse = {
+  state: "sent" | "failed" | "outcome_unknown";
+  grant_id: string;
+  external_job_id: string;
+  revision: number;
+  prism_user_id: string;
+  slack_user_id: string;
+  team_id: string;
+  channel_id: string;
+  payload_sha256: string;
+  slack_ts: string | null;
+  error: string | null;
+};
+
 export type DelegatedErrorCode =
   | "access_denied"
   | "feature_disabled"
@@ -108,6 +122,7 @@ export type DelegatedErrorCode =
   | "invalid_dpop_proof"
   | "invalid_grant"
   | "invalid_request"
+  | "not_yet_valid"
   | "lifecycle_conflict"
   | "not_found"
   | "policy_denied"
@@ -128,6 +143,7 @@ export class DelegatedDeliveryStoreError extends Error {
       | "idempotency_conflict"
       | "lifecycle_conflict"
       | "not_found"
+      | "not_yet_valid"
       | "policy_denied"
       | "proof_replay"
       | "rate_limited",

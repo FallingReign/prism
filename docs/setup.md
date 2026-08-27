@@ -44,7 +44,11 @@ collection of local environment variables.
 The Client Secret is encrypted before database storage and is never returned
 to the browser. A saved configuration remains pending until Slack OAuth
 succeeds. That callback activates the immutable configuration and makes the
-signed-in Slack user the initial Prism configuration administrator.
+signed-in Slack user the initial full Prism administrator. That persisted role
+controls the user directory, Token profiles, global policy, and configuration.
+Additional global administrators are granted or removed from **Admin > User
+directory**; Prism prevents self-removal and removal of the final active
+administrator. The JSON allowlist remains break-glass compatibility only.
 
 Slack has no all-scopes wildcard. When no scope selection is supplied, Prism
 defaults to every scope in its reviewed, typed catalogue and passes those

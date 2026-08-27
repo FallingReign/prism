@@ -16,7 +16,7 @@ export default async function AdminTokenProfilePolicyPage() {
     const cookieStore = await cookies();
     const decision = await resolvePrismAdmin({
       store: createPostgresAdminIdentityStore(database),
-      allowlist: await loadAdminAllowlist(),
+      allowlist: loadAdminAllowlist,
       sessionToken: cookieStore.get(prismSessionCookieName)?.value
     });
 

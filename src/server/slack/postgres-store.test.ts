@@ -2,7 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { Database } from "../db";
 import { hashSecret } from "./oauth-flow";
-import { createPostgresOAuthFlowStore, getSlackLinkStatus } from "./postgres-store";
+import {
+  createPostgresOAuthFlowStore,
+  createPostgresRefreshStore,
+  createPostgresSlackConnectionDisplayNameStore,
+  getSlackLinkStatus
+} from "./postgres-store";
 
 describe("Postgres Slack website status", () => {
   it("returns friendly workspace and organization names from the session-scoped connection", async () => {
@@ -47,6 +52,24 @@ describe("Postgres Slack website status", () => {
 });
 
 describe("Postgres Slack OAuth continuation state", () => {
+  it("serializes refreshes with a transaction-scoped advisory lock", async () => {
+    const query = vi.fn(async (sql: string, params?: unknown[]) => {
+      expect(sql).toContain("pg_advisory_xact_lock");
+      expect(params).toEqual(["slack-credential-refresh:conn_1:user"]);
+      return { rows: [], rowCount: 1 };
+    });
+    const store = createPostgresRefreshStore(fakeDatabase(query));
+
+    await expect(store.withCredentialRefreshLock?.(
+      { connectionId: "conn_1", kind: "user" },
+      async (lockedStore) => {
+        expect(lockedStore).not.toBe(store);
+        return "locked";
+      }
+    )).resolves.toBe("locked");
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+
   it("stores and consumes typed delegated-delivery and immutable configuration bindings", async () => {
     const delegatedDeliveryRequestId = "ddr_12345678-1234-4123-8123-123456789012";
     const query = vi.fn(async (sql: string, params?: unknown[]) => {
@@ -107,6 +130,27 @@ describe("Postgres Slack OAuth continuation state", () => {
       oidcAuthorizationRequestId: null,
       delegatedDeliveryRequestId
     });
+  });
+
+  it("atomically claims a cooled-down missing-name attempt before external lookup", async () => {
+    const attemptedAt = new Date("2026-01-01T01:00:00.000Z");
+    const retryIfAttemptedBefore = new Date("2026-01-01T00:45:00.000Z");
+    const query = vi.fn(async (sql: string, params?: unknown[]) => {
+      expect(sql).toContain("update slack_connections");
+      expect(sql).toContain("display_names_enriched_at <= $3");
+      expect(sql).toContain("status = 'healthy'");
+      expect(sql).toContain("authed_user_display_name");
+      expect(sql).toContain("returning id");
+      expect(params).toEqual(["conn_1", attemptedAt, retryIfAttemptedBefore]);
+      return { rows: [{ id: "conn_1" }], rowCount: 1 };
+    });
+
+    await expect(
+      createPostgresSlackConnectionDisplayNameStore(fakeDatabase(query))
+        .claimConnectionDisplayNameEnrichmentAttempt({
+          connectionId: "conn_1", attemptedAt, retryIfAttemptedBefore
+        })
+    ).resolves.toBe(true);
   });
 });
 

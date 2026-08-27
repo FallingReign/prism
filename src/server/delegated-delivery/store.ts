@@ -8,6 +8,27 @@ import type {
   DelegationRequestRecord
 } from "./types";
 
+export type DelegatedGrantExecutionBinding = {
+  grantId: string;
+  requestId: string;
+  externalJobId: string;
+  revision: number;
+  dpopJkt: string;
+  prismUserId: string;
+  slackConnectionId: string;
+  connectionIdSnapshot: string;
+  slackUserId: string;
+  teamId: string;
+  channelId: string;
+  payloadEnvelope: CredentialEnvelope;
+  payloadSha256: string;
+  notBefore: Date;
+  expiresAt: Date;
+  state: "active" | "executing" | "sent" | "failed" | "cancelled" | "expired" | "outcome_unknown";
+  slackTs: string | null;
+  lastErrorCode: string | null;
+};
+
 export type DelegatedStoreLimits = {
   statusRetentionMs: number;
   rateWindowMs: number;
@@ -112,4 +133,32 @@ export type DelegatedDeliveryStore = {
     statusRetentionMs: number;
     now: Date;
   }): Promise<DelegatedGrantExchangeResult | null>;
+  loadGrantExecutionBinding(input: {
+    grantHash: string;
+    pepperId: string;
+  }): Promise<DelegatedGrantExecutionBinding | null>;
+  claimGrantExecution(input: {
+    grantHash: string;
+    pepperId: string;
+    proofReplay: VerifiedProofReplay;
+    leaseId: string;
+    leaseExpiresAt: Date;
+    now: Date;
+  }): Promise<DelegatedGrantExecutionBinding>;
+  finishGrantExecution(input: {
+    grantId: string;
+    leaseId: string;
+    state: "sent" | "failed" | "outcome_unknown";
+    slackRequestId?: string | null;
+    slackTs?: string | null;
+    errorCode?: string | null;
+    httpStatus?: number | null;
+    upstreamCalled: boolean;
+    now: Date;
+  }): Promise<DelegatedGrantExecutionBinding>;
+  markGrantUpstreamCalled(input: {
+    grantId: string;
+    leaseId: string;
+    now: Date;
+  }): Promise<void>;
 };

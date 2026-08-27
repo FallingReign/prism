@@ -18,7 +18,7 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
     const [{ userId }, cookieStore] = await Promise.all([params, cookies()]);
     const decision = await resolvePrismAdmin({
       store: createPostgresAdminIdentityStore(database),
-      allowlist: await loadAdminAllowlist(),
+      allowlist: loadAdminAllowlist,
       sessionToken: cookieStore.get(prismSessionCookieName)?.value
     });
     const result = await getAdminUserDetail({
@@ -30,7 +30,7 @@ export default async function AdminUserDetailPage({ params }: { params: Promise<
     });
     if (result.kind === "not_found") redirect("/admin/users/not-found");
     if (result.kind !== "detail") return <AdminAccessDenied />;
-    return <AdminUserDetailView scope={result.scope} detail={result.detail} />;
+    return <AdminUserDetailView scope={result.scope} detail={result.detail} actorPrismUserId={decision.kind === "authorized" ? decision.prismUserId : null} />;
   } catch (error) {
     if (error instanceof AdminAllowlistUnavailableError) return <AdminAccessDenied />;
     throw error;

@@ -158,7 +158,7 @@ async function readAdminConsoleVisibility(sessionToken: string | undefined): Pro
   try {
     const decision = await resolvePrismAdmin({
       store: createPostgresAdminIdentityStore(database),
-      allowlist: await loadAdminAllowlist(),
+      allowlist: loadAdminAllowlist,
       sessionToken
     });
     return decision.kind === "authorized";

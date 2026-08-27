@@ -8,6 +8,7 @@ import type {
   DelegatedApprovalResult,
   DelegatedConsentLookup,
   DelegatedDeliveryStore,
+  DelegatedGrantExecutionBinding,
   DelegatedGrantExchangeResult,
   DelegatedStoreLimits,
   StoredDelegationRequestResult
@@ -398,8 +399,151 @@ export function createPostgresDelegatedDeliveryStore(database: Database): Delega
         ));
         return toGrantExchangeResult(input.grantId, row);
       });
+    },
+
+    async loadGrantExecutionBinding({ grantHash, pepperId }) {
+      const result = await database.query<ExecutionRow>(executionSelect(false), [grantHash, pepperId]);
+      return result.rows[0] ? toExecutionBinding(result.rows[0]) : null;
+    },
+
+    async claimGrantExecution(input) {
+      return database.transaction(async (tx) => {
+        await insertProofReplay(tx, input.proofReplay.jkt, input.proofReplay.jtiHash, input.proofReplay.expiresAt, input.now);
+        const result = await tx.query<ExecutionRow>(executionSelect(true), [input.grantHash, input.pepperId]);
+        const row = result.rows[0];
+        if (!row) throw new DelegatedDeliveryStoreError("not_found");
+        let binding = toExecutionBinding(row);
+        if (binding.expiresAt <= input.now) {
+          // Cleanup owns the durable expired transition. Throwing from this
+          // transaction deliberately avoids pretending an update survived rollback.
+          throw new DelegatedDeliveryStoreError("expired");
+        }
+        if (binding.state === "sent" || binding.state === "failed" || binding.state === "outcome_unknown") return binding;
+        if (binding.state === "cancelled" || binding.state === "expired") throw new DelegatedDeliveryStoreError("expired");
+        if (binding.state === "executing") {
+          if (row.lease_expires_at && toDate(row.lease_expires_at) <= input.now) {
+            const updated = await tx.query(
+              `update slack_delivery_grants
+               set state = 'outcome_unknown', lease_id = null, lease_expires_at = null,
+                   last_error_code = 'execution_lease_expired', terminal_at = $2, updated_at = $2
+               where id = $1`,
+              [binding.grantId, input.now]
+            );
+            if (updated.rowCount !== 1) throw new DelegatedDeliveryStoreError("lifecycle_conflict");
+            const refreshed = await tx.query<ExecutionRow>(executionSelect(false), [input.grantHash, input.pepperId]);
+            binding = toExecutionBinding(refreshed.rows[0]!);
+            await auditGrantExecution(tx, binding, "outcome_unknown", "execution_lease_expired", null, true, input.now);
+            return binding;
+          }
+          throw new DelegatedDeliveryStoreError("lifecycle_conflict");
+        }
+        if (binding.notBefore > input.now) throw new DelegatedDeliveryStoreError("not_yet_valid");
+        if (row.connection_status !== "healthy" || !hasChatWrite(row.user_scopes)) {
+          throw new DelegatedDeliveryStoreError("policy_denied");
+        }
+        const claimed = await tx.query(
+          `update slack_delivery_grants
+           set state = 'executing', attempt_count = attempt_count + 1,
+               lease_id = $2, lease_expires_at = $3, upstream_called = false,
+               last_error_code = null, updated_at = $4
+           where id = $1 and state = 'active'`,
+          [binding.grantId, input.leaseId, input.leaseExpiresAt, input.now]
+        );
+        if (claimed.rowCount !== 1) throw new DelegatedDeliveryStoreError("lifecycle_conflict");
+        const refreshed = await tx.query<ExecutionRow>(executionSelect(false), [input.grantHash, input.pepperId]);
+        return toExecutionBinding(refreshed.rows[0]!);
+      });
+    },
+
+    async finishGrantExecution(input) {
+      return database.transaction(async (tx) => {
+        const terminal = await tx.query(
+          `update slack_delivery_grants
+           set state = $3, lease_id = null, lease_expires_at = null,
+               slack_request_id = $4, slack_ts = $5, last_error_code = $6,
+               upstream_called = $7, executed_at = $8, terminal_at = $8, updated_at = $8
+           where id = $1 and state = 'executing' and lease_id = $2`,
+          [
+            input.grantId, input.leaseId, input.state,
+            input.slackRequestId ?? null, input.slackTs ?? null,
+            input.errorCode ?? null, input.upstreamCalled, input.now
+          ]
+        );
+        if (terminal.rowCount !== 1) throw new DelegatedDeliveryStoreError("lifecycle_conflict");
+        const refreshed = await tx.query<ExecutionRow>(
+          `select ${EXECUTION_COLUMNS}
+           from slack_delivery_grants g
+           join slack_delivery_delegation_requests r on r.id = g.request_id
+           left join slack_connections sc on sc.id = g.slack_connection_id
+           left join slack_credentials cred on cred.connection_id = sc.id and cred.kind = 'user'
+           where g.id = $1`,
+          [input.grantId]
+        );
+        const binding = toExecutionBinding(refreshed.rows[0]!);
+        await auditGrantExecution(tx, binding, input.state, input.errorCode ?? null, input.httpStatus ?? null, input.upstreamCalled, input.now);
+        return binding;
+      });
+    },
+
+    async markGrantUpstreamCalled(input) {
+      const updated = await database.query(
+        `update slack_delivery_grants set upstream_called = true, updated_at = $3
+         where id = $1 and state = 'executing' and lease_id = $2`,
+        [input.grantId, input.leaseId, input.now]
+      );
+      if (updated.rowCount !== 1) throw new DelegatedDeliveryStoreError("lifecycle_conflict");
     }
   };
+}
+
+const EXECUTION_COLUMNS = `g.id as grant_id, g.request_id, r.external_job_id, r.revision,
+  g.dpop_jkt, g.prism_user_id, g.slack_connection_id, g.connection_id_snapshot,
+  g.slack_user_id, g.team_id, g.channel_id, r.payload_envelope, r.payload_sha256,
+  r.not_before, g.expires_at, g.state, g.slack_ts, g.last_error_code,
+  g.lease_expires_at, sc.status as connection_status, cred.scopes as user_scopes`;
+
+function executionSelect(lock: boolean): string {
+  return `select ${EXECUTION_COLUMNS}
+    from slack_delivery_grants g
+    join slack_delivery_delegation_requests r on r.id = g.request_id
+    left join slack_connections sc on sc.id = g.slack_connection_id
+      and sc.prism_user_id = g.prism_user_id and sc.authed_user_id = g.slack_user_id
+      and sc.team_id = g.team_id
+    left join slack_credentials cred on cred.connection_id = sc.id and cred.kind = 'user'
+    where g.grant_hash = $1 and g.pepper_id = $2${lock ? " for update of g, r" : ""}`;
+}
+
+function toExecutionBinding(row: ExecutionRow): DelegatedGrantExecutionBinding {
+  if (!row.payload_envelope) throw new DelegatedDeliveryStoreError("lifecycle_conflict");
+  return {
+    grantId: row.grant_id, requestId: row.request_id, externalJobId: row.external_job_id,
+    revision: Number(row.revision), dpopJkt: row.dpop_jkt, prismUserId: row.prism_user_id,
+    slackConnectionId: row.slack_connection_id, connectionIdSnapshot: row.connection_id_snapshot,
+    slackUserId: row.slack_user_id, teamId: row.team_id, channelId: row.channel_id,
+    payloadEnvelope: row.payload_envelope, payloadSha256: row.payload_sha256,
+    notBefore: toDate(row.not_before), expiresAt: toDate(row.expires_at), state: row.state,
+    slackTs: row.slack_ts, lastErrorCode: row.last_error_code
+  };
+}
+
+async function auditGrantExecution(
+  database: Database,
+  binding: DelegatedGrantExecutionBinding,
+  status: "sent" | "failed" | "outcome_unknown",
+  errorClass: string | null,
+  httpStatus: number | null,
+  upstreamCalled: boolean,
+  now: Date
+): Promise<void> {
+  await insertActivityAuditRecord(database, {
+    prismUserId: binding.prismUserId, slackConnectionId: binding.slackConnectionId,
+    slackUserId: binding.slackUserId, slackTeamId: binding.teamId,
+    activityType: status === "outcome_unknown" ? "delegated_delivery_outcome_unknown" : "delegated_delivery_execution",
+    endpoint: "/v1/prism/delegations/slack-message/execute", slackMethod: "chat.postMessage",
+    actionCategory: "messages.write", surface: surfaceForChannel(binding.channelId),
+    objectType: "channel", objectId: binding.channelId, executionMode: "user", status,
+    errorClass, httpStatus, requestId: binding.requestId, upstreamCalled, occurredAt: now
+  });
 }
 
 const REQUEST_COLUMNS = `id, client_id, external_job_id, revision, idempotency_key,
@@ -886,6 +1030,14 @@ type GrantBindingRow = {
   prism_user_id: string | null; slack_user_id: string | null; team_id: string | null; channel_id: string;
   payload_sha256: string; not_before: Date | string; expires_at: Date | string;
   slack_connection_id: string | null; connection_id_snapshot: string | null; code_hash: string; user_scopes: string | null;
+};
+type ExecutionRow = {
+  grant_id: string; request_id: string; external_job_id: string; revision: number | string;
+  dpop_jkt: string; prism_user_id: string; slack_connection_id: string; connection_id_snapshot: string;
+  slack_user_id: string; team_id: string; channel_id: string; payload_envelope: CredentialEnvelope | null;
+  payload_sha256: string; not_before: Date | string; expires_at: Date | string;
+  state: DelegatedGrantExecutionBinding["state"]; slack_ts: string | null; last_error_code: string | null;
+  lease_expires_at: Date | string | null; connection_status: string | null; user_scopes: string | null;
 };
 type OutstandingRow = {
   client_count: number | string; source_count: number | string; user_count: number | string;

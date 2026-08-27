@@ -15,7 +15,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const decision = await resolvePrismAdmin({
       store: createPostgresAdminIdentityStore(database),
-      allowlist: await loadAdminAllowlist(),
+      allowlist: loadAdminAllowlist,
       sessionToken: request.cookies.get(prismSessionCookieName)?.value
     });
     return adminDecisionResponse(decision, requestId);

@@ -76,6 +76,35 @@ describe("GET /v1/prism/status", () => {
     expect(JSON.stringify(body)).not.toMatch(/prism_dev_|tokenHash|pepper-secret-canary|xox[bp]-|refresh|access_token|client_secret/i);
   });
 
+  it("returns canonical app binding and capabilities for an issued Playtest app token", async () => {
+    mockDb.query.mockResolvedValueOnce({
+      rows: [{
+        ...activeRow(),
+        prism_user_id: "prism-user-1",
+        client_id: "shg-playtest",
+        capability_map: {
+          ...capabilityMap,
+          preset: "custom",
+          actions: {
+            read: false, search: false, writeMessages: true,
+            reactions: false, filesMetadata: false, destructive: false
+          },
+          executionIdentity: "user"
+        }
+      }],
+      rowCount: 1
+    });
+    const { GET } = await import("./route");
+    const response = await GET(new NextRequest("http://localhost:3732/v1/prism/status", {
+      headers: { authorization: "Bearer prism_dev_playteststatuscanaryplayteststatus" }
+    }));
+    expect(await response.json()).toMatchObject({
+      application: { clientId: "shg-playtest" },
+      subject: { prismUserId: "prism-user-1" },
+      capabilityMap: { actions: { writeMessages: true, read: false }, executionIdentity: "user" }
+    });
+  });
+
   it("returns a machine-readable invalid status for missing or malformed bearer tokens", async () => {
     const { GET } = await import("./route");
     const response = await GET(new NextRequest("http://localhost:3732/v1/prism/status"));

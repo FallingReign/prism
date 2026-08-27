@@ -9,6 +9,7 @@ export type ResolvedDeveloperToken = {
   developerTokenId?: string | null;
   tokenProfileId: string;
   tokenProfileName?: string | null;
+  clientId?: string | null;
   slackConnectionId?: string | null;
   tokenExpiresAt: Date | null;
   tokenRevokedAt: Date | null;
@@ -54,6 +55,9 @@ export type PrismStatusBody = {
     modes: { user: boolean; bot: boolean; automatic: boolean; selectable: boolean };
     unavailableReason: "slack_reauth_required" | "missing_user_identity" | "missing_bot_identity" | "missing_execution_identity" | null;
   };
+  application?: { clientId: string };
+  subject?: { prismUserId: string };
+  capabilityMap?: CapabilityMap;
 };
 
 export type PrismCapabilitiesBody = {
@@ -91,7 +95,14 @@ export async function getPrismTokenStatus({
       requestId,
       token: activeTokenStatus(resolution.resolved),
       slack: slackStatus(resolution.resolved),
-      executionIdentity: executionIdentityStatus(resolution.resolved)
+      executionIdentity: executionIdentityStatus(resolution.resolved),
+      ...(resolution.resolved.clientId && resolution.resolved.prismUserId
+        ? {
+            application: { clientId: resolution.resolved.clientId },
+            subject: { prismUserId: resolution.resolved.prismUserId },
+            capabilityMap: resolution.resolved.capabilityMap
+          }
+        : {})
     }
   };
 }

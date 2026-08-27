@@ -1,10 +1,15 @@
+import { randomUUID } from "node:crypto";
+
 import { NextRequest, NextResponse } from "next/server";
 
-import { getOidcProviderConfig } from "../../../src/server/config";
+import { getDeveloperTokenConfig, getOidcProviderConfig } from "../../../src/server/config";
 import { database } from "../../../src/server/db";
 import { createPostgresOidcStore } from "../../../src/server/oidc/postgres-store";
 import { exchangeOidcCode } from "../../../src/server/oidc/service";
 import { createOidcSigningService } from "../../../src/server/oidc/signing";
+import { issuePlaytestAppCredential } from "../../../src/server/token-profiles/first-party-app";
+import { createPostgresTokenProfileStore } from "../../../src/server/token-profiles/store";
+import { createPostgresGlobalTokenProfilePolicyStore } from "../../../src/server/token-profiles/global-policy-store";
 
 export const dynamic = "force-dynamic";
 const MAX_FORM_BYTES = 16 * 1024;
@@ -38,11 +43,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       return secureOidcJson({ error: "invalid_request" }, 400);
     }
     const config = getOidcProviderConfig();
+    const requestId = randomUUID();
     const decision = await exchangeOidcCode({
       params,
       store: createPostgresOidcStore(database),
       signing: await createOidcSigningService(config),
-      config
+      config,
+      issuePlaytestAppCredential: ({ prismUserId, slackConnectionId, now }) =>
+        issuePlaytestAppCredential({
+          store: createPostgresTokenProfileStore(database),
+          globalPolicyStore: createPostgresGlobalTokenProfilePolicyStore(database),
+          developerTokenConfig: getDeveloperTokenConfig(),
+          prismUserId,
+          slackConnectionId,
+          requestId,
+          now
+        })
     });
     return decision.kind === "success"
       ? secureOidcJson(decision.body, 200)

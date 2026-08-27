@@ -1,10 +1,11 @@
-import { generateKeyPairSync } from "node:crypto";
+import { createHash, generateKeyPairSync } from "node:crypto";
 
 import { describe, expect, it } from "vitest";
 import { calculateJwkThumbprint, exportJWK, SignJWT } from "jose";
 
 import {
   verifyDelegatedClientProof,
+  verifyDelegatedExecutionDpop,
   verifyDelegatedExchangeDpop,
   type RegisteredDelegationJwk
 } from "./proof";
@@ -14,6 +15,7 @@ const now = new Date("2026-08-22T00:00:00.000Z");
 const clientId = "shg-playtest-delegation";
 const requestHtu = "https://prism.example/v1/prism/delegations/slack-message/requests";
 const tokenHtu = "https://prism.example/v1/prism/delegations/slack-message/token";
+const executeHtu = "https://prism.example/v1/prism/delegations/slack-message/execute";
 
 async function keyMaterial() {
   const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
@@ -100,6 +102,29 @@ describe("delegated client and DPoP proofs", () => {
       .sign(privateKey);
     await expect(verifyDelegatedExchangeDpop({
       proof: extraClaim, expectedJkt: jkt, expectedHtu: tokenHtu, now,
+      clockSkewSeconds: 60, proofLifetimeSeconds: 60
+    })).resolves.toEqual({ kind: "invalid" });
+  });
+
+  it("binds execution DPoP to the exact grant token with ath", async () => {
+    const { privateKey, publicJwk } = await keyMaterial();
+    const thumbprintJwk = { kty: "EC", crv: "P-256", x: publicJwk.x, y: publicJwk.y };
+    const jkt = await calculateJwkThumbprint(thumbprintJwk, "sha256");
+    const grantToken = `prism_grant_${"a".repeat(43)}`;
+    const proof = await new SignJWT({
+      htu: executeHtu,
+      htm: "POST",
+      ath: createHash("sha256").update(grantToken, "ascii").digest("base64url"),
+      iat: 1_787_356_800,
+      jti: "dpop-execute-jti-1"
+    }).setProtectedHeader({ typ: "dpop+jwt", alg: "ES256", jwk: thumbprintJwk }).sign(privateKey);
+    await expect(verifyDelegatedExecutionDpop({
+      proof, grantToken, expectedJkt: jkt, expectedHtu: executeHtu, now,
+      clockSkewSeconds: 60, proofLifetimeSeconds: 60
+    })).resolves.toMatchObject({ kind: "valid", replay: { jkt } });
+    await expect(verifyDelegatedExecutionDpop({
+      proof, grantToken: `prism_grant_${"b".repeat(43)}`,
+      expectedJkt: jkt, expectedHtu: executeHtu, now,
       clockSkewSeconds: 60, proofLifetimeSeconds: 60
     })).resolves.toEqual({ kind: "invalid" });
   });

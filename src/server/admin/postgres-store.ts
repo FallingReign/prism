@@ -33,6 +33,18 @@ export function createPostgresAdminIdentityStore(database: Database): AdminIdent
       );
       const row = result.rows[0];
       return row ? toAdminSessionIdentity(row) : null;
+    },
+    async hasActiveGlobalAdmin({ prismUserId }) {
+      const result = await database.query<{ authorized: boolean }>(
+        `select exists (
+           select 1 from prism_configuration_admins
+           where prism_user_id = $1
+             and role = 'global_configuration_admin'
+             and revoked_at is null
+         ) as authorized`,
+        [prismUserId]
+      );
+      return result.rows[0]?.authorized === true;
     }
   };
 }

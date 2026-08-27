@@ -16,7 +16,10 @@ export function formatBootstrapSuccess({ code, expiresAt, recovery }) {
     heading,
     code,
     `Expires at ${expiresAt.toISOString()}.`,
-    "Open /setup in Prism and enter this code. Do not put it in a URL or share it in chat."
+    "Open /setup in Prism and enter this code. Do not put it in a URL or share it in chat.",
+    recovery
+      ? "The Slack user who completes verification becomes the replacement full Prism administrator."
+      : "The Slack user who completes verification becomes the initial full Prism administrator."
   ];
 }
 

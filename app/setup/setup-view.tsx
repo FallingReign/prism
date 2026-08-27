@@ -82,6 +82,7 @@ function CodeEntry({ callbackUri, error }: { callbackUri: string; error?: "inval
   return (
     <Panel title="Enter your one-time setup code" titleId="setup-code-title" eyebrow="Step 1" accent="primary">
       <p>Run <code>npm run setup:bootstrap</code> on the Prism host. Paste the code printed once in that terminal.</p>
+      <Notice title="Claim Prism administration" tone="info">After Slack verification, the signed-in Slack user becomes the initial full Prism administrator. This includes user access, Token profiles, policy, and configuration.</Notice>
       <Notice title="Keep this code private" tone="warning">The code expires quickly and works once. It is sent only in this same-origin form; Prism never puts it in a URL or browser storage.</Notice>
       {error === "invalid_or_expired" ? <p className="rounded-xl border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive" role="alert">That setup code is invalid or expired. Mint a new code on the Prism host and try again.</p> : null}
       {error === "rate_limited" ? <p className="rounded-xl border border-[color:var(--prism-warning)]/60 bg-[color:var(--prism-warning-soft)] px-4 py-3 text-sm text-[color:var(--prism-warning-foreground)]" role="alert">Too many setup attempts were made. Wait a minute, then try again with your one-time code.</p> : null}
@@ -200,7 +201,7 @@ function EnvironmentLocked({ callbackUri, botScopes, userScopes }: { callbackUri
 }
 
 function SetupComplete() {
-  return <Panel title="Slack configuration is active" titleId="setup-complete-title" eyebrow="Setup complete" accent="success" badge={<StatusBadge tone="success">Verified</StatusBadge>}><p>Prism verified the app with Slack, activated the configuration, and signed you in as the initial configuration administrator.</p><div className="flex flex-wrap gap-2"><LinkButton href="/">Open Prism</LinkButton><LinkButton href="/admin/configuration" variant="secondary">View configuration</LinkButton></div></Panel>;
+  return <Panel title="Slack configuration is active" titleId="setup-complete-title" eyebrow="Setup complete" accent="success" badge={<StatusBadge tone="success">Verified</StatusBadge>}><p>Prism verified the app with Slack, activated the configuration, and signed you in as the initial full Prism administrator.</p><div className="flex flex-wrap gap-2"><LinkButton href="/admin/users">Manage Prism users</LinkButton><LinkButton href="/">Open Prism</LinkButton><LinkButton href="/admin/configuration" variant="secondary">View configuration</LinkButton></div></Panel>;
 }
 
 function ScopeSummary({ label, values }: { label: string; values: string[] }) {

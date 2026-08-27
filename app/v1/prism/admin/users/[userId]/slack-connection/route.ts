@@ -48,7 +48,7 @@ export async function DELETE(request: NextRequest, context: RouteContext): Promi
 async function authorizeAdmin(request: NextRequest): Promise<AdminAuthorizationDecision> {
   return resolvePrismAdmin({
     store: createPostgresAdminIdentityStore(database),
-    allowlist: await loadAdminAllowlist(),
+    allowlist: loadAdminAllowlist,
     sessionToken: request.cookies.get(prismSessionCookieName)?.value
   });
 }

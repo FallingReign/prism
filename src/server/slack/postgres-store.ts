@@ -317,6 +317,25 @@ export async function getSlackConnectionDisplayRecordForSession(database: Databa
 
 export function createPostgresSlackConnectionDisplayNameStore(database: Database): SlackConnectionDisplayNameStore {
   return {
+    async claimConnectionDisplayNameEnrichmentAttempt(input) {
+      const result = await database.query<{ id: string }>(
+        `update slack_connections
+         set display_names_enriched_at = $2,
+             updated_at = now()
+         where id = $1
+           and status = 'healthy'
+           and (display_names_enriched_at is null or display_names_enriched_at <= $3)
+           and (
+             (nullif(team_id, '') is not null and nullif(team_name, '') is null)
+             or (nullif(enterprise_id, '') is not null and nullif(enterprise_name, '') is null)
+             or nullif(authed_user_display_name, '') is null
+           )
+         returning id`,
+        [input.connectionId, input.attemptedAt, input.retryIfAttemptedBefore]
+      );
+      return result.rowCount === 1;
+    },
+
     async updateConnectionDisplayNames(input) {
       const result = await database.query<{
         id: string;

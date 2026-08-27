@@ -4,6 +4,7 @@ import type { OidcProviderConfig } from "../config";
 import type { OidcStore } from "./postgres-store";
 import type { OidcSigningService } from "./signing";
 import {
+  AUTHORIZATION_DISPLAY_NAME_ENRICHMENT_DEADLINE_MS,
   authorizeOidcRequest,
   exchangeOidcCode,
   resolveOidcUserInfo
@@ -71,6 +72,7 @@ function store(overrides: Partial<OidcStore> = {}): OidcStore {
     exchangeAuthorizationCode: vi.fn(async () => null),
     issueAccessToken: vi.fn(async () => ({ token: "a".repeat(43) })),
     resolveAccessToken: vi.fn(async () => null),
+    resolvePlaytestInitialAdminEligibility: vi.fn(async () => false),
     ...overrides
   };
 }
@@ -102,6 +104,63 @@ describe("OIDC authorization service", () => {
       now
     }));
     expect(oidcStore.createPendingAuthorizationRequest).not.toHaveBeenCalled();
+  });
+
+  it("best-effort enriches a missing display name and re-reads identity before issuing the code", async () => {
+    const missingName = { ...identity, slackUserDisplayName: null };
+    const resolveIdentity = vi.fn()
+      .mockResolvedValueOnce(missingName)
+      .mockResolvedValueOnce(identity);
+    const oidcStore = store({ resolveEligiblePrismSessionIdentity: resolveIdentity });
+    const enrichSessionDisplayName = vi.fn(async () => undefined);
+
+    await expect(authorizeOidcRequest({
+      url: authorizationUrl(), sessionToken: "session-token", store: oidcStore,
+      config, now, enrichSessionDisplayName
+    })).resolves.toMatchObject({ kind: "redirect" });
+
+    expect(enrichSessionDisplayName).toHaveBeenCalledWith({ identity: missingName, now });
+    expect(resolveIdentity).toHaveBeenCalledTimes(2);
+    expect(oidcStore.issueAuthorizationCode).toHaveBeenCalledWith(
+      expect.objectContaining({ prismUserId: identity.prismUserId, slackConnectionId: identity.slackConnectionId })
+    );
+  });
+
+  it("preserves ID fallback login when display-name enrichment fails", async () => {
+    const missingName = { ...identity, slackUserDisplayName: null };
+    const oidcStore = store({ resolveEligiblePrismSessionIdentity: vi.fn(async () => missingName) });
+
+    await expect(authorizeOidcRequest({
+      url: authorizationUrl(), sessionToken: "session-token", store: oidcStore,
+      config, now,
+      enrichSessionDisplayName: vi.fn(async () => { throw new Error("slack unavailable"); })
+    })).resolves.toMatchObject({ kind: "redirect" });
+
+    expect(oidcStore.issueAuthorizationCode).toHaveBeenCalledWith(
+      expect.objectContaining({ prismUserId: missingName.prismUserId, slackConnectionId: missingName.slackConnectionId })
+    );
+  });
+
+  it("returns to ID fallback within the authorization deadline when enrichment never settles", async () => {
+    vi.useFakeTimers();
+    try {
+      const missingName = { ...identity, slackUserDisplayName: null };
+      const oidcStore = store({ resolveEligiblePrismSessionIdentity: vi.fn(async () => missingName) });
+      const enrichSessionDisplayName = vi.fn(() => new Promise<void>(() => undefined));
+
+      const authorization = authorizeOidcRequest({
+        url: authorizationUrl(), sessionToken: "session-token", store: oidcStore,
+        config, now, enrichSessionDisplayName
+      });
+      await vi.advanceTimersByTimeAsync(AUTHORIZATION_DISPLAY_NAME_ENRICHMENT_DEADLINE_MS);
+
+      await expect(authorization).resolves.toMatchObject({ kind: "redirect" });
+      expect(oidcStore.issueAuthorizationCode).toHaveBeenCalledWith(
+        expect.objectContaining({ prismUserId: missingName.prismUserId, slackConnectionId: missingName.slackConnectionId })
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("persists the validated request and starts Slack login when no eligible session exists", async () => {
@@ -274,6 +333,72 @@ describe("OIDC authorization service", () => {
 });
 
 describe("OIDC token and UserInfo service", () => {
+  it("returns a client-bound Playtest app token from the server-side code exchange", async () => {
+    const code = {
+      prismUserId: identity.prismUserId, slackConnectionId: identity.slackConnectionId,
+      clientId: "shg-playtest", redirectUri: config.playtestClient.redirectUri,
+      nonce: "stored-nonce", scope: "openid profile", codeChallenge: "unused",
+      codeChallengeMethod: "S256" as const, authTime: identity.authTime
+    };
+    const issuer = vi.fn(async () => ({
+      token: `prism_dev_${"a".repeat(43)}`,
+      expiresIn: 28_800,
+      profileId: "profile_playtest"
+    }));
+    const result = await exchangeOidcCode({
+      params: new URLSearchParams({
+        grant_type: "authorization_code", client_id: "shg-playtest",
+        redirect_uri: config.playtestClient.redirectUri,
+        code: "authorization-code", code_verifier: "v".repeat(43)
+      }),
+      store: store({
+        exchangeAuthorizationCode: vi.fn(async () => ({ token: "a".repeat(43), authorizationCode: code })),
+        resolveAccessToken: vi.fn(async () => ({ ...identity, clientId: "shg-playtest", scope: code.scope }))
+      }),
+      signing: { keyId: "kid", publicJwk: {}, sign: vi.fn(async () => "signed-id-token") },
+      config,
+      now,
+      issuePlaytestAppCredential: issuer
+    });
+
+    expect(result).toMatchObject({ kind: "success", body: {
+      prism_app_token: `prism_dev_${"a".repeat(43)}`,
+      prism_app_token_expires_in: 28_800,
+      prism_app_token_profile_id: "profile_playtest"
+    }});
+    expect(issuer).toHaveBeenCalledWith({
+      prismUserId: identity.prismUserId,
+      slackConnectionId: identity.slackConnectionId,
+      now
+    });
+  });
+
+  it("keeps OIDC login available when optional Playtest app issuance fails", async () => {
+    const code = {
+      prismUserId: identity.prismUserId, slackConnectionId: identity.slackConnectionId,
+      clientId: "shg-playtest", redirectUri: config.playtestClient.redirectUri,
+      nonce: "stored-nonce", scope: "openid profile", codeChallenge: "unused",
+      codeChallengeMethod: "S256" as const, authTime: identity.authTime
+    };
+    const result = await exchangeOidcCode({
+      params: new URLSearchParams({
+        grant_type: "authorization_code", client_id: "shg-playtest",
+        redirect_uri: config.playtestClient.redirectUri,
+        code: "authorization-code", code_verifier: "v".repeat(43)
+      }),
+      store: store({
+        exchangeAuthorizationCode: vi.fn(async () => ({ token: "a".repeat(43), authorizationCode: code })),
+        resolveAccessToken: vi.fn(async () => ({ ...identity, clientId: "shg-playtest", scope: code.scope }))
+      }),
+      signing: { keyId: "kid", publicJwk: {}, sign: vi.fn(async () => "signed-id-token") },
+      config,
+      now,
+      issuePlaytestAppCredential: vi.fn(async () => { throw new Error("unavailable"); })
+    });
+    expect(result).toMatchObject({ kind: "success", body: { id_token: "signed-id-token" } });
+    if (result.kind === "success") expect(result.body).not.toHaveProperty("prism_app_token");
+  });
+
   it("exchanges a code once and signs identity claims sourced from Prism", async () => {
     const code = {
       prismUserId: identity.prismUserId,
@@ -289,7 +414,8 @@ describe("OIDC token and UserInfo service", () => {
     const accessIdentity = { ...identity, clientId: "shg-playtest", scope: code.scope };
     const oidcStore = store({
       exchangeAuthorizationCode: vi.fn(async () => ({ token: "a".repeat(43), authorizationCode: code })),
-      resolveAccessToken: vi.fn(async () => accessIdentity)
+      resolveAccessToken: vi.fn(async () => accessIdentity),
+      resolvePlaytestInitialAdminEligibility: vi.fn(async () => true)
     });
     const signing: OidcSigningService = {
       keyId: "kid",
@@ -317,13 +443,76 @@ describe("OIDC token and UserInfo service", () => {
       iss: "https://prism.example", sub: "prism-user-1", aud: "shg-playtest", azp: "shg-playtest",
       iat: 1787270400, exp: 1787270700, auth_time: 1787270340, nonce: "stored-nonce",
       name: "Ada Lovelace", preferred_username: "Ada Lovelace",
-      slack_user_id: "U123", slack_team_id: "T123", slack_enterprise_id: "E123"
+      slack_user_id: "U123", slack_team_id: "T123", slack_enterprise_id: "E123",
+      playtest_initial_admin_eligible: true
+    });
+    expect(oidcStore.resolvePlaytestInitialAdminEligibility).toHaveBeenCalledWith({
+      prismUserId: "prism-user-1"
     });
 
     oidcStore.exchangeAuthorizationCode = vi.fn(async () => null);
     await expect(exchangeOidcCode({ params, store: oidcStore, signing, config, now })).resolves.toEqual({
       kind: "error", status: 400, error: "invalid_grant"
     });
+  });
+
+  it("omits initial-admin eligibility when the live configuration-admin claim is revoked or unavailable", async () => {
+    const code = {
+      prismUserId: identity.prismUserId, slackConnectionId: identity.slackConnectionId,
+      clientId: "shg-playtest", redirectUri: config.playtestClient.redirectUri,
+      nonce: "stored-nonce", scope: "openid profile", codeChallenge: "unused",
+      codeChallengeMethod: "S256" as const, authTime: identity.authTime
+    };
+    const eligibility = vi.fn()
+      .mockResolvedValueOnce(false)
+      .mockRejectedValueOnce(new Error("database unavailable"));
+    const oidcStore = store({
+      exchangeAuthorizationCode: vi.fn(async () => ({ token: "a".repeat(43), authorizationCode: code })),
+      resolveAccessToken: vi.fn(async () => ({ ...identity, clientId: "shg-playtest", scope: code.scope })),
+      resolvePlaytestInitialAdminEligibility: eligibility
+    });
+    const sign = vi.fn(async (_payload: Parameters<OidcSigningService["sign"]>[0]) => "signed-id-token");
+    const params = new URLSearchParams({
+      grant_type: "authorization_code", client_id: "shg-playtest",
+      redirect_uri: config.playtestClient.redirectUri, code: "authorization-code", code_verifier: "v".repeat(43)
+    });
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      await expect(exchangeOidcCode({
+        params, store: oidcStore, signing: { keyId: "kid", publicJwk: {}, sign }, config, now
+      })).resolves.toMatchObject({ kind: "success" });
+      expect(sign.mock.calls[attempt]?.[0]).not.toHaveProperty("playtest_initial_admin_eligible");
+    }
+  });
+
+  it("never resolves or signs Playtest eligibility for a code bound to another client", async () => {
+    const otherClientCode = {
+      prismUserId: identity.prismUserId, slackConnectionId: identity.slackConnectionId,
+      clientId: "other-client", redirectUri: config.playtestClient.redirectUri,
+      nonce: "stored-nonce", scope: "openid profile", codeChallenge: "unused",
+      codeChallengeMethod: "S256" as const, authTime: identity.authTime
+    };
+    const eligibility = vi.fn(async () => true);
+    const oidcStore = store({
+      exchangeAuthorizationCode: vi.fn(async () => ({ token: "a".repeat(43), authorizationCode: otherClientCode })),
+      resolveAccessToken: vi.fn(async () => ({ ...identity, clientId: "other-client", scope: otherClientCode.scope })),
+      resolvePlaytestInitialAdminEligibility: eligibility
+    });
+    const sign = vi.fn(async (_payload: Parameters<OidcSigningService["sign"]>[0]) => "must-not-sign");
+
+    await expect(exchangeOidcCode({
+      params: new URLSearchParams({
+        grant_type: "authorization_code", client_id: "shg-playtest",
+        redirect_uri: config.playtestClient.redirectUri, code: "authorization-code", code_verifier: "v".repeat(43)
+      }),
+      store: oidcStore,
+      signing: { keyId: "kid", publicJwk: {}, sign },
+      config,
+      now
+    })).resolves.toEqual({ kind: "error", status: 500, error: "server_error" });
+
+    expect(eligibility).not.toHaveBeenCalled();
+    expect(sign).not.toHaveBeenCalled();
   });
 
   it("returns invalid_grant for a replay or PKCE mismatch without minting a token", async () => {

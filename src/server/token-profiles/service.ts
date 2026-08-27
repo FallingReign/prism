@@ -15,6 +15,7 @@ import {
 } from "./global-policy";
 import type { GlobalTokenProfilePolicyStore } from "./global-policy-store";
 import { buildTokenProfilePolicy, type CapabilityMap, type ExecutionIdentity, type ExperimentTtl, type TokenProfilePreset } from "./presets";
+import { PLAYTEST_APP_PROFILE_NAME } from "./first-party-app";
 
 export type CreateTokenProfileInput = {
   name: string;
@@ -456,6 +457,9 @@ function validateInput(input: CreateTokenProfileInput): { kind: "valid"; input: 
   const name = input.name?.trim();
   const intendedUse = input.intendedUse?.trim();
   if (!name || name.length > 80) return { kind: "validation_error", message: "Profile name must be 1-80 characters." };
+  if (normalizeName(name) === PLAYTEST_APP_PROFILE_NAME) {
+    return { kind: "validation_error", message: "This Token profile name is reserved for the Playtest application." };
+  }
   if (!intendedUse || intendedUse.length > 180) return { kind: "validation_error", message: "Intended use must be 1-180 characters." };
   if (!["read_only", "messages_only", "full_slack_bridge", "custom"].includes(input.preset)) {
     return { kind: "validation_error", message: "Choose a supported Token profile preset." };

@@ -4,17 +4,23 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("delegated delivery route surface", () => {
-  it("contains issuance and consent only, with no execution/status/cancel grant surface", () => {
+  it("keeps Slack execution out of issuance, consent, and cleanup surfaces", () => {
     const grantsRoot = join(process.cwd(), "app", "v1", "prism", "delegations", "slack-message", "grants");
     expect(existsSync(grantsRoot)).toBe(false);
 
-    const issuanceSources = [
-      join(process.cwd(), "src", "server", "delegated-delivery"),
-      join(process.cwd(), "app", "v1", "prism", "delegations"),
-      join(process.cwd(), "app", "delegations")
-    ].flatMap(readFilesRecursively).concat([
-      join(process.cwd(), "scripts", "cleanup-delegated-slack-delivery.ts")
-    ]).map((path) => readFileSync(path, "utf8")).join("\n");
+    const serverSources = readFilesRecursively(
+      join(process.cwd(), "src", "server", "delegated-delivery")
+    ).filter((path) => !path.endsWith("execution.ts"));
+    const browserSources = readFilesRecursively(
+      join(process.cwd(), "app", "v1", "prism", "delegations")
+    ).filter((path) => !path.includes(join("slack-message", "execute")));
+    const issuanceSources = serverSources.concat(
+      browserSources,
+      readFilesRecursively(join(process.cwd(), "app", "delegations")),
+      [
+        join(process.cwd(), "scripts", "cleanup-delegated-slack-delivery.ts")
+      ]
+    ).map((path) => readFileSync(path, "utf8")).join("\n");
     expect(issuanceSources).not.toMatch(/SlackWebApiClient|createDefaultSlackWebApiClient|slack\.com\/api|\/v1\/slack\/api/);
     expect(issuanceSources).not.toMatch(/\bfetch\s*\(/);
   });

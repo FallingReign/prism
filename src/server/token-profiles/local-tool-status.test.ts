@@ -32,6 +32,49 @@ function store(resolved: ResolvedDeveloperToken | null): LocalToolTokenStore {
 }
 
 describe("Local-tool Prism token status", () => {
+  it("asserts canonical subject, client, and fixed capabilities only for a client-bound token", async () => {
+    const app = record({
+      prismUserId: "prism-user-1",
+      clientId: "shg-playtest",
+      capabilityMap: {
+        ...activePolicy.capabilityMap,
+        preset: "custom",
+        actions: {
+          read: false, search: false, writeMessages: true,
+          reactions: false, filesMetadata: false, destructive: false
+        },
+        executionIdentity: "user"
+      }
+    });
+    const result = await getPrismTokenStatus({
+      store: store(app),
+      bearerToken: "prism_dev_playtestappcanaryplaytestappcanary",
+      developerTokenConfig: { pepper: "pepper-secret-canary", pepperId: "local-pepper" },
+      requestId: "req_app",
+      now
+    });
+
+    expect(result.body).toMatchObject({
+      application: { clientId: "shg-playtest" },
+      subject: { prismUserId: "prism-user-1" },
+      capabilityMap: {
+        actions: { writeMessages: true, read: false, search: false, reactions: false },
+        executionIdentity: "user"
+      }
+    });
+
+    const generic = await getPrismTokenStatus({
+      store: store(record({ prismUserId: "prism-user-1", clientId: null })),
+      bearerToken: "prism_dev_genericprofilecanarygenericprofile",
+      developerTokenConfig: { pepper: "pepper-secret-canary", pepperId: "local-pepper" },
+      requestId: "req_generic",
+      now
+    });
+    expect(generic.body).not.toHaveProperty("application");
+    expect(generic.body).not.toHaveProperty("subject");
+    expect(generic.body).not.toHaveProperty("capabilityMap");
+  });
+
   it("reports healthy active status without exposing bearer token or verifier material", async () => {
     const lastUsedAt = new Date("2025-12-31T23:59:00.000Z");
     const overlapExpiresAt = new Date("2026-01-01T00:15:00.000Z");

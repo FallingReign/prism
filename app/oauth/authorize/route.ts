@@ -5,6 +5,7 @@ import { database } from "../../../src/server/db";
 import { createPostgresOidcStore } from "../../../src/server/oidc/postgres-store";
 import { resolveOidcAuthorizationSource } from "../../../src/server/oidc/request-source";
 import { authorizeOidcRequest } from "../../../src/server/oidc/service";
+import { getSlackLinkStatusWithDisplayNameEnrichment } from "../../../src/server/slack/connection-status";
 import { prismSessionCookieName } from "../../../src/server/slack/oauth-flow";
 
 export const dynamic = "force-dynamic";
@@ -12,11 +13,15 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest): Promise<NextResponse> {
   try {
     const config = getOidcProviderConfig();
+    const sessionToken = request.cookies.get(prismSessionCookieName)?.value;
     const decision = await authorizeOidcRequest({
       url: new URL(request.url),
-      sessionToken: request.cookies.get(prismSessionCookieName)?.value,
+      sessionToken,
       store: createPostgresOidcStore(database),
       config,
+      enrichSessionDisplayName: async () => {
+        await getSlackLinkStatusWithDisplayNameEnrichment({ database, sessionToken });
+      },
       sourceIdentifier: resolveOidcAuthorizationSource(
         request.headers,
         config.abuseProtection.trustProxyHeaders

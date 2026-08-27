@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { evaluateSlackMethodPolicy, type SlackMethodPolicyStore } from "./method-policy";
 import { buildTokenProfilePolicy } from "./presets";
 import type { ResolvedDeveloperToken } from "./local-tool-status";
+import { PLAYTEST_APP_CAPABILITY_MAP } from "./first-party-app";
 
 const now = new Date("2026-01-01T00:00:00.000Z");
 
@@ -33,6 +34,27 @@ function store(row: ResolvedDeveloperToken | null): SlackMethodPolicyStore {
 }
 
 describe("Slack method policy enforcement", () => {
+  it("allows Playtest chat.postMessage and denies unrelated reads, reactions, and destructive methods", async () => {
+    const app = resolved(
+      { capabilityMap: PLAYTEST_APP_CAPABILITY_MAP, expiresAt: null },
+      { prismUserId: "prism-user-1", clientId: "shg-playtest", hasBotCredential: false }
+    );
+    const decide = (method: string) => evaluateSlackMethodPolicy({
+      store: store(app),
+      bearerToken: "prism_dev_playtestpolicycanaryplaytestpolicy",
+      developerTokenConfig: { pepper: "pepper-secret-canary", pepperId: "local-pepper" },
+      method,
+      requestId: `req_${method}`,
+      requestContext: { workspaceId: "T123", surface: "public_channel" },
+      now
+    });
+
+    await expect(decide("chat.postMessage")).resolves.toMatchObject({ kind: "allowed" });
+    await expect(decide("conversations.history")).resolves.toMatchObject({ kind: "denied" });
+    await expect(decide("reactions.add")).resolves.toMatchObject({ kind: "denied" });
+    await expect(decide("chat.delete")).resolves.toMatchObject({ kind: "denied" });
+  });
+
   it("rejects malformed or missing developer tokens before querying stored token metadata", async () => {
     const resolveDeveloperToken = vi.fn();
     const missing = await evaluateSlackMethodPolicy({

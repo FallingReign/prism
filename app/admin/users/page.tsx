@@ -17,7 +17,7 @@ export default async function AdminUsersPage() {
     const cookieStore = await cookies();
     const decision = await resolvePrismAdmin({
       store: createPostgresAdminIdentityStore(database),
-      allowlist: await loadAdminAllowlist(),
+      allowlist: loadAdminAllowlist,
       sessionToken: cookieStore.get(prismSessionCookieName)?.value
     });
     const result = await listAdminUsers({ decision, store: createPostgresAdminUserDirectoryStore(database), limit: 100 });

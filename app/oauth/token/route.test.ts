@@ -5,7 +5,8 @@ import { NextRequest } from "next/server";
 const { oidcStore, signing } = vi.hoisted(() => ({
   oidcStore: {
     exchangeAuthorizationCode: vi.fn(),
-    resolveAccessToken: vi.fn()
+    resolveAccessToken: vi.fn(),
+    resolvePlaytestInitialAdminEligibility: vi.fn(async () => false)
   },
   signing: { keyId: "kid", publicJwk: {}, sign: vi.fn(async () => "signed-id-token") }
 }));

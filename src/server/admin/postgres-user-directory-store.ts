@@ -119,7 +119,10 @@ function directorySelect(): string {
                  coalesce(tpc.active_developer_token_count, 0)::int as active_developer_token_count,
                  coalesce(tpc.expired_developer_token_count, 0)::int as expired_developer_token_count,
                  coalesce(tpc.revoked_developer_token_count, 0)::int as revoked_developer_token_count,
-                 coalesce(la.latest_activity_at, lau.latest_activity_at) as latest_activity_at
+                 coalesce(la.latest_activity_at, lau.latest_activity_at) as latest_activity_at,
+                 exists (select 1 from prism_configuration_admins ga where ga.prism_user_id = u.id and ga.role = 'global_configuration_admin' and ga.revoked_at is null) as global_admin_active,
+                 (select ga.claim_source from prism_configuration_admins ga where ga.prism_user_id = u.id and ga.role = 'global_configuration_admin' and ga.revoked_at is null limit 1) as global_admin_source,
+                 (select count(*)::int from prism_configuration_admins ga where ga.role = 'global_configuration_admin' and ga.revoked_at is null) as active_global_admin_count
           from prism_users u
           left join latest_connection lc on lc.prism_user_id = u.id
           left join latest_scope_activity lsa on lsa.prism_user_id = u.id
@@ -187,7 +190,12 @@ function toDirectoryRow(row: AdminUserRow): AdminUserDirectoryRow {
       expiredDeveloperTokenCount: toNumber(row.expired_developer_token_count),
       revokedDeveloperTokenCount: toNumber(row.revoked_developer_token_count)
     },
-    latestActivityAt: row.latest_activity_at ? toIso(row.latest_activity_at) : null
+    latestActivityAt: row.latest_activity_at ? toIso(row.latest_activity_at) : null,
+    globalAdmin: {
+      active: row.global_admin_active === true,
+      source: row.global_admin_source ?? null,
+      activeAdminCount: toNumber(row.active_global_admin_count ?? 0)
+    }
   };
 }
 
@@ -276,6 +284,9 @@ type AdminUserRow = {
   expired_developer_token_count: number | string;
   revoked_developer_token_count: number | string;
   latest_activity_at: Date | string | null;
+  global_admin_active?: boolean;
+  global_admin_source?: "initial_bootstrap" | "setup_recovery" | "admin_grant" | null;
+  active_global_admin_count?: number | string;
 };
 
 type TokenProfileAdminRow = {

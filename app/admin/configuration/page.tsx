@@ -71,21 +71,8 @@ async function readActivationMetadata(configurationVersionId: string): Promise<{
 async function canReadConfiguration(sessionToken: string | undefined): Promise<boolean> {
   if (!sessionToken) return false;
   const identityStore = createPostgresAdminIdentityStore(database);
-  const identity = await identityStore.getCurrentIdentity({ sessionToken, now: new Date() });
-  if (!identity) return false;
-  const claimed = await database.query<{ authorized: boolean }>(
-    `select exists (
-       select 1 from prism_configuration_admins
-       where prism_user_id = $1
-         and role = 'global_configuration_admin'
-         and revoked_at is null
-     ) as authorized`,
-    [identity.prismUserId]
-  );
-  if (claimed.rows[0]?.authorized) return true;
-
   try {
-    const decision = await resolvePrismAdmin({ store: identityStore, allowlist: await loadAdminAllowlist(), sessionToken });
+    const decision = await resolvePrismAdmin({ store: identityStore, allowlist: loadAdminAllowlist, sessionToken });
     return decision.kind === "authorized" && decision.scope.kind === "global";
   } catch (error) {
     if (error instanceof AdminAllowlistUnavailableError) return false;

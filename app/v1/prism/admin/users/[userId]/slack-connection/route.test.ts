@@ -92,7 +92,7 @@ describe("DELETE /v1/prism/admin/users/[userId]/slack-connection", () => {
       directoryStore: { kind: "user-directory-store" }
     });
     expect(mocks.resolvePrismAdmin).toHaveBeenCalledWith({
-      allowlist: { entries: [] },
+      allowlist: mocks.loadAdminAllowlist,
       store: { kind: "identity-store" },
       sessionToken: "session-token"
     });

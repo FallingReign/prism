@@ -10,6 +10,9 @@ import type { SlackWebApiClient } from "./web-api-client";
 describe("Slack website status display names", () => {
   it("enriches missing names once before returning the website status", async () => {
     const displayNameStore: SlackConnectionDisplayNameStore = {
+      async claimConnectionDisplayNameEnrichmentAttempt() {
+        return true;
+      },
       async updateConnectionDisplayNames(input) {
         expect(input).toMatchObject({
           connectionId: "conn_1",
@@ -67,6 +70,9 @@ describe("Slack website status display names", () => {
   it("keeps linked ID fallback status when display-name enrichment fails", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     const displayNameStore: SlackConnectionDisplayNameStore = {
+      async claimConnectionDisplayNameEnrichmentAttempt() {
+        return true;
+      },
       async updateConnectionDisplayNames() {
         throw new Error("database-write-failed");
       }

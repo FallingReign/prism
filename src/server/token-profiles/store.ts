@@ -6,10 +6,16 @@ import { insertActivityAuditRecord } from "../audit/postgres-store";
 import type { Database } from "../db";
 import { hashSecret } from "../slack/oauth-flow";
 import type { LocalToolTokenStore, ResolvedDeveloperToken } from "./local-tool-status";
+import {
+  PLAYTEST_APP_CAPABILITY_MAP,
+  PLAYTEST_APP_CLIENT_ID,
+  PLAYTEST_APP_PROFILE_NAME,
+  type FirstPartyAppTokenStore
+} from "./first-party-app";
 import type { CapabilityMap, TokenProfilePreset } from "./presets";
 import type { TokenProfileDeveloperTokenMetadata, TokenProfileMetadata, TokenProfileStore } from "./service";
 
-export function createPostgresTokenProfileStore(database: Database): TokenProfileStore & LocalToolTokenStore {
+export function createPostgresTokenProfileStore(database: Database): TokenProfileStore & LocalToolTokenStore & FirstPartyAppTokenStore {
   return {
     async resolveOwner({ sessionToken, now }) {
       const result = await database.query<{
@@ -36,6 +42,107 @@ export function createPostgresTokenProfileStore(database: Database): TokenProfil
         [owner.prismUserId, owner.slackConnectionId]
       );
       return result.rows.map(toTokenProfileMetadata);
+    },
+    async issuePlaytestAppToken(input) {
+      return database.transaction(async (tx) => {
+        await tx.query("select pg_advisory_xact_lock(hashtextextended($1, 0))", [
+          `prism:first-party-app:${PLAYTEST_APP_CLIENT_ID}:${input.prismUserId}`
+        ]);
+        const eligible = await tx.query<{ id: string }>(
+          `select c.id
+           from slack_connections c
+           where c.id = $1 and c.prism_user_id = $2 and c.status = 'healthy'
+             and exists (
+               select 1 from slack_credentials sc
+               where sc.connection_id = c.id and sc.kind = 'user'
+             )
+           for update`,
+          [input.slackConnectionId, input.prismUserId]
+        );
+        if (!eligible.rows[0]) return null;
+
+        let profile = await tx.query<{ id: string; name: string }>(
+          `select id, name from token_profiles
+           where prism_user_id = $1 and slack_connection_id = $2
+             and client_id = $3 and status = 'active'
+           for update`,
+          [input.prismUserId, input.slackConnectionId, PLAYTEST_APP_CLIENT_ID]
+        );
+        let created = false;
+        if (!profile.rows[0]) {
+          profile = await tx.query<{ id: string; name: string }>(
+            `insert into token_profiles
+               (id, prism_user_id, slack_connection_id, client_id, name,
+                name_normalized, intended_use, preset, capability_map,
+                expires_at, status, policy_effective_at)
+             values ($1, $2, $3, $4, $5, $5,
+                     'Send SHG Playtest announcements as this Slack user.',
+                     'custom', $6::jsonb, $8, 'active', $7)
+             returning id, name`,
+            [
+              randomUUID(), input.prismUserId, input.slackConnectionId,
+              PLAYTEST_APP_CLIENT_ID, PLAYTEST_APP_PROFILE_NAME,
+              JSON.stringify(PLAYTEST_APP_CAPABILITY_MAP), input.now, input.expiresAt
+            ]
+          );
+          created = true;
+        }
+        const row = profile.rows[0];
+        if (!row) return null;
+
+        await tx.query(
+          `update token_profiles
+           set expires_at = $2, policy_effective_at = $3, updated_at = $3
+           where id = $1 and status = 'active'`,
+          [row.id, input.expiresAt, input.now]
+        );
+
+        await tx.query(
+          `update prism_developer_tokens
+           set revoked_at = coalesce(revoked_at, $2), is_current = false
+           where token_profile_id = $1 and is_current = true
+             and expires_at is not null and expires_at <= $2`,
+          [row.id, input.now]
+        );
+        const newTokenId = randomUUID();
+        await tx.query(
+          `insert into prism_developer_tokens
+             (id, token_profile_id, token_hash, hash_algorithm, pepper_id,
+              expires_at, is_current)
+           values ($1, $2, $3, $4, $5, $6, false)`,
+          [
+            newTokenId, row.id, input.verifier.tokenHash,
+            input.verifier.algorithm, input.verifier.pepperId, input.expiresAt
+          ]
+        );
+        await tx.query(
+          `update prism_developer_tokens
+           set is_current = false,
+               superseded_at = coalesce(superseded_at, $2),
+               superseded_by_token_id = coalesce(superseded_by_token_id, $3),
+               expires_at = least(coalesce(expires_at, $4), $4),
+               rotation_overlap_expires_at = least(coalesce(expires_at, $4), $4)
+           where token_profile_id = $1 and id <> $3 and is_current = true
+             and revoked_at is null and (expires_at is null or expires_at > $2)`,
+          [row.id, input.now, newTokenId, input.expiresAt]
+        );
+        await tx.query("update prism_developer_tokens set is_current = true where id = $1", [newTokenId]);
+
+        await insertActivityAuditRecord(tx, {
+          prismUserId: input.prismUserId,
+          slackConnectionId: input.slackConnectionId,
+          tokenProfileId: row.id,
+          tokenProfileName: row.name,
+          activityType: created ? "token_profile_created" : "token_profile_rotated",
+          endpoint: "/oauth/token",
+          actionCategory: "playtest_app",
+          status: created ? "created" : "rotated",
+          httpStatus: 200,
+          requestId: input.requestId,
+          upstreamCalled: false
+        });
+        return { profileId: row.id };
+      });
     },
     async insertProfileWithVerifier(input) {
       try {
@@ -385,6 +492,7 @@ export function createPostgresTokenProfileStore(database: Database): TokenProfil
         `select
            t.id as developer_token_id,
            p.prism_user_id,
+           p.client_id,
            p.id as token_profile_id,
            p.name as token_profile_name,
            p.slack_connection_id,
@@ -457,6 +565,7 @@ type TokenProfileRow = {
 type DeveloperTokenResolutionRow = {
   developer_token_id: string;
   prism_user_id: string;
+  client_id: string | null;
   token_profile_id: string;
   token_profile_name: string;
   slack_connection_id: string;
@@ -521,6 +630,7 @@ function toResolvedDeveloperToken(row: DeveloperTokenResolutionRow): ResolvedDev
   return {
     developerTokenId: row.developer_token_id,
     prismUserId: row.prism_user_id,
+    clientId: row.client_id,
     tokenProfileId: row.token_profile_id,
     tokenProfileName: row.token_profile_name,
     slackConnectionId: row.slack_connection_id,

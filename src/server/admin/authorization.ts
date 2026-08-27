@@ -23,10 +23,11 @@ export type AdminSessionIdentity = {
 
 export type AdminIdentityStore = {
   getCurrentIdentity(input: { sessionToken: string; now: Date }): Promise<AdminSessionIdentity | null>;
+  hasActiveGlobalAdmin(input: { prismUserId: string }): Promise<boolean>;
 };
 
 export type AdminAuthorizationDecision =
-  | ({ kind: "authorized"; scope: AdminScope } & AdminSessionIdentity)
+  | ({ kind: "authorized"; scope: AdminScope; authorizationSource?: "persisted" | "legacy_allowlist" } & AdminSessionIdentity)
   | { kind: "unauthenticated" }
   | { kind: "not_admin"; reason: "no_matching_entry" | "scope_mismatch" };
 
@@ -37,7 +38,7 @@ export async function resolvePrismAdmin({
   now = new Date()
 }: {
   store: AdminIdentityStore;
-  allowlist: AdminAllowlist;
+  allowlist: AdminAllowlist | (() => Promise<AdminAllowlist>);
   sessionToken: string | undefined;
   now?: Date;
 }): Promise<AdminAuthorizationDecision> {
@@ -46,13 +47,19 @@ export async function resolvePrismAdmin({
   const identity = await store.getCurrentIdentity({ sessionToken, now });
   if (!identity) return { kind: "unauthenticated" };
 
-  const entriesForUser = allowlist.entries.filter((entry) => entry.slackUserId === identity.slackUserId);
+  if (await store.hasActiveGlobalAdmin({ prismUserId: identity.prismUserId })) {
+    return { kind: "authorized", ...identity, scope: { kind: "global" }, authorizationSource: "persisted" };
+  }
+
+  const resolvedAllowlist = typeof allowlist === "function" ? await allowlist() : allowlist;
+
+  const entriesForUser = resolvedAllowlist.entries.filter((entry) => entry.slackUserId === identity.slackUserId);
   const matchingEntry = entriesForUser
     .filter((entry) => scopeMatches(entry.scope, identity))
     .sort((left, right) => scopeRank(right.scope) - scopeRank(left.scope))[0];
   if (!matchingEntry) return { kind: "not_admin", reason: entriesForUser.length > 0 ? "scope_mismatch" : "no_matching_entry" };
 
-  return { kind: "authorized", ...identity, scope: matchingEntry.scope };
+  return { kind: "authorized", ...identity, scope: matchingEntry.scope, authorizationSource: "legacy_allowlist" };
 }
 
 function scopeMatches(scope: AdminScope, identity: AdminSessionIdentity): boolean {

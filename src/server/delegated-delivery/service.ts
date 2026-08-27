@@ -391,6 +391,7 @@ function mapStoreError(
     case "idempotency_conflict": return { kind: "error", status: 409, error: "idempotency_conflict" };
     case "lifecycle_conflict": return { kind: "error", status: 409, error: "lifecycle_conflict" };
     case "not_found": return { kind: "error", status: 404, error: "not_found" };
+    case "not_yet_valid": return { kind: "error", status: 409, error: "not_yet_valid" };
     case "policy_denied": return { kind: "error", status: 403, error: "policy_denied" };
     case "expired": return { kind: "error", status: 410, error: "invalid_grant" };
   }

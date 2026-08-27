@@ -255,22 +255,29 @@ export function createPostgresSetupBootstrapStore(database: Database): SetupBoot
         if (session.recovery) {
           await tx.query(
             `update prism_configuration_admins
-             set revoked_at = $1
+             set revoked_at = $1,
+                 revoked_by_prism_user_id = $2,
+                 revoke_reason = 'Explicit setup recovery'
              where revoked_at is null`,
-            [input.now]
+            [input.now, input.prismUserId]
           );
         }
 
         await tx.query(
           `insert into prism_configuration_admins
-             (prism_user_id, role, claim_source, created_at, revoked_at)
-           values ($1, 'global_configuration_admin', 'initial_bootstrap', $2, null)
+             (prism_user_id, role, claim_source, created_at, revoked_at,
+              granted_by_prism_user_id, revoked_by_prism_user_id, grant_reason, revoke_reason)
+           values ($1, 'global_configuration_admin', $3, $2, null, $1, null, $4, null)
            on conflict (prism_user_id) do update
              set role = excluded.role,
                  claim_source = excluded.claim_source,
                  created_at = excluded.created_at,
-                 revoked_at = null`,
-          [input.prismUserId, input.now]
+                 revoked_at = null,
+                 granted_by_prism_user_id = excluded.granted_by_prism_user_id,
+                 revoked_by_prism_user_id = null,
+                 grant_reason = excluded.grant_reason,
+                 revoke_reason = null`,
+          [input.prismUserId, input.now, session.recovery ? "setup_recovery" : "initial_bootstrap", session.recovery ? "Explicit setup recovery" : "Initial Prism setup claimant"]
         );
 
         return { recovery: session.recovery } satisfies SetupConfigurationAdminClaim;

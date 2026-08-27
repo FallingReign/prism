@@ -4,7 +4,7 @@ import { NextRequest } from "next/server";
 
 import type { OidcAuthorizationPermit, OidcSessionIdentity } from "../../../src/server/oidc/postgres-store";
 
-const { oidcStore } = vi.hoisted(() => ({
+const { oidcStore, enrichSlackConnectionDisplayNames } = vi.hoisted(() => ({
   oidcStore: {
     consumeAuthorizationRequestPermit: vi.fn<() => Promise<OidcAuthorizationPermit>>(async () => ({ kind: "allowed" })),
     createPendingAuthorizationRequest: vi.fn(async () => ({ kind: "created" as const, requestId: "r".repeat(43) })),
@@ -15,12 +15,17 @@ const { oidcStore } = vi.hoisted(() => ({
     consumeAuthorizationCode: vi.fn(async () => null),
     exchangeAuthorizationCode: vi.fn(async () => null),
     issueAccessToken: vi.fn(async () => ({ token: "a".repeat(43) })),
-    resolveAccessToken: vi.fn(async () => null)
-  }
+    resolveAccessToken: vi.fn(async () => null),
+    resolvePlaytestInitialAdminEligibility: vi.fn(async () => false)
+  },
+  enrichSlackConnectionDisplayNames: vi.fn(async () => ({ kind: "linked" as const }))
 }));
 
 vi.mock("../../../src/server/db", () => ({ database: {} }));
 vi.mock("../../../src/server/oidc/postgres-store", () => ({ createPostgresOidcStore: () => oidcStore }));
+vi.mock("../../../src/server/slack/connection-status", () => ({
+  getSlackLinkStatusWithDisplayNameEnrichment: enrichSlackConnectionDisplayNames
+}));
 vi.mock("../../../src/server/config", () => ({
   getOidcProviderConfig: () => ({
     issuer: "https://prism.example",
@@ -61,6 +66,28 @@ describe("GET /oauth/authorize", () => {
     expect(response.headers.get("pragma")).toBe("no-cache");
     expect(response.headers.get("referrer-policy")).toBe("no-referrer");
     expect(oidcStore.resolveEligiblePrismSessionIdentity).toHaveBeenCalledWith(expect.objectContaining({ sessionToken: "session-token" }));
+  });
+
+  it("refreshes a missing Slack display name during Playtest authorization without visiting Prism", async () => {
+    const missingName = {
+      prismUserId: "user-1", slackConnectionId: "connection-1", slackUserId: "U1",
+      slackUserDisplayName: null, teamId: "T1", teamName: "Studio",
+      enterpriseId: null, enterpriseName: null, authTime: new Date("2026-08-21T00:00:00.000Z")
+    };
+    oidcStore.resolveEligiblePrismSessionIdentity
+      .mockResolvedValueOnce(missingName)
+      .mockResolvedValueOnce({ ...missingName, slackUserDisplayName: "Ada" });
+    const { GET } = await import("./route");
+
+    const response = await GET(new NextRequest(authorizationUrl(), {
+      headers: { cookie: "prism_session=session-token" }
+    }));
+
+    expect(response.status).toBe(302);
+    expect(enrichSlackConnectionDisplayNames).toHaveBeenCalledWith({
+      database: {}, sessionToken: "session-token"
+    });
+    expect(oidcStore.resolveEligiblePrismSessionIdentity).toHaveBeenCalledTimes(2);
   });
 
   it("does not redirect an unregistered callback", async () => {

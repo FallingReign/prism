@@ -42,6 +42,12 @@ describe("Postgres Prism admin identity store", () => {
       })
     ).resolves.toBeNull();
   });
+
+  it("resolves persisted global administrator authority by canonical Prism user ID", async () => {
+    const database = databaseWithRows([{ authorized: true }]);
+    await expect(createPostgresAdminIdentityStore(database).hasActiveGlobalAdmin({ prismUserId: "prism_user_1" })).resolves.toBe(true);
+    expect(database.query).toHaveBeenCalledWith(expect.stringContaining("from prism_configuration_admins"), ["prism_user_1"]);
+  });
 });
 
 function databaseWithRows(rows: unknown[]): Database {

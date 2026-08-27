@@ -17,6 +17,11 @@ export type SlackConnectionDisplayRecord = {
 };
 
 export type SlackConnectionDisplayNameStore = {
+  claimConnectionDisplayNameEnrichmentAttempt(input: {
+    connectionId: string;
+    attemptedAt: Date;
+    retryIfAttemptedBefore: Date;
+  }): Promise<boolean>;
   updateConnectionDisplayNames(input: {
     connectionId: string;
     teamName: string | null;
@@ -27,6 +32,8 @@ export type SlackConnectionDisplayNameStore = {
 };
 
 type SlackLookupKind = "user" | "bot";
+
+export const DISPLAY_NAME_ENRICHMENT_RETRY_COOLDOWN_MS = 15 * 60 * 1000;
 
 export async function enrichSlackConnectionDisplayNames({
   connection,
@@ -41,7 +48,13 @@ export async function enrichSlackConnectionDisplayNames({
   webApiClient: SlackWebApiClient;
   now?: Date;
 }): Promise<SlackConnectionDisplayRecord> {
-  if (!needsSlackConnectionDisplayNameEnrichment(connection)) return connection;
+  if (!needsSlackConnectionDisplayNameEnrichment(connection, now)) return connection;
+  const claimed = await store.claimConnectionDisplayNameEnrichmentAttempt({
+    connectionId: connection.connectionId,
+    attemptedAt: now,
+    retryIfAttemptedBefore: new Date(now.getTime() - DISPLAY_NAME_ENRICHMENT_RETRY_COOLDOWN_MS)
+  });
+  if (!claimed) return connection;
 
   const found: {
     teamName: string | null;
@@ -71,17 +84,19 @@ export async function enrichSlackConnectionDisplayNames({
       fallbackSlackUserDisplayName ??= authTest.user_id === connection.slackUserId ? cleanDisplayName(authTest.user) : null;
     }
 
-    const userInfo = await callSlack(webApiClient, {
-      accessToken: credential.accessToken,
-      executionMode: kind,
-      method: "users.info",
-      payload: { user: connection.slackUserId }
-    });
-    if (userInfo?.ok) {
-      const profileDisplayName = userDisplayName(userInfo);
-      if (profileDisplayName) {
-        found.slackUserDisplayName = profileDisplayName;
-        profileUserDisplayNameFound = true;
+    if (!profileUserDisplayNameFound) {
+      const userInfo = await callSlack(webApiClient, {
+        accessToken: credential.accessToken,
+        executionMode: kind,
+        method: "users.info",
+        payload: { user: connection.slackUserId }
+      });
+      if (userInfo?.ok) {
+        const profileDisplayName = userDisplayName(userInfo);
+        if (profileDisplayName) {
+          found.slackUserDisplayName = profileDisplayName;
+          profileUserDisplayNameFound = true;
+        }
       }
     }
 
@@ -98,10 +113,19 @@ export async function enrichSlackConnectionDisplayNames({
   });
 }
 
-export function needsSlackConnectionDisplayNameEnrichment(connection: SlackConnectionDisplayRecord): boolean {
-  if (connection.displayNamesEnrichedAt) return false;
+export function needsSlackConnectionDisplayNameEnrichment(
+  connection: SlackConnectionDisplayRecord,
+  now = new Date()
+): boolean {
   if (connection.status !== "healthy") return false;
-  return Boolean((connection.teamId && !connection.teamName) || (connection.enterpriseId && !connection.enterpriseName) || !connection.slackUserDisplayName);
+  const hasMissingName = Boolean(
+    (connection.teamId && !connection.teamName) ||
+    (connection.enterpriseId && !connection.enterpriseName) ||
+    !connection.slackUserDisplayName
+  );
+  if (!hasMissingName) return false;
+  if (!connection.displayNamesEnrichedAt) return true;
+  return now.getTime() - connection.displayNamesEnrichedAt.getTime() >= DISPLAY_NAME_ENRICHMENT_RETRY_COOLDOWN_MS;
 }
 
 const preferredCredentialKinds: SlackLookupKind[] = ["user", "bot"];

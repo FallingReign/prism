@@ -118,6 +118,7 @@ export type OidcStore = {
   }): Promise<{ token: string; authorizationCode: OidcAuthorizationCode } | null>;
   issueAccessToken(input: { clientId: string; prismUserId: string; slackConnectionId: string; scope: string; expiresAt: Date; token?: string }): Promise<{ token: string }>;
   resolveAccessToken(input: { token: string; now: Date }): Promise<OidcAccessTokenIdentity | null>;
+  resolvePlaytestInitialAdminEligibility(input: { prismUserId: string }): Promise<boolean>;
 };
 
 export function createPostgresOidcStore(database: Database): OidcStore {
@@ -415,6 +416,20 @@ export function createPostgresOidcStore(database: Database): OidcStore {
             enterpriseName: row.enterprise_name
           }
         : null;
+    },
+
+    async resolvePlaytestInitialAdminEligibility({ prismUserId }) {
+      const result = await database.query<{ eligible: boolean }>(
+        `select exists (
+           select 1
+           from prism_configuration_admins
+           where prism_user_id = $1
+             and role = 'global_configuration_admin'
+             and revoked_at is null
+         ) as eligible`,
+        [prismUserId]
+      );
+      return result.rows[0]?.eligible === true;
     }
   };
 }

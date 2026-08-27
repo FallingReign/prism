@@ -5,6 +5,7 @@ import { formatUtcDate, formatUtcDateTime } from "../../date-format";
 import { displayNameWithId, safeConnectionText } from "../../slack-connection-display";
 import { LinkButton, Panel, StatusBadge, SummaryMetric } from "../../ui";
 import { AdminSlackConnectionActions } from "./admin-slack-connection-actions";
+import { AdminGlobalAdminActions } from "./admin-global-admin-actions";
 import { AdminTokenProfileActions } from "./admin-token-profile-actions";
 
 export function AdminUserDirectoryView({ scope, users }: { scope: AdminScope; users: AdminUserDirectoryRow[] }) {
@@ -31,6 +32,7 @@ export function AdminUserDirectoryView({ scope, users }: { scope: AdminScope; us
               <article key={user.prismUserId} className="grid gap-3 rounded-2xl border border-border bg-background/75 p-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
                 <div className="min-w-0">
                   <h3 className="text-base font-semibold tracking-tight text-foreground [overflow-wrap:anywhere]">{slackUserLabel(user)}</h3>
+                  {user.globalAdmin?.active ? <div className="mt-2"><StatusBadge tone="success">Global administrator</StatusBadge></div> : null}
                   <dl className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                     <Metadata label="Scope" value={scopeLabelForUser(user)} />
                     <Metadata label="Connection" value={connectionStatusLabel(user)} />
@@ -50,7 +52,7 @@ export function AdminUserDirectoryView({ scope, users }: { scope: AdminScope; us
   );
 }
 
-export function AdminUserDetailView({ scope, detail }: { scope: AdminScope; detail: AdminUserDetail }) {
+export function AdminUserDetailView({ scope, detail, actorPrismUserId = null }: { scope: AdminScope; detail: AdminUserDetail; actorPrismUserId?: string | null }) {
   const user = detail.user;
   return (
     <main className="mx-auto grid w-full max-w-7xl gap-6 px-4 py-4 sm:px-6 lg:px-8 lg:py-6">
@@ -68,6 +70,16 @@ export function AdminUserDetailView({ scope, detail }: { scope: AdminScope; deta
           <SummaryMetric label="Scope" value={scopeLabelForUser(user)} detail={user.slackConnection.status === "not_linked" ? "Retained Slack workspace or organization visibility." : "Current Slack workspace or organization visibility."} tone="info" />
           <SummaryMetric label="Token profiles" value={`${user.tokenProfiles.activeCount} active`} detail={`${user.tokenProfiles.revokedCount} removed profiles retained for review.`} tone="neutral" />
         </div>
+        {scope.kind === "global" ? (
+          <AdminGlobalAdminActions
+            userId={user.prismUserId}
+            userLabel={slackUserLabel(user)}
+            active={user.globalAdmin?.active ?? false}
+            source={user.globalAdmin?.source ?? null}
+            isCurrentActor={actorPrismUserId === user.prismUserId}
+            isLastAdmin={(user.globalAdmin?.active ?? false) && (user.globalAdmin?.activeAdminCount ?? 0) <= 1}
+          />
+        ) : null}
         {user.slackConnection.lastErrorClass ? <p className="text-sm text-muted-foreground">Last connection error: {safeConnectionText(user.slackConnection.lastErrorClass)}</p> : null}
         {user.slackConnection.id ? (
           <AdminSlackConnectionActions userId={user.prismUserId} slackUserLabel={slackUserLabel(user)} />

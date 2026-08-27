@@ -1,9 +1,12 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { AdminSlackConnectionActionForm } from "./admin-slack-connection-actions";
 import { AdminTokenProfileActionForm } from "./admin-token-profile-actions";
 import { AdminUserDetailView, AdminUserDirectoryView } from "./admin-users";
+
+const refresh = vi.hoisted(() => vi.fn());
+vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 
 describe("Admin Prism user directory UI", () => {
   it("renders empty and populated directory states with active scope", () => {
@@ -165,6 +168,31 @@ describe("Admin Prism user directory UI", () => {
     expect(html).not.toContain("Prism-local Slack connection removal");
     expect(html).not.toContain("Remove Slack connection");
     expect(html).not.toMatch(/prism_dev_|xox[bp]-|access_token|refresh_token|refreshToken|client_secret|token_hash|pepper/i);
+  });
+
+  it("shows persisted global access and disables self-removal for the acting administrator", () => {
+    const html = renderToStaticMarkup(
+      <AdminUserDetailView
+        scope={{ kind: "global" }}
+        actorPrismUserId="admin_user"
+        detail={{
+          user: {
+            prismUserId: "admin_user",
+            slackUser: { id: "U_ADMIN", displayName: "Ada Admin" },
+            team: { id: "T_DEV", name: "Dev" }, enterprise: null,
+            slackConnection: { id: "conn_admin", status: "healthy", lastErrorClass: null, updatedAt: null },
+            tokenProfiles: { activeCount: 0, revokedCount: 0, activeDeveloperTokenCount: 0, expiredDeveloperTokenCount: 0, revokedDeveloperTokenCount: 0 },
+            latestActivityAt: null,
+            globalAdmin: { active: true, source: "initial_bootstrap", activeAdminCount: 1 }
+          },
+          profiles: [], activity: []
+        }}
+      />
+    );
+    expect(html).toContain("Global administrator");
+    expect(html).toContain("initial setup");
+    expect(html).toContain("You cannot remove your own administrator access.");
+    expect(html).toContain("disabled=\"\"");
   });
 
   it("renders admin action dialog controls with typed confirmation and required reason gating", () => {

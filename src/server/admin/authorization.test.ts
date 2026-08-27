@@ -1,8 +1,31 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { resolvePrismAdmin, type AdminIdentityStore } from "./authorization";
 
 describe("Prism admin authorization", () => {
+  it("authorizes a persisted global administrator before loading the legacy allowlist", async () => {
+    const loadAllowlist = vi.fn(async () => { throw new Error("legacy file unavailable"); });
+    const store = identityStore({
+      prismUserId: "prism_user_1", slackUserId: "U_ADMIN", slackUserDisplayName: "Ada",
+      teamId: "T_DEV", teamName: "Dev", enterpriseId: null, enterpriseName: null
+    }, true);
+
+    await expect(resolvePrismAdmin({ store, allowlist: loadAllowlist, sessionToken: "session-token" }))
+      .resolves.toMatchObject({ kind: "authorized", prismUserId: "prism_user_1", scope: { kind: "global" } });
+    expect(loadAllowlist).not.toHaveBeenCalled();
+  });
+
+  it("falls back lazily to the legacy allowlist when no persisted grant exists", async () => {
+    const loadAllowlist = vi.fn(async () => ({ entries: [{ slackUserId: "U_RECOVERY", scope: { kind: "global" } as const }] }));
+    const store = identityStore({
+      prismUserId: "prism_user_2", slackUserId: "U_RECOVERY", slackUserDisplayName: null,
+      teamId: "T_DEV", teamName: null, enterpriseId: null, enterpriseName: null
+    }, false);
+
+    await expect(resolvePrismAdmin({ store, allowlist: loadAllowlist, sessionToken: "session-token" }))
+      .resolves.toMatchObject({ kind: "authorized", scope: { kind: "global" } });
+    expect(loadAllowlist).toHaveBeenCalledTimes(1);
+  });
   it("authorizes a global Prism admin from the website session Slack identity", async () => {
     const now = new Date("2026-02-01T12:00:00.000Z");
     const store: AdminIdentityStore = {
@@ -17,7 +40,8 @@ describe("Prism admin authorization", () => {
           enterpriseId: "E_ORG",
           enterpriseName: "Dev Org"
         };
-      }
+      },
+      async hasActiveGlobalAdmin() { return false; }
     };
 
     const decision = await resolvePrismAdmin({
@@ -38,7 +62,8 @@ describe("Prism admin authorization", () => {
       teamName: "Dev Workspace",
       enterpriseId: "E_ORG",
       enterpriseName: "Dev Org",
-      scope: { kind: "global" }
+      scope: { kind: "global" },
+      authorizationSource: "legacy_allowlist"
     });
   });
 
@@ -141,10 +166,11 @@ describe("Prism admin authorization", () => {
   });
 });
 
-function identityStore(identity: Awaited<ReturnType<AdminIdentityStore["getCurrentIdentity"]>>): AdminIdentityStore {
+function identityStore(identity: Awaited<ReturnType<AdminIdentityStore["getCurrentIdentity"]>>, persisted = false): AdminIdentityStore {
   return {
     async getCurrentIdentity() {
       return identity;
-    }
+    },
+    async hasActiveGlobalAdmin() { return persisted; }
   };
 }

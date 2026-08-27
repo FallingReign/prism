@@ -15,6 +15,8 @@ export type ActivityType =
   | "admin_token_profile_revoked"
   | "admin_token_profile_deleted"
   | "admin_slack_connection_removed"
+  | "admin_global_admin_granted"
+  | "admin_global_admin_revoked"
   | "delegated_delivery_requested"
   | "delegated_delivery_approved"
   | "delegated_delivery_denied"

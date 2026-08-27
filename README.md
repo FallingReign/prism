@@ -89,6 +89,15 @@ complete reserved development-mock bundle from `.env.local`, Prism treats it as 
 or `/setup` can win; the bundle is never promoted into a real Slack request. A mock flag paired with a non-reserved real
 client and partial real credential pairs remain invalid.
 
+For the registered `shg-playtest` OIDC client, a successful authorization-code
+exchange also issues an eight-hour, user-bound Prism application credential.
+Prism creates or refreshes the reserved `shg_playtest_app` Token profile with a
+fixed message-posting-only policy and returns the copy-once credential only in
+the no-store server-to-server token response. The status endpoint asserts the
+credential's canonical Prism subject, client binding, effective capability map,
+and Slack connection health. This browser credential is for immediate sends;
+scheduled delivery continues to require a separately approved delegated grant.
+
 ## Reference MCP adapter
 
 A Prism-only Local tool example lives in [`examples/prism-mcp-adapter`](examples/prism-mcp-adapter/). It runs as an MCP stdio server configured with `PRISM_BASE_URL` and `PRISM_DEVELOPER_TOKEN`, validates Prism status/capabilities, and maps representative MCP tools to Prism Slack-compatible endpoints without handling Slack credentials.

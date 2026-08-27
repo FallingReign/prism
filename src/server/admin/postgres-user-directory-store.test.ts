@@ -48,12 +48,14 @@ describe("Postgres admin user directory store", () => {
           expiredDeveloperTokenCount: 1,
           revokedDeveloperTokenCount: 1
         },
-        latestActivityAt: "2026-02-01T12:05:00.000Z"
+        latestActivityAt: "2026-02-01T12:05:00.000Z",
+        globalAdmin: { active: false, source: null, activeAdminCount: 0 }
       }
     ]);
     const sql = String(database.query.mock.calls[0]?.[0]);
     const params = database.query.mock.calls[0]?.[1];
     expect(sql).toContain("latest_connection");
+    expect(sql).toContain("from prism_configuration_admins ga");
     expect(sql).toContain("coalesce(lc.enterprise_id, lsa.slack_enterprise_id, u.slack_enterprise_id) = $1");
     expect(sql).toContain("limit $2");
     expect(sql).not.toMatch(/slack_credentials|access_token_envelope|refresh_token_envelope|token_hash|pepper_id|payload|body|content/i);

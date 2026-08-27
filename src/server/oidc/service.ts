@@ -15,11 +15,14 @@ import {
 } from "./provider";
 import { UNATTRIBUTED_OIDC_SOURCE } from "./request-source";
 import type { OidcSigningService } from "./signing";
+import type { PlaytestAppCredential } from "../token-profiles/first-party-app";
 
 const PENDING_REQUEST_TTL_MS = 10 * 60 * 1000;
 const AUTHORIZATION_CODE_TTL_MS = 5 * 60 * 1000;
 const ACCESS_TOKEN_TTL_MS = 5 * 60 * 1000;
 const OPAQUE_HANDLE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+
+export const AUTHORIZATION_DISPLAY_NAME_ENRICHMENT_DEADLINE_MS = 2_000;
 
 export type OidcRedirectDecision = { kind: "redirect"; location: string };
 export type OidcErrorDecision = {
@@ -29,6 +32,17 @@ export type OidcErrorDecision = {
   retryAfterSeconds?: number;
 };
 
+export type OidcSessionDisplayNameEnricher = (input: {
+  identity: OidcSessionIdentity;
+  now: Date;
+}) => Promise<void>;
+
+export type PlaytestAppCredentialIssuer = (input: {
+  prismUserId: string;
+  slackConnectionId: string;
+  now: Date;
+}) => Promise<PlaytestAppCredential | null>;
+
 export async function authorizeOidcRequest(input: {
   url: URL;
   sessionToken?: string;
@@ -36,6 +50,7 @@ export async function authorizeOidcRequest(input: {
   config: OidcProviderConfig;
   sourceIdentifier?: string;
   now?: Date;
+  enrichSessionDisplayName?: OidcSessionDisplayNameEnricher;
 }): Promise<OidcRedirectDecision | OidcErrorDecision> {
   const now = input.now ?? new Date();
   const resume = parseResumeRequest(input.url);
@@ -59,10 +74,7 @@ export async function authorizeOidcRequest(input: {
   });
   if (permit.kind === "limited") return rateLimited(permit.retryAfterSeconds);
 
-  const identity = await input.store.resolveEligiblePrismSessionIdentity({
-    sessionToken: input.sessionToken,
-    now
-  });
+  const identity = await resolveEligibleIdentityWithBestEffortEnrichment(input, now);
   if (identity) {
     return issueCodeRedirect({ request, identity, store: input.store, now });
   }
@@ -93,6 +105,7 @@ async function resumeOidcAuthorization(input: {
   sessionToken?: string;
   store: OidcStore;
   now: Date;
+  enrichSessionDisplayName?: OidcSessionDisplayNameEnricher;
 }): Promise<OidcRedirectDecision | OidcErrorDecision> {
   if (input.oauthError) {
     const cancelled = await input.store.consumePendingAuthorizationRequest({
@@ -108,10 +121,7 @@ async function resumeOidcAuthorization(input: {
 
   const pending = await input.store.loadPendingAuthorizationRequest({ requestId: input.requestId, now: input.now });
   if (!pending) return invalidRequest();
-  const identity = await input.store.resolveEligiblePrismSessionIdentity({
-    sessionToken: input.sessionToken,
-    now: input.now
-  });
+  const identity = await resolveEligibleIdentityWithBestEffortEnrichment(input, input.now);
   if (!identity) {
     const consumed = await input.store.consumePendingAuthorizationRequest({ requestId: input.requestId, now: input.now });
     if (!consumed) return invalidRequest();
@@ -162,11 +172,21 @@ export async function exchangeOidcCode(input: {
   store: OidcStore;
   signing: OidcSigningService;
   config: OidcProviderConfig;
+  issuePlaytestAppCredential?: PlaytestAppCredentialIssuer;
   now?: Date;
 }): Promise<
   | {
       kind: "success";
-      body: { access_token: string; token_type: "Bearer"; expires_in: number; scope: string; id_token: string };
+      body: {
+        access_token: string;
+        token_type: "Bearer";
+        expires_in: number;
+        scope: string;
+        id_token: string;
+        prism_app_token?: string;
+        prism_app_token_expires_in?: number;
+        prism_app_token_profile_id?: string;
+      };
     }
   | OidcErrorDecision
 > {
@@ -200,6 +220,12 @@ export async function exchangeOidcCode(input: {
 
   const issuedAt = Math.floor(now.getTime() / 1000);
   const expiresIn = Math.floor(ACCESS_TOKEN_TTL_MS / 1000);
+  const playtestInitialAdminEligible = await resolvePlaytestInitialAdminEligibility({
+    clientId: code.clientId,
+    playtestClientId: input.config.playtestClient.clientId,
+    prismUserId: code.prismUserId,
+    store: input.store
+  });
   const idToken = await input.signing.sign({
     iss: input.config.issuer,
     sub: code.prismUserId,
@@ -209,7 +235,16 @@ export async function exchangeOidcCode(input: {
     exp: issuedAt + expiresIn,
     auth_time: Math.floor(code.authTime.getTime() / 1000),
     nonce: code.nonce,
-    ...identityClaims(identity, code.scope)
+    ...identityClaims(identity, code.scope),
+    ...(playtestInitialAdminEligible ? { playtest_initial_admin_eligible: true } : {})
+  });
+  const appCredential = await bestEffortPlaytestAppCredential({
+    issuer: input.issuePlaytestAppCredential,
+    clientId: code.clientId,
+    playtestClientId: input.config.playtestClient.clientId,
+    prismUserId: code.prismUserId,
+    slackConnectionId: code.slackConnectionId,
+    now
   });
   return {
     kind: "success",
@@ -218,9 +253,90 @@ export async function exchangeOidcCode(input: {
       token_type: "Bearer",
       expires_in: expiresIn,
       scope: code.scope,
-      id_token: idToken
+      id_token: idToken,
+      ...(appCredential
+        ? {
+            prism_app_token: appCredential.token,
+            prism_app_token_expires_in: appCredential.expiresIn,
+            prism_app_token_profile_id: appCredential.profileId
+          }
+        : {})
     }
   };
+}
+
+async function bestEffortPlaytestAppCredential(input: {
+  issuer: PlaytestAppCredentialIssuer | undefined;
+  clientId: string;
+  playtestClientId: string;
+  prismUserId: string;
+  slackConnectionId: string;
+  now: Date;
+}): Promise<PlaytestAppCredential | null> {
+  if (!input.issuer || input.clientId !== input.playtestClientId) return null;
+  try {
+    return await input.issuer({
+      prismUserId: input.prismUserId,
+      slackConnectionId: input.slackConnectionId,
+      now: input.now
+    });
+  } catch {
+    // Authentication remains available when optional Slack-delivery authority
+    // cannot be issued. Playtest will present sending as unavailable.
+    return null;
+  }
+}
+
+async function resolveEligibleIdentityWithBestEffortEnrichment(
+  input: {
+    sessionToken?: string;
+    store: OidcStore;
+    enrichSessionDisplayName?: OidcSessionDisplayNameEnricher;
+  },
+  now: Date
+): Promise<OidcSessionIdentity | null> {
+  const identity = await input.store.resolveEligiblePrismSessionIdentity({
+    sessionToken: input.sessionToken,
+    now
+  });
+  const enricher = input.enrichSessionDisplayName;
+  if (!identity || identity.slackUserDisplayName || !enricher) return identity;
+
+  const attempt = (async () => {
+    await enricher({ identity, now });
+    return await input.store.resolveEligiblePrismSessionIdentity({
+      sessionToken: input.sessionToken,
+      now
+    });
+  })().then(
+    (refreshedIdentity) => ({ kind: "completed" as const, refreshedIdentity }),
+    () => ({ kind: "failed" as const })
+  );
+  let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<{ kind: "timed_out" }>((resolve) => {
+    deadlineTimer = setTimeout(
+      () => resolve({ kind: "timed_out" }),
+      AUTHORIZATION_DISPLAY_NAME_ENRICHMENT_DEADLINE_MS
+    );
+  });
+  const outcome = await Promise.race([attempt, deadline]);
+  if (deadlineTimer) clearTimeout(deadlineTimer);
+
+  return outcome.kind === "completed" ? outcome.refreshedIdentity ?? identity : identity;
+}
+
+async function resolvePlaytestInitialAdminEligibility(input: {
+  clientId: string;
+  playtestClientId: string;
+  prismUserId: string;
+  store: OidcStore;
+}): Promise<boolean> {
+  if (input.clientId !== input.playtestClientId) return false;
+  try {
+    return await input.store.resolvePlaytestInitialAdminEligibility({ prismUserId: input.prismUserId });
+  } catch {
+    return false;
+  }
 }
 
 export async function resolveOidcUserInfo(input: {

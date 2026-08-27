@@ -37,6 +37,11 @@ export type AdminUserDirectoryRow = {
   slackConnection: AdminSlackConnectionSummary;
   tokenProfiles: AdminTokenProfileCounts;
   latestActivityAt: string | null;
+  globalAdmin?: {
+    active: boolean;
+    source: "initial_bootstrap" | "setup_recovery" | "admin_grant" | null;
+    activeAdminCount: number;
+  };
 };
 
 export type AdminUserDetail = {

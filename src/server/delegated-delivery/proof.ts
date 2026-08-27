@@ -1,6 +1,6 @@
 import "server-only";
 
-import { timingSafeEqual } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 
 import {
   calculateJwkThumbprint,
@@ -136,6 +136,58 @@ export async function verifyDelegatedExchangeDpop(input: {
       replay: {
         jkt,
         jtiHash: sha256Hex(`dpop:${jkt}:${claims.jti}`),
+        expiresAt: new Date((iat + input.proofLifetimeSeconds + input.clockSkewSeconds) * 1000)
+      }
+    };
+  } catch {
+    return invalid();
+  }
+}
+
+export async function verifyDelegatedExecutionDpop(input: {
+  proof: string | null;
+  grantToken: string;
+  expectedJkt: string;
+  expectedHtu: string;
+  now?: Date;
+  clockSkewSeconds: number;
+  proofLifetimeSeconds: number;
+}): Promise<{ kind: "valid"; replay: VerifiedProofReplay } | { kind: "invalid" }> {
+  if (!input.proof || input.proof.length > 4096) return invalid();
+  try {
+    const header = decodeProtectedHeader(input.proof);
+    if (
+      !hasExactKeys(header, ["alg", "jwk", "typ"]) ||
+      header.alg !== "ES256" ||
+      header.typ !== "dpop+jwt" ||
+      !isPublicP256Jwk(header.jwk)
+    ) return invalid();
+    const verification = await compactVerify(
+      input.proof,
+      await importJWK(header.jwk, "ES256"),
+      { algorithms: ["ES256"] }
+    );
+    const claims = parseJsonObject(verification.payload);
+    if (!claims || !hasExactKeys(claims, ["ath", "htm", "htu", "iat", "jti"])) return invalid();
+    const nowSeconds = Math.floor((input.now ?? new Date()).getTime() / 1000);
+    const iat = integerClaim(claims.iat);
+    const jkt = await calculateJwkThumbprint(publicThumbprintJwk(header.jwk), "sha256");
+    const ath = createHash("sha256").update(input.grantToken, "ascii").digest("base64url");
+    if (
+      !constantTimeTextEqual(jkt, input.expectedJkt) ||
+      !constantTimeTextEqual(String(claims.ath ?? ""), ath) ||
+      claims.htu !== normalizeHtu(input.expectedHtu) ||
+      claims.htm !== "POST" ||
+      !validJti(claims.jti) ||
+      iat === null ||
+      iat > nowSeconds + input.clockSkewSeconds ||
+      iat < nowSeconds - input.proofLifetimeSeconds - input.clockSkewSeconds
+    ) return invalid();
+    return {
+      kind: "valid",
+      replay: {
+        jkt,
+        jtiHash: sha256Hex(`dpop-execute:${jkt}:${claims.jti}`),
         expiresAt: new Date((iat + input.proofLifetimeSeconds + input.clockSkewSeconds) * 1000)
       }
     };

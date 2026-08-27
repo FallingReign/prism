@@ -50,7 +50,7 @@ export async function POST(request: NextRequest, context: RouteContext): Promise
 async function authorizeAdmin(request: NextRequest): Promise<AdminAuthorizationDecision> {
   return resolvePrismAdmin({
     store: createPostgresAdminIdentityStore(database),
-    allowlist: await loadAdminAllowlist(),
+    allowlist: loadAdminAllowlist,
     sessionToken: request.cookies.get(prismSessionCookieName)?.value
   });
 }

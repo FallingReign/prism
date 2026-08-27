@@ -33,7 +33,7 @@ export async function getSlackLinkStatusWithDisplayNameEnrichment({
   const connection = await getSlackConnectionDisplayRecordForSession(database, sessionToken);
   if (!connection) return { kind: "not_linked" };
 
-  if (!needsSlackConnectionDisplayNameEnrichment(connection)) return toSlackLinkStatus(connection);
+  if (!needsSlackConnectionDisplayNameEnrichment(connection, now)) return toSlackLinkStatus(connection);
 
   const dependencies = await resolveDisplayNameDependencies({ database, displayNameStore, credentialProvider, webApiClient });
   if (!dependencies) return toSlackLinkStatus(connection);

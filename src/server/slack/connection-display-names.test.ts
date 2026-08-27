@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { enrichSlackConnectionDisplayNames, type SlackConnectionDisplayNameStore } from "./connection-display-names";
+import {
+  DISPLAY_NAME_ENRICHMENT_RETRY_COOLDOWN_MS,
+  enrichSlackConnectionDisplayNames,
+  needsSlackConnectionDisplayNameEnrichment,
+  type SlackConnectionDisplayNameStore
+} from "./connection-display-names";
 import type { SlackForwardingCredentialProvider } from "./forwarding-credentials";
 import type { SlackWebApiClient } from "./web-api-client";
 
@@ -18,9 +23,108 @@ const connection = {
 };
 
 describe("Slack connection display-name enrichment", () => {
+  it("retries a healthy missing user name only after the persisted cooldown", () => {
+    const attemptedAt = new Date("2026-01-01T00:00:00.000Z");
+    const attemptedConnection = { ...connection, displayNamesEnrichedAt: attemptedAt };
+
+    expect(
+      needsSlackConnectionDisplayNameEnrichment(
+        attemptedConnection,
+        new Date(attemptedAt.getTime() + DISPLAY_NAME_ENRICHMENT_RETRY_COOLDOWN_MS - 1)
+      )
+    ).toBe(false);
+    expect(
+      needsSlackConnectionDisplayNameEnrichment(
+        attemptedConnection,
+        new Date(attemptedAt.getTime() + DISPLAY_NAME_ENRICHMENT_RETRY_COOLDOWN_MS)
+      )
+    ).toBe(true);
+  });
+
+  it("does not retry user profile lookup after a safe user name is stored", async () => {
+    const namedConnection = {
+      ...connection,
+      teamName: null,
+      slackUserDisplayName: "Ada Lovelace",
+      displayNamesEnrichedAt: null
+    };
+    const callMethod = vi.fn(async ({ method }: { method: string }) => {
+      if (method === "auth.test") {
+        return { status: 200, body: { ok: true, team: "Example Workspace", team_id: "T123" } };
+      }
+      throw new Error("users.info must not run after a safe name exists");
+    });
+
+    await enrichSlackConnectionDisplayNames({
+      connection: namedConnection,
+      store: {
+        async claimConnectionDisplayNameEnrichmentAttempt() {
+          return true;
+        },
+        async updateConnectionDisplayNames(input) {
+          return { ...namedConnection, ...input, displayNamesEnrichedAt: input.enrichedAt };
+        }
+      },
+      credentialProvider: {
+        async getAccessToken() {
+          return { kind: "available", accessToken: "xoxp-user-token-canary" };
+        }
+      },
+      webApiClient: { callMethod },
+      now: new Date("2026-01-01T01:00:00.000Z")
+    });
+
+    expect(callMethod).toHaveBeenCalledTimes(1);
+    expect(callMethod).toHaveBeenCalledWith(expect.objectContaining({ method: "auth.test" }));
+  });
+
+  it("allows only one concurrent caller to claim a missing-name lookup", async () => {
+    let claimed = false;
+    let updated = 0;
+    const store: SlackConnectionDisplayNameStore = {
+      async claimConnectionDisplayNameEnrichmentAttempt() {
+        if (claimed) return false;
+        claimed = true;
+        return true;
+      },
+      async updateConnectionDisplayNames(input) {
+        updated += 1;
+        return { ...connection, ...input, displayNamesEnrichedAt: input.enrichedAt };
+      }
+    };
+    const callMethod = vi.fn(async ({ method }: { method: string }) => {
+      if (method === "auth.test") {
+        return { status: 200, body: { ok: true, team: "Example Workspace", team_id: "T123" } };
+      }
+      return { status: 200, body: { ok: true, user: { id: "U123", profile: { display_name: "Ada" } } } };
+    });
+    const dependencies = {
+      connection,
+      store,
+      credentialProvider: {
+        async getAccessToken() {
+          return { kind: "available" as const, accessToken: "xoxp-user-token-canary" };
+        }
+      },
+      webApiClient: { callMethod },
+      now: new Date("2026-01-01T01:00:00.000Z")
+    };
+
+    await Promise.all([
+      enrichSlackConnectionDisplayNames(dependencies),
+      enrichSlackConnectionDisplayNames(dependencies)
+    ]);
+
+    expect(callMethod).toHaveBeenCalledTimes(2);
+    expect(updated).toBe(1);
+  });
+
   it("stores only selected workspace and user display names from server-side Slack lookups", async () => {
     const updates: unknown[] = [];
     const store: SlackConnectionDisplayNameStore = {
+      async claimConnectionDisplayNameEnrichmentAttempt() {
+        return true;
+      },
       async updateConnectionDisplayNames(input) {
         updates.push(input);
         return {
@@ -106,6 +210,9 @@ describe("Slack connection display-name enrichment", () => {
       enrichSlackConnectionDisplayNames({
         connection,
         store: {
+          async claimConnectionDisplayNameEnrichmentAttempt() {
+            return true;
+          },
           async updateConnectionDisplayNames(input) {
             return { ...connection, ...input, displayNamesEnrichedAt: input.enrichedAt };
           }
@@ -147,6 +254,9 @@ describe("Slack connection display-name enrichment", () => {
       enrichSlackConnectionDisplayNames({
         connection: orgConnection,
         store: {
+          async claimConnectionDisplayNameEnrichmentAttempt() {
+            return true;
+          },
           async updateConnectionDisplayNames(input) {
             return {
               ...orgConnection,
@@ -165,6 +275,6 @@ describe("Slack connection display-name enrichment", () => {
       enterpriseName: "Example Org",
       slackUserDisplayName: "Ada Lovelace"
     });
-    expect(webApiClient.callMethod).toHaveBeenCalledTimes(2);
+    expect(webApiClient.callMethod).toHaveBeenCalledTimes(1);
   });
 });
