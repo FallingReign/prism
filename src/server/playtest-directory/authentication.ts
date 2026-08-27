@@ -2,8 +2,8 @@ import "server-only";
 
 import { getDeveloperTokenConfig } from "../config";
 import type { DeveloperTokenConfig } from "../token-profiles/developer-token";
-import { PLAYTEST_APP_CLIENT_ID, PLAYTEST_APP_PROFILE_NAME } from "../token-profiles/first-party-app";
 import { resolvePresentedDeveloperToken, type LocalToolTokenStore } from "../token-profiles/local-tool-status";
+import { hasPlaytestSlackDirectoryReadPolicy } from "./policy";
 
 export type PlaytestDirectoryIdentity = {
   prismUserId: string;
@@ -32,14 +32,7 @@ export async function authenticatePlaytestDirectory(input: {
     return { kind: "denied", status: resolution.result.httpStatus, error: "invalid_playtest_credential" };
   }
   const resolved = resolution.resolved;
-  if (
-    resolved.clientId !== PLAYTEST_APP_CLIENT_ID ||
-    resolved.tokenProfileName !== PLAYTEST_APP_PROFILE_NAME ||
-    !resolved.prismUserId ||
-    !resolved.slackConnectionId ||
-    resolved.slackStatus !== "healthy" ||
-    !resolved.hasUserCredential
-  ) {
+  if (!hasPlaytestSlackDirectoryReadPolicy(resolved)) {
     return { kind: "denied", status: 403, error: "playtest_directory_not_allowed" };
   }
   return {

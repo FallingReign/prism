@@ -20,7 +20,7 @@ describe("Playtest Slack directory", () => {
       .mockResolvedValueOnce({ status: 200, body: { ok: true, teams: [{ id: "T222", name: "Two" }], response_metadata: { next_cursor: "" } } });
 
     const result = await listPlaytestWorkspaces({
-      prismUserId: "user_1", store,
+      prismUserId: "user_1", slackConnectionId: "conn_org", store,
       credentialProvider: availableCredential(), slackClient: { callMethod }, now
     });
 
@@ -47,7 +47,7 @@ describe("Playtest Slack directory", () => {
       .mockResolvedValueOnce({ status: 429, body: { ok: false, error: "ratelimited" } });
 
     await expect(listPlaytestWorkspaces({
-      prismUserId: "user_1", store,
+      prismUserId: "user_1", slackConnectionId: "conn_org", store,
       credentialProvider: availableCredential(), slackClient: { callMethod }, now
     })).resolves.toEqual({ kind: "provider_error", error: "ratelimited" });
     expect(replaceOrganizationGrants).not.toHaveBeenCalled();
@@ -67,7 +67,7 @@ describe("Playtest Slack directory", () => {
       }
     });
     const input = {
-      prismUserId: "cache_user_1", teamId: "T111", cursor: "", limit: 100,
+      prismUserId: "cache_user_1", slackConnectionId: "conn_workspace", teamId: "T111", cursor: "", limit: 100,
       store: fakeStore({ resolveConnection: async () => ({ connectionId: "conn_workspace" }) }),
       credentialProvider: availableCredential(), slackClient: { callMethod }, now
     };
@@ -87,10 +87,100 @@ describe("Playtest Slack directory", () => {
   it("does not enumerate channels for an ungranted workspace", async () => {
     const callMethod = vi.fn();
     await expect(listPlaytestChannels({
-      prismUserId: "user_1", teamId: "T999", cursor: "", limit: 100,
+      prismUserId: "user_1", slackConnectionId: "conn_workspace", teamId: "T999", cursor: "", limit: 100,
       store: fakeStore(), credentialProvider: availableCredential(), slackClient: { callMethod }, now
     })).resolves.toEqual({ kind: "not_found", error: "workspace_not_granted" });
     expect(callMethod).not.toHaveBeenCalled();
+  });
+
+  it("scopes workspace directory reads to the connection embedded in the Playtest credential", async () => {
+    const listConnections = vi.fn(async (input: { prismUserId: string; slackConnectionId: string }) => {
+      if (input.slackConnectionId !== "conn_token") throw new Error("cross-connection lookup");
+      return [{
+        connectionId: "conn_token", installationScope: "workspace" as const, teamId: "T111", teamName: "Token workspace",
+        enterpriseId: null, enterpriseName: null, grantsVerifiedAt: now
+      }];
+    });
+    const listWorkspaces = vi.fn(async (input: { prismUserId: string; slackConnectionId: string }) => {
+      return input.slackConnectionId === "conn_token"
+        ? [{ teamId: "T111", teamName: "Token workspace", installationScope: "workspace" as const, enterpriseName: null, lastVerifiedAt: now }]
+        : [{ teamId: "T999", teamName: "Other connection", installationScope: "workspace" as const, enterpriseName: null, lastVerifiedAt: now }];
+    });
+
+    const result = await listPlaytestWorkspaces({
+      prismUserId: "user_1", slackConnectionId: "conn_token", store: fakeStore({ listConnections, listWorkspaces }),
+      credentialProvider: availableCredential(), slackClient: { callMethod: vi.fn() }, now
+    });
+
+    expect(result).toMatchObject({ kind: "ok", value: [{ teamId: "T111" }] });
+    expect(listConnections).toHaveBeenCalledWith({ prismUserId: "user_1", slackConnectionId: "conn_token" });
+    expect(listWorkspaces).toHaveBeenCalledWith({ prismUserId: "user_1", slackConnectionId: "conn_token" });
+  });
+
+  it("revalidates the target before serving a cached channel page", async () => {
+    const resolveConnection = vi.fn()
+      .mockResolvedValueOnce({ connectionId: "conn_workspace" })
+      .mockResolvedValueOnce(null);
+    const callMethod = vi.fn().mockResolvedValue({
+      status: 200,
+      body: { ok: true, channels: [{ id: "C111", name: "playtests", is_private: false }], response_metadata: { next_cursor: "" } }
+    });
+    const input = {
+      prismUserId: "revoked_cache_user", slackConnectionId: "conn_workspace", teamId: "T111", cursor: "", limit: 100,
+      store: fakeStore({ resolveConnection }), credentialProvider: availableCredential(), slackClient: { callMethod }, now
+    };
+
+    expect(await listPlaytestChannels(input)).toMatchObject({ kind: "ok", cache: "miss" });
+    await expect(listPlaytestChannels(input)).resolves.toEqual({ kind: "not_found", error: "workspace_not_granted" });
+    expect(resolveConnection).toHaveBeenCalledTimes(2);
+    expect(resolveConnection).toHaveBeenCalledWith({
+      prismUserId: "revoked_cache_user", slackConnectionId: "conn_workspace", teamId: "T111"
+    });
+    expect(callMethod).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not replace grants when an auth.teams.list page contains malformed entries", async () => {
+    const replaceOrganizationGrants = vi.fn(async () => undefined);
+    const store = fakeStore({
+      listConnections: async () => [{
+        connectionId: "conn_org", installationScope: "organization", teamId: null, teamName: null,
+        enterpriseId: "E123", enterpriseName: "Example Org", grantsVerifiedAt: null
+      }],
+      replaceOrganizationGrants
+    });
+    const callMethod = vi.fn().mockResolvedValue({
+      status: 200,
+      body: {
+        ok: true,
+        teams: [{ id: "T111", name: "One" }, { id: "not-a-team", name: "Malformed" }],
+        response_metadata: { next_cursor: "" }
+      }
+    });
+
+    await expect(listPlaytestWorkspaces({
+      prismUserId: "user_1", slackConnectionId: "conn_org", store,
+      credentialProvider: availableCredential(), slackClient: { callMethod }, now
+    })).resolves.toEqual({ kind: "provider_error", error: "slack_directory_unavailable" });
+    expect(replaceOrganizationGrants).not.toHaveBeenCalled();
+  });
+
+  it("does not replace grants when an auth.teams.list page omits cursor metadata", async () => {
+    const replaceOrganizationGrants = vi.fn(async () => undefined);
+    const store = fakeStore({
+      listConnections: async () => [{
+        connectionId: "conn_org", installationScope: "organization", teamId: null, teamName: null,
+        enterpriseId: "E123", enterpriseName: "Example Org", grantsVerifiedAt: null
+      }],
+      replaceOrganizationGrants
+    });
+
+    await expect(listPlaytestWorkspaces({
+      prismUserId: "user_1", slackConnectionId: "conn_org", store,
+      credentialProvider: availableCredential(),
+      slackClient: { callMethod: vi.fn().mockResolvedValue({ status: 200, body: { ok: true, teams: [{ id: "T111", name: "One" }] } }) },
+      now
+    })).resolves.toEqual({ kind: "provider_error", error: "slack_directory_unavailable" });
+    expect(replaceOrganizationGrants).not.toHaveBeenCalled();
   });
 });
 

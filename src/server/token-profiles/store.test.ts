@@ -4,6 +4,26 @@ import type { Database } from "../db";
 import { createPostgresTokenProfileStore } from "./store";
 
 describe("Postgres Token profile store lifecycle resolution", () => {
+  it("checks workspace grants against the exact healthy organization connection", async () => {
+    const query = vi.fn(async (sql: string, params?: unknown[]) => {
+      expect(sql).toContain("slack_connection_workspace_grants");
+      expect(sql).toContain("g.status = 'active'");
+      expect(sql).toContain("c.installation_scope = 'organization'");
+      expect(params).toEqual(["conn_org_1", "T_GRANTED"]);
+      return { rows: [{ allowed: true }], rowCount: 1 };
+    });
+
+    const store = createPostgresTokenProfileStore(fakeDatabase(query));
+    await expect(store.isWorkspaceAllowed({ slackConnectionId: "conn_org_1", workspaceId: "T_GRANTED" })).resolves.toBe(true);
+  });
+
+  it("does not treat a revoked or absent organization grant as workspace access", async () => {
+    const query = vi.fn(async () => ({ rows: [{ allowed: false }], rowCount: 1 }));
+    const store = createPostgresTokenProfileStore(fakeDatabase(query));
+
+    await expect(store.isWorkspaceAllowed({ slackConnectionId: "conn_org_1", workspaceId: "T_REVOKED" })).resolves.toBe(false);
+  });
+
   it("updates last-used metadata only after resolving a known active Prism developer token", async () => {
     const now = new Date("2026-01-01T00:00:00.000Z");
     const query = vi.fn(async (sql: string, params?: unknown[]) => {

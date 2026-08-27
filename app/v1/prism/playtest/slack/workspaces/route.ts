@@ -20,6 +20,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const result = await listPlaytestWorkspaces({
     prismUserId: auth.identity.prismUserId,
+    slackConnectionId: auth.identity.slackConnectionId,
     store: runtime.directoryStore,
     credentialProvider: runtime.credentialProvider,
     slackClient: runtime.slackClient,

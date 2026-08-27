@@ -98,6 +98,31 @@ export function createPostgresOAuthFlowStore(
     },
     async upsertPrismUser(input) {
       const organization = input.identityScope === "organization";
+      if (organization && input.slackEnterpriseId) {
+        const matchingIdentities = await database.query<{ id: string; identity_scope: "workspace" | "organization" }>(
+          `select id, identity_scope
+           from prism_users
+           where slack_user_id = $1 and slack_enterprise_id = $2
+           order by case identity_scope when 'workspace' then 0 else 1 end, created_at asc
+           for update`,
+          [input.slackUserId, input.slackEnterpriseId]
+        );
+        const workspaceIdentity = matchingIdentities.rows.find((row) => row.identity_scope === "workspace");
+        if (workspaceIdentity) {
+          const organizationDuplicate = matchingIdentities.rows.some(
+            (row) => row.identity_scope === "organization" && row.id !== workspaceIdentity.id
+          );
+          if (organizationDuplicate) {
+            // Do not silently choose between two existing Prism subjects or
+            // rewrite their credentials/admin state. A dedicated, audited
+            // reconciliation migration is required for this legacy condition.
+            throw new Error("slack-organization-identity-reconciliation-required");
+          }
+          // A normal workspace -> organization upgrade retains the workspace
+          // subject, which keeps existing administrator, OIDC and token links.
+          return { id: workspaceIdentity.id };
+        }
+      }
       const result = await database.query<{ id: string }>(
         `insert into prism_users
            (id, identity_scope, identity_scope_id, slack_team_id, slack_user_id, slack_enterprise_id)

@@ -154,6 +154,50 @@ describe("Postgres Slack OAuth continuation state", () => {
   });
 });
 
+describe("Postgres Slack OAuth identity continuity", () => {
+  it("reuses the existing workspace Prism subject for a same-enterprise organization upgrade", async () => {
+    const query = vi.fn(async (sql: string, params?: unknown[]) => {
+      if (sql.includes("from prism_users") && sql.includes("for update")) {
+        expect(params).toEqual(["U123", "E123"]);
+        return { rows: [{ id: "workspace_subject", identity_scope: "workspace" }], rowCount: 1 };
+      }
+      throw new Error(`unexpected-sql:${sql.slice(0, 80)}`);
+    });
+    const store = createPostgresOAuthFlowStore(fakeDatabase(query));
+
+    await expect(store.upsertPrismUser({
+      identityScope: "organization",
+      slackTeamId: null,
+      slackUserId: "U123",
+      slackEnterpriseId: "E123"
+    })).resolves.toEqual({ id: "workspace_subject" });
+    expect(query).toHaveBeenCalledTimes(1);
+  });
+
+  it("fails closed when a historical organization duplicate would make subject reconciliation ambiguous", async () => {
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes("from prism_users") && sql.includes("for update")) {
+        return {
+          rows: [
+            { id: "workspace_subject", identity_scope: "workspace" },
+            { id: "organization_duplicate", identity_scope: "organization" }
+          ],
+          rowCount: 2
+        };
+      }
+      throw new Error(`unexpected-sql:${sql.slice(0, 80)}`);
+    });
+    const store = createPostgresOAuthFlowStore(fakeDatabase(query));
+
+    await expect(store.upsertPrismUser({
+      identityScope: "organization",
+      slackTeamId: null,
+      slackUserId: "U123",
+      slackEnterpriseId: "E123"
+    })).rejects.toThrow("slack-organization-identity-reconciliation-required");
+  });
+});
+
 function fakeDatabase(query: unknown): Database {
   return {
     query: query as Database["query"],

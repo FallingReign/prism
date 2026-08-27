@@ -25,10 +25,13 @@ function resolved(profile: ReturnType<typeof buildTokenProfilePolicy>, overrides
   };
 }
 
-function store(row: ResolvedDeveloperToken | null): SlackMethodPolicyStore {
+function store(row: ResolvedDeveloperToken | null, workspaceAllowed = true): SlackMethodPolicyStore {
   return {
     async resolveDeveloperToken() {
       return row;
+    },
+    async isWorkspaceAllowed() {
+      return workspaceAllowed;
     }
   };
 }
@@ -203,6 +206,58 @@ describe("Slack method policy enforcement", () => {
     expect(surface).toMatchObject({ kind: "denied", body: { prism: { errorClass: "surface_denied" } } });
     expect(missingBot).toMatchObject({ kind: "denied", body: { prism: { errorClass: "execution_identity_unavailable" } } });
     expect(missingSurface).toMatchObject({ kind: "denied", body: { prism: { errorClass: "surface_required" } } });
+  });
+
+  it("requires the exact organization connection to retain an active workspace grant", async () => {
+    const messages = buildTokenProfilePolicy({ preset: "messages_only", executionIdentity: "user" }, now);
+    const organizationIdentity = resolved(messages, {
+      slackConnectionId: "conn_org_1",
+      slackTeamId: null,
+      slackEnterpriseId: "E123"
+    });
+    const allowed = await evaluateSlackMethodPolicy({
+      store: store(organizationIdentity, true),
+      bearerToken: "prism_dev_orgworkspaceallowedcanarytokenxxxxxxxx",
+      developerTokenConfig: { pepper: "pepper-secret-canary", pepperId: "local-pepper" },
+      method: "chat.postMessage",
+      requestId: "req_org_granted",
+      requestContext: { workspaceId: "T_GRANTED", surface: "public_channel" },
+      now
+    });
+    const revoked = await evaluateSlackMethodPolicy({
+      store: store(organizationIdentity, false),
+      bearerToken: "prism_dev_orgworkspacerevokedcanarytokenxxxxxxxx",
+      developerTokenConfig: { pepper: "pepper-secret-canary", pepperId: "local-pepper" },
+      method: "chat.postMessage",
+      requestId: "req_org_revoked",
+      requestContext: { workspaceId: "T_REVOKED", surface: "public_channel" },
+      now
+    });
+
+    expect(allowed).toMatchObject({ kind: "allowed" });
+    expect(revoked).toMatchObject({
+      kind: "denied",
+      body: { ok: false, error: "not_allowed", prism: { errorClass: "workspace_denied" } }
+    });
+  });
+
+  it("fails closed for an organization identity when workspace grant lookup is unavailable", async () => {
+    const messages = buildTokenProfilePolicy({ preset: "messages_only", executionIdentity: "user" }, now);
+    const decision = await evaluateSlackMethodPolicy({
+      store: {
+        async resolveDeveloperToken() {
+          return resolved(messages, { slackConnectionId: "conn_org_1", slackTeamId: null, slackEnterpriseId: "E123" });
+        }
+      },
+      bearerToken: "prism_dev_orgworkspaceunknowncanarytokenxxxxxxxx",
+      developerTokenConfig: { pepper: "pepper-secret-canary", pepperId: "local-pepper" },
+      method: "chat.postMessage",
+      requestId: "req_org_unknown",
+      requestContext: { workspaceId: "T_UNKNOWN", surface: "public_channel" },
+      now
+    });
+
+    expect(decision).toMatchObject({ kind: "denied", body: { prism: { errorClass: "workspace_denied" } } });
   });
 
   it("denies expired, revoked, bootstrap, reauth, and selectable identity unavailable profiles before forwarding", async () => {

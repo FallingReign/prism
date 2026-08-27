@@ -28,6 +28,7 @@ export async function GET(request: NextRequest, context: RouteContext): Promise<
   if (auth.kind !== "authenticated") return json({ error: auth.error }, auth.status, requestId);
   const result = await listPlaytestChannels({
     prismUserId: auth.identity.prismUserId,
+    slackConnectionId: auth.identity.slackConnectionId,
     teamId,
     cursor,
     limit,

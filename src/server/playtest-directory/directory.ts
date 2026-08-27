@@ -2,8 +2,9 @@ import "server-only";
 
 import type { SlackForwardingCredentialProvider } from "../slack/forwarding-credentials";
 import type { SlackWebApiClient } from "../slack/web-api-client";
+import { PLAYTEST_SLACK_DIRECTORY_READ_POLICY } from "./policy";
 
-export const PLAYTEST_DIRECTORY_CONTRACT_VERSION = 1;
+export const PLAYTEST_DIRECTORY_CONTRACT_VERSION = PLAYTEST_SLACK_DIRECTORY_READ_POLICY.version;
 const WORKSPACE_SYNC_TTL_MS = 5 * 60 * 1000;
 const CHANNEL_CACHE_TTL_MS = 2 * 60 * 1000;
 
@@ -32,14 +33,16 @@ export type DirectoryChannel = {
 };
 
 export type PlaytestDirectoryStore = {
-  listConnections(prismUserId: string): Promise<DirectoryConnection[]>;
+  /** Only the connection bound into the authenticated first-party token. */
+  listConnections(input: { prismUserId: string; slackConnectionId: string }): Promise<DirectoryConnection[]>;
   replaceOrganizationGrants(input: {
     connectionId: string;
     teams: Array<{ teamId: string; teamName: string | null }>;
     verifiedAt: Date;
   }): Promise<void>;
-  listWorkspaces(prismUserId: string): Promise<DirectoryWorkspace[]>;
-  resolveConnection(input: { prismUserId: string; teamId: string }): Promise<{ connectionId: string } | null>;
+  listWorkspaces(input: { prismUserId: string; slackConnectionId: string }): Promise<DirectoryWorkspace[]>;
+  /** Re-check the target against the currently authorized connection before cache use. */
+  resolveConnection(input: { prismUserId: string; slackConnectionId: string; teamId: string }): Promise<{ connectionId: string } | null>;
 };
 
 export type DirectoryResult<T> =
@@ -51,6 +54,7 @@ const channelCache = new Map<string, ChannelCacheEntry>();
 
 export async function listPlaytestWorkspaces(input: {
   prismUserId: string;
+  slackConnectionId: string;
   store: PlaytestDirectoryStore;
   credentialProvider: SlackForwardingCredentialProvider;
   slackClient: SlackWebApiClient;
@@ -58,7 +62,8 @@ export async function listPlaytestWorkspaces(input: {
   now?: Date;
 }): Promise<DirectoryResult<DirectoryWorkspace[]>> {
   const now = input.now ?? new Date();
-  const connections = await input.store.listConnections(input.prismUserId);
+  const connectionScope = { prismUserId: input.prismUserId, slackConnectionId: input.slackConnectionId };
+  const connections = await input.store.listConnections(connectionScope);
   for (const connection of connections) {
     if (connection.installationScope !== "organization") continue;
     const fresh = connection.grantsVerifiedAt && now.getTime() - connection.grantsVerifiedAt.getTime() < WORKSPACE_SYNC_TTL_MS;
@@ -76,11 +81,12 @@ export async function listPlaytestWorkspaces(input: {
     }
     await input.store.replaceOrganizationGrants({ connectionId: connection.connectionId, teams: teams.value, verifiedAt: now });
   }
-  return { kind: "ok", value: await input.store.listWorkspaces(input.prismUserId), cache: "local" };
+  return { kind: "ok", value: await input.store.listWorkspaces(connectionScope), cache: "local" };
 }
 
 export async function listPlaytestChannels(input: {
   prismUserId: string;
+  slackConnectionId: string;
   teamId: string;
   cursor: string;
   limit: number;
@@ -91,12 +97,17 @@ export async function listPlaytestChannels(input: {
   now?: Date;
 }): Promise<DirectoryResult<{ channels: DirectoryChannel[]; nextCursor: string }>> {
   const now = input.now ?? new Date();
-  const cacheKey = `${input.prismUserId}:${input.teamId}:${input.cursor}:${input.limit}`;
+  // Authorize every read before returning cached data. A cached page may never
+  // outlive a connection revocation or workspace-grant revocation.
+  const connection = await input.store.resolveConnection({
+    prismUserId: input.prismUserId,
+    slackConnectionId: input.slackConnectionId,
+    teamId: input.teamId
+  });
+  if (!connection) return { kind: "not_found", error: "workspace_not_granted" };
+  const cacheKey = `${input.prismUserId}:${input.slackConnectionId}:${input.teamId}:${input.cursor}:${input.limit}`;
   const cached = channelCache.get(cacheKey);
   if (!input.refresh && cached && cached.expiresAt > now.getTime()) return { kind: "ok", value: cached.value, cache: "hit" };
-
-  const connection = await input.store.resolveConnection({ prismUserId: input.prismUserId, teamId: input.teamId });
-  if (!connection) return { kind: "not_found", error: "workspace_not_granted" };
   const credential = await input.credentialProvider.getAccessToken({ connectionId: connection.connectionId, kind: "user" });
   if (credential.kind !== "available") {
     return cached ? { kind: "ok", value: cached.value, cache: "hit" } : { kind: "credential_unavailable", error: credential.errorClass };
@@ -123,6 +134,7 @@ export async function listPlaytestChannels(input: {
 async function fetchAllGrantedTeams(client: SlackWebApiClient, accessToken: string): Promise<DirectoryResult<Array<{ teamId: string; teamName: string | null }>>> {
   const teams = new Map<string, string | null>();
   let cursor = "";
+  const seenCursors = new Set<string>();
   for (let page = 0; page < 100; page += 1) {
     const result = await client.callMethod({
       method: "auth.teams.list",
@@ -136,6 +148,8 @@ async function fetchAllGrantedTeams(client: SlackWebApiClient, accessToken: stri
     for (const team of parsed.teams) teams.set(team.teamId, team.teamName);
     cursor = parsed.nextCursor;
     if (!cursor) return { kind: "ok", value: [...teams].map(([teamId, teamName]) => ({ teamId, teamName })), cache: "miss" };
+    if (seenCursors.has(cursor)) return { kind: "provider_error", error: "workspace_pagination_loop" };
+    seenCursors.add(cursor);
   }
   return { kind: "provider_error", error: "workspace_pagination_limit" };
 }
@@ -144,10 +158,16 @@ function parseTeams(value: unknown): { teams: Array<{ teamId: string; teamName: 
   if (!isRecord(value) || value.ok !== true || !Array.isArray(value.teams)) return null;
   const teams: Array<{ teamId: string; teamName: string | null }> = [];
   for (const candidate of value.teams) {
-    if (!isRecord(candidate) || !validTeamId(candidate.id)) continue;
+    // A malformed row means this response is not authoritative. Do not replace
+    // the grant set with a partial page and accidentally revoke valid targets.
+    if (!isRecord(candidate) || !validTeamId(candidate.id)) return null;
     teams.push({ teamId: candidate.id, teamName: boundedName(candidate.name) });
   }
-  return { teams, nextCursor: nextCursor(value) };
+  // auth.teams.list is authoritative only with its cursor metadata. Without
+  // it we cannot prove that there are no later pages before revoking grants.
+  if (!isRecord(value.response_metadata)) return null;
+  const cursor = strictNextCursor(value);
+  return cursor === null ? null : { teams, nextCursor: cursor };
 }
 
 function parseChannels(value: unknown): { channels: DirectoryChannel[]; nextCursor: string } | null {
@@ -157,12 +177,15 @@ function parseChannels(value: unknown): { channels: DirectoryChannel[]; nextCurs
     if (!isRecord(candidate) || !validChannelId(candidate.id) || typeof candidate.name !== "string" || candidate.is_archived === true) continue;
     channels.push({ channelId: candidate.id, channelName: candidate.name.slice(0, 255), isPrivate: candidate.is_private === true });
   }
-  return { channels, nextCursor: nextCursor(value) };
+  const cursor = strictNextCursor(value);
+  return cursor === null ? null : { channels, nextCursor: cursor };
 }
 
-function nextCursor(value: Record<string, unknown>): string {
-  const metadata = isRecord(value.response_metadata) ? value.response_metadata : null;
-  return typeof metadata?.next_cursor === "string" && metadata.next_cursor.length <= 2048 ? metadata.next_cursor : "";
+function strictNextCursor(value: Record<string, unknown>): string | null {
+  if (value.response_metadata === undefined) return "";
+  if (!isRecord(value.response_metadata)) return null;
+  const cursor = value.response_metadata.next_cursor;
+  return typeof cursor === "string" && cursor.length <= 2048 ? cursor : null;
 }
 
 function slackError(value: unknown): string {

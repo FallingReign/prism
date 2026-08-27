@@ -10,7 +10,14 @@ import {
 } from "./local-tool-status";
 import type { CapabilityMap } from "./presets";
 
-export type SlackMethodPolicyStore = LocalToolTokenStore;
+export type SlackMethodPolicyStore = LocalToolTokenStore & {
+  /**
+   * Resolve a requested workspace against the exact Slack connection that owns
+   * the presented developer token. Workspace installs must match their
+   * installed team; organization installs must have an explicit active grant.
+   */
+  isWorkspaceAllowed?(input: { slackConnectionId: string; workspaceId: string }): Promise<boolean>;
+};
 
 export type SlackSurface = "public_channel" | "private_channel" | "dm" | "mpim" | "search" | "files_metadata";
 
@@ -82,7 +89,7 @@ export async function evaluateSlackMethodPolicy({
   const classification = classifySlackMethod(method);
   if (!classification.supported) return unsupported(method, requestId, classification, resolved);
 
-  const workspaceDenial = checkWorkspace(method, requestId, classification, resolved, requestContext);
+  const workspaceDenial = await checkWorkspace(method, requestId, classification, resolved, requestContext, store);
   if (workspaceDenial) return workspaceDenial;
 
   const surfaceDenial = checkSurface(method, requestId, classification, resolved, requestContext);
@@ -111,14 +118,32 @@ export async function evaluateSlackMethodPolicy({
   };
 }
 
-function checkWorkspace(
+async function checkWorkspace(
   method: string,
   requestId: string,
   classification: Extract<MethodClassification, { supported: true }>,
   resolved: ResolvedDeveloperToken,
-  requestContext: SlackMethodPolicyContext
-): SlackMethodPolicyDecision | null {
-  if (requestContext.workspaceId && resolved.slackTeamId && requestContext.workspaceId !== resolved.slackTeamId) {
+  requestContext: SlackMethodPolicyContext,
+  store: SlackMethodPolicyStore
+): Promise<SlackMethodPolicyDecision | null> {
+  const workspaceId = requestContext.workspaceId?.trim();
+  if (!workspaceId) return null;
+
+  // A workspace-scoped installation never receives cross-workspace access.
+  if (resolved.slackTeamId) {
+    if (workspaceId !== resolved.slackTeamId) {
+      return deniedBody(method, requestId, classification.category, "workspace_denied", "not_allowed", resolved);
+    }
+    return null;
+  }
+
+  // An organization installation is deliberately not equivalent to every
+  // workspace in that organization. Fail closed unless the exact connection
+  // has an active workspace grant at the point of forwarding.
+  if (!resolved.slackConnectionId || !store.isWorkspaceAllowed) {
+    return deniedBody(method, requestId, classification.category, "workspace_denied", "not_allowed", resolved);
+  }
+  if (!(await store.isWorkspaceAllowed({ slackConnectionId: resolved.slackConnectionId, workspaceId }))) {
     return deniedBody(method, requestId, classification.category, "workspace_denied", "not_allowed", resolved);
   }
   return null;

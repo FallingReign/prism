@@ -6,6 +6,7 @@ import { insertActivityAuditRecord } from "../audit/postgres-store";
 import type { Database } from "../db";
 import { hashSecret } from "../slack/oauth-flow";
 import type { LocalToolTokenStore, ResolvedDeveloperToken } from "./local-tool-status";
+import type { SlackMethodPolicyStore } from "./method-policy";
 import {
   PLAYTEST_APP_CAPABILITY_MAP,
   PLAYTEST_APP_CLIENT_ID,
@@ -15,7 +16,7 @@ import {
 import type { CapabilityMap, TokenProfilePreset } from "./presets";
 import type { TokenProfileDeveloperTokenMetadata, TokenProfileMetadata, TokenProfileStore } from "./service";
 
-export function createPostgresTokenProfileStore(database: Database): TokenProfileStore & LocalToolTokenStore & FirstPartyAppTokenStore {
+export function createPostgresTokenProfileStore(database: Database): TokenProfileStore & LocalToolTokenStore & FirstPartyAppTokenStore & SlackMethodPolicyStore {
   return {
     async resolveOwner({ sessionToken, now }) {
       const result = await database.query<{
@@ -536,6 +537,26 @@ export function createPostgresTokenProfileStore(database: Database): TokenProfil
         }
       }
       return toResolvedDeveloperToken(row);
+    },
+    async isWorkspaceAllowed({ slackConnectionId, workspaceId }) {
+      const result = await database.query<{ allowed: boolean }>(
+        `select exists(
+           select 1
+           from slack_connections c
+           left join slack_connection_workspace_grants g
+             on g.slack_connection_id = c.id
+            and g.team_id = $2
+            and g.status = 'active'
+           where c.id = $1
+             and c.status = 'healthy'
+             and (
+               (c.installation_scope = 'workspace' and c.team_id = $2)
+               or (c.installation_scope = 'organization' and g.team_id is not null)
+             )
+         ) as allowed`,
+        [slackConnectionId, workspaceId]
+      );
+      return result.rows[0]?.allowed === true;
     }
   };
 }

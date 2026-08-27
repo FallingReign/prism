@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { PLAYTEST_APP_CAPABILITY_MAP, PLAYTEST_APP_PROFILE_NAME } from "../token-profiles/first-party-app";
 import type { ResolvedDeveloperToken } from "../token-profiles/local-tool-status";
 import { authenticatePlaytestDirectory } from "./authentication";
+import { PLAYTEST_SLACK_DIRECTORY_READ_POLICY } from "./policy";
 
 describe("Playtest directory authentication", () => {
   it("accepts only the active first-party Playtest credential", async () => {
@@ -26,6 +27,17 @@ describe("Playtest directory authentication", () => {
       developerTokenConfig: { pepper: "test-pepper", pepperId: "test" }
     });
     expect(result).toEqual({ kind: "denied", status: 403, error: "playtest_directory_not_allowed" });
+  });
+
+  it("uses a versioned, connection-bound first-party directory policy", () => {
+    expect(PLAYTEST_SLACK_DIRECTORY_READ_POLICY).toEqual({
+      version: 1,
+      capability: "playtest.slack.directory.read",
+      clientId: "shg-playtest",
+      tokenProfileName: PLAYTEST_APP_PROFILE_NAME,
+      connectionBinding: "issued_slack_connection",
+      requiredCredential: "user"
+    });
   });
 });
 
