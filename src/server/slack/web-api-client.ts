@@ -99,6 +99,20 @@ function mockBody({ method, payload, executionMode }: SlackWebApiCall): unknown 
       response_metadata: { next_cursor: "mock-next-cursor" }
     };
   }
+  if (method === "auth.teams.list") {
+    return {
+      ok: true,
+      teams: [{ id: "T00000001", name: "Mock workspace" }],
+      response_metadata: { next_cursor: "" }
+    };
+  }
+  if (method === "users.conversations") {
+    return {
+      ok: true,
+      channels: [{ id: "C00000001", name: "playtests", is_private: false, is_archived: false }],
+      response_metadata: { next_cursor: "" }
+    };
+  }
   if (method === "conversations.history" || method === "conversations.replies") {
     return {
       ok: true,
