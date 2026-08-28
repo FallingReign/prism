@@ -61,6 +61,8 @@ describe("/", () => {
     expect(html).toContain("API reference");
     expect(html).toContain("Install Prism skill");
     expect(html).not.toContain("Admin console");
+    expect(html).toContain("lg:grid-cols-[minmax(0,1fr)_minmax(20rem,28rem)]");
+    expect(html).not.toContain("lg:grid-cols-[minmax(0,1fr)_auto]");
   });
 
   it("derives setup-required status from invalid server config without exposing its values", async () => {
@@ -81,6 +83,37 @@ describe("/", () => {
     expect(html).not.toContain("mock-playtest-client");
     expect(html).not.toContain("setup-required:");
     expect(mockReadSlackStatus).not.toHaveBeenCalled();
+  });
+
+  it("does not silently present an old connection after a failed Slack authorization", async () => {
+    const { default: HomePage } = await import("./page");
+
+    const html = renderToStaticMarkup(await HomePage({ searchParams: Promise.resolve({ slack: "error", reason: "invalid_provider_response" }) }));
+
+    expect(html).toContain("Slack authorization did not complete");
+    expect(html).toContain("Your existing Slack connection was left unchanged");
+    expect(html).toContain("Slack returned an installation response Prism could not safely validate");
+  });
+
+  it("confirms the authoritative organization workspace grant count after linking", async () => {
+    const { default: HomePage } = await import("./page");
+    const html = renderToStaticMarkup(await HomePage({ searchParams: Promise.resolve({
+      slack: "linked", installation: "organization", grants: "2"
+    }) }));
+
+    expect(html).toContain("Slack organization connected");
+    expect(html).toContain("Prism confirmed 2 granted workspaces");
+  });
+
+  it("distinguishes unavailable organization discovery from an authoritative zero-grant result", async () => {
+    const { default: HomePage } = await import("./page");
+    const html = renderToStaticMarkup(await HomePage({ searchParams: Promise.resolve({
+      slack: "linked", installation: "organization", grant_sync: "unavailable"
+    }) }));
+
+    expect(html).toContain("Slack organization connected");
+    expect(html).toContain("could not load workspace grants yet");
+    expect(html).toContain("Existing grants were preserved");
   });
 
   it("shows the Admin console link only for allowlisted admin sessions", async () => {

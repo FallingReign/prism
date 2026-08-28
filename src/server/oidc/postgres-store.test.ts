@@ -50,6 +50,8 @@ describe("Postgres OIDC store", () => {
 
     await expect(store.resolveEligiblePrismSessionIdentity({ sessionToken: "session-token", now })).resolves.toEqual({ prismUserId: "user-1", slackConnectionId: "connection-1", slackUserId: "U1", slackUserDisplayName: "Ada", teamId: "T1", teamName: "Workspace", enterpriseId: null, enterpriseName: null, authTime: now });
     expect(query).toHaveBeenCalledWith(expect.stringContaining("c.status = 'healthy'"), [hashSecret("session-token"), now]);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("c.id = s.slack_connection_id"), expect.any(Array));
+    expect(query).toHaveBeenCalledWith(expect.not.stringContaining("order by c.updated_at desc"), expect.any(Array));
   });
 
   it("derives Playtest initial-admin eligibility only from a live global configuration admin row", async () => {

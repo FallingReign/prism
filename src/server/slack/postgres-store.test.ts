@@ -17,6 +17,8 @@ describe("Postgres Slack website status", () => {
       expect(sql).toContain("enterprise_name");
       expect(sql).toContain("authed_user_display_name");
       expect(sql).toContain("display_names_enriched_at");
+      expect(sql).toContain("c.id = s.slack_connection_id");
+      expect(sql).not.toContain("order by c.updated_at desc");
       expect(params).toEqual([hashSecret("session-token")]);
       return {
         rows: [
@@ -62,6 +64,22 @@ describe("Postgres Slack website status", () => {
 });
 
 describe("Postgres Slack OAuth continuation state", () => {
+  it("persists the exact Slack connection on a new website session", async () => {
+    const expiresAt = new Date("2026-09-01T00:00:00.000Z");
+    const query = vi.fn(async (sql: string, params?: unknown[]) => {
+      expect(sql).toContain("slack_connection_id");
+      expect(params).toEqual(["session-hash", "user_1", "conn_org", expiresAt]);
+      return { rows: [], rowCount: 1 };
+    });
+
+    await createPostgresOAuthFlowStore(fakeDatabase(query)).createWebsiteSession({
+      sessionTokenHash: "session-hash",
+      prismUserId: "user_1",
+      connectionId: "conn_org",
+      expiresAt
+    });
+  });
+
   it("serializes refreshes with a transaction-scoped advisory lock", async () => {
     const query = vi.fn(async (sql: string, params?: unknown[]) => {
       expect(sql).toContain("pg_advisory_xact_lock");

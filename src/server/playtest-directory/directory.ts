@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SlackForwardingCredentialProvider } from "../slack/forwarding-credentials";
 import type { SlackWebApiClient } from "../slack/web-api-client";
+import { fetchAllGrantedSlackTeams } from "../slack/organization-workspaces";
 import { PLAYTEST_SLACK_DIRECTORY_READ_POLICY } from "./policy";
 
 export const PLAYTEST_DIRECTORY_CONTRACT_VERSION = PLAYTEST_SLACK_DIRECTORY_READ_POLICY.version;
@@ -74,12 +75,12 @@ export async function listPlaytestWorkspaces(input: {
       if (connection.grantsVerifiedAt) continue;
       return { kind: "credential_unavailable", error: credential.errorClass };
     }
-    const teams = await fetchAllGrantedTeams(input.slackClient, credential.accessToken);
+    const teams = await fetchAllGrantedSlackTeams(input.slackClient, credential.accessToken);
     if (teams.kind !== "ok") {
       if (connection.grantsVerifiedAt) continue;
       return teams;
     }
-    await input.store.replaceOrganizationGrants({ connectionId: connection.connectionId, teams: teams.value, verifiedAt: now });
+    await input.store.replaceOrganizationGrants({ connectionId: connection.connectionId, teams: teams.teams, verifiedAt: now });
   }
   return { kind: "ok", value: await input.store.listWorkspaces(connectionScope), cache: "local" };
 }
@@ -131,45 +132,6 @@ export async function listPlaytestChannels(input: {
   return { kind: "ok", value: parsed, cache: "miss" };
 }
 
-async function fetchAllGrantedTeams(client: SlackWebApiClient, accessToken: string): Promise<DirectoryResult<Array<{ teamId: string; teamName: string | null }>>> {
-  const teams = new Map<string, string | null>();
-  let cursor = "";
-  const seenCursors = new Set<string>();
-  for (let page = 0; page < 100; page += 1) {
-    const result = await client.callMethod({
-      method: "auth.teams.list",
-      httpMethod: "GET",
-      executionMode: "user",
-      accessToken,
-      payload: { limit: 200, ...(cursor ? { cursor } : {}) }
-    });
-    const parsed = parseTeams(result.body);
-    if (!parsed) return { kind: "provider_error", error: slackError(result.body) };
-    for (const team of parsed.teams) teams.set(team.teamId, team.teamName);
-    cursor = parsed.nextCursor;
-    if (!cursor) return { kind: "ok", value: [...teams].map(([teamId, teamName]) => ({ teamId, teamName })), cache: "miss" };
-    if (seenCursors.has(cursor)) return { kind: "provider_error", error: "workspace_pagination_loop" };
-    seenCursors.add(cursor);
-  }
-  return { kind: "provider_error", error: "workspace_pagination_limit" };
-}
-
-function parseTeams(value: unknown): { teams: Array<{ teamId: string; teamName: string | null }>; nextCursor: string } | null {
-  if (!isRecord(value) || value.ok !== true || !Array.isArray(value.teams)) return null;
-  const teams: Array<{ teamId: string; teamName: string | null }> = [];
-  for (const candidate of value.teams) {
-    // A malformed row means this response is not authoritative. Do not replace
-    // the grant set with a partial page and accidentally revoke valid targets.
-    if (!isRecord(candidate) || !validTeamId(candidate.id)) return null;
-    teams.push({ teamId: candidate.id, teamName: boundedName(candidate.name) });
-  }
-  // auth.teams.list is authoritative only with its cursor metadata. Without
-  // it we cannot prove that there are no later pages before revoking grants.
-  if (!isRecord(value.response_metadata)) return null;
-  const cursor = strictNextCursor(value);
-  return cursor === null ? null : { teams, nextCursor: cursor };
-}
-
 function parseChannels(value: unknown): { channels: DirectoryChannel[]; nextCursor: string } | null {
   if (!isRecord(value) || value.ok !== true || !Array.isArray(value.channels)) return null;
   const channels: DirectoryChannel[] = [];
@@ -192,7 +154,5 @@ function slackError(value: unknown): string {
   return isRecord(value) && typeof value.error === "string" ? value.error.slice(0, 120) : "slack_directory_unavailable";
 }
 
-function validTeamId(value: unknown): value is string { return typeof value === "string" && /^T[A-Z0-9]{2,31}$/.test(value); }
 function validChannelId(value: unknown): value is string { return typeof value === "string" && /^[CG][A-Z0-9]{2,31}$/.test(value); }
-function boundedName(value: unknown): string | null { return typeof value === "string" && value.trim() ? value.trim().slice(0, 255) : null; }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === "object" && value !== null; }

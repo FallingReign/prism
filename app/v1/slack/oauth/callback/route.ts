@@ -12,6 +12,8 @@ import { createConfiguredSlackAppConfigurationResolver } from "../../../../../sr
 import { completeSlackOAuthCallback, slackOAuthStateCookieName } from "../../../../../src/server/slack/oauth-flow";
 import { createMockSlackOAuthClient } from "../../../../../src/server/slack/mock-oauth-client";
 import { createPostgresOAuthFlowStore } from "../../../../../src/server/slack/postgres-store";
+import { fetchAllGrantedSlackTeams } from "../../../../../src/server/slack/organization-workspaces";
+import { createDefaultSlackWebApiClient } from "../../../../../src/server/slack/web-api-client";
 import { setupSessionCookieName } from "../../../prism/setup/session/handler";
 
 export const dynamic = "force-dynamic";
@@ -38,6 +40,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       oauthError: callback.error,
       cookieState: request.cookies.get(slackOAuthStateCookieName)?.value ?? null,
       requestId: correlationId,
+      discoverOrganizationWorkspaces: (accessToken) => fetchAllGrantedSlackTeams(createDefaultSlackWebApiClient(), accessToken),
       async resolveRuntime(binding) {
         const resolved = await resolver.resolveBinding({ binding });
         const config = resolved.oauthConfig;

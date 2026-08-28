@@ -37,9 +37,9 @@ export function createPostgresAdminIdentityStore(database: Database): AdminIdent
                 ), '[]'::jsonb) as workspace_grants
          from prism_sessions s
          join prism_users u on u.id = s.prism_user_id
-         join slack_connections c on c.prism_user_id = u.id
+         join slack_connections c
+           on c.id = s.slack_connection_id and c.prism_user_id = u.id
          where s.session_token_hash = $1 and s.expires_at > $2
-         order by c.updated_at desc
          limit 1`,
         [hashSecret(sessionToken), now]
       );

@@ -19,16 +19,24 @@ import { SlackStatusPanel, type SlackWebsiteStatus } from "./slack-status-panel"
 import { tokenProfilePolicyOptionsFromGlobalPolicy, type TokenProfilePolicyOptions } from "./token-profile-policy-options";
 import { toTokenProfileSummary, type TokenProfileSummary } from "./token-profile-summary";
 import { TokenProfilesPanel } from "./token-profiles-panel";
-import { LinkButton, Panel, StatusBadge } from "./ui";
+import { LinkButton, Notice, Panel, StatusBadge } from "./ui";
 import { buildWebsiteOverview } from "./website-overview";
 
 export const dynamic = "force-dynamic";
 
-export default async function Home() {
-  return await HomeContent();
+export default async function Home({ searchParams }: { searchParams?: Promise<Record<string, string | string[] | undefined>> } = {}) {
+  const resolvedSearchParams = await searchParams;
+  const slackAuthorizationResult = safeSlackAuthorizationResult(resolvedSearchParams?.slack);
+  const slackAuthorizationFailure = safeSlackAuthorizationFailure(resolvedSearchParams?.reason);
+  const slackAuthorizationSuccess = safeSlackAuthorizationSuccess(resolvedSearchParams, slackAuthorizationResult);
+  return await HomeContent(slackAuthorizationResult, slackAuthorizationFailure, slackAuthorizationSuccess);
 }
 
-async function HomeContent() {
+async function HomeContent(
+  slackAuthorizationResult: "linked" | "error" | null,
+  slackAuthorizationFailure: SlackAuthorizationFailure,
+  slackAuthorizationSuccess: SlackAuthorizationSuccess
+) {
   const cookieStore = await cookies();
   const sessionToken = cookieStore.get(prismSessionCookieName)?.value;
   const status = await readSlackWebsiteStatus(sessionToken);
@@ -85,9 +93,28 @@ async function HomeContent() {
         </div>
       </header>
 
+      {slackAuthorizationResult === "error" ? (
+        <Notice title="Slack authorization did not complete" tone="warning">
+          {slackAuthorizationFailureCopy(slackAuthorizationFailure)} Your existing Slack connection was left unchanged. Prism will
+          only replace the active website session after Slack returns and the new connection is stored successfully.
+        </Notice>
+      ) : null}
+
+      {slackAuthorizationSuccess?.kind === "complete" ? (
+        <Notice title="Slack organization connected" tone="success">
+          Prism confirmed {slackAuthorizationSuccess.grants} granted {slackAuthorizationSuccess.grants === 1 ? "workspace" : "workspaces"}.
+        </Notice>
+      ) : null}
+
+      {slackAuthorizationSuccess?.kind === "unavailable" ? (
+        <Notice title="Slack organization connected" tone="warning">
+          Prism could not load workspace grants yet. Existing grants were preserved. Reload the workspace directory from Playtest or try authorization again.
+        </Notice>
+      ) : null}
+
       <section className="rounded-3xl bg-card/85 p-5 shadow-sm ring-1 ring-foreground/5 backdrop-blur lg:p-6" aria-labelledby="prism-title">
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-start">
-          <div className="max-w-3xl">
+        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,28rem)] lg:items-start">
+          <div className="min-w-0 max-w-3xl">
             <p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Prism hosted service</p>
             <h1 id="prism-title" className="text-2xl font-semibold tracking-tight text-foreground sm:text-3xl">
               Slack bridge control plane
@@ -135,6 +162,46 @@ async function HomeContent() {
       )}
     </main>
   );
+}
+
+function safeSlackAuthorizationResult(value: string | string[] | undefined): "linked" | "error" | null {
+  return value === "linked" || value === "error" ? value : null;
+}
+
+type SlackAuthorizationSuccess = { kind: "complete"; grants: number } | { kind: "unavailable" } | null;
+
+function safeSlackAuthorizationSuccess(
+  searchParams: Record<string, string | string[] | undefined> | undefined,
+  result: "linked" | "error" | null
+): SlackAuthorizationSuccess {
+  if (result !== "linked" || searchParams?.installation !== "organization") return null;
+  if (searchParams.grant_sync === "unavailable") return { kind: "unavailable" };
+  const grants = searchParams.grants;
+  if (typeof grants !== "string" || !/^\d{1,5}$/.test(grants)) return null;
+  const parsed = Number(grants);
+  return parsed <= 10_000 ? { kind: "complete", grants: parsed } : null;
+}
+
+type SlackAuthorizationFailure =
+  | "authorization_denied"
+  | "runtime_unavailable"
+  | "provider_rejected"
+  | "invalid_provider_response"
+  | "persistence_failed"
+  | null;
+
+function safeSlackAuthorizationFailure(value: string | string[] | undefined): SlackAuthorizationFailure {
+  return value === "authorization_denied" || value === "runtime_unavailable" || value === "provider_rejected" ||
+    value === "invalid_provider_response" || value === "persistence_failed" ? value : null;
+}
+
+function slackAuthorizationFailureCopy(reason: SlackAuthorizationFailure): string {
+  if (reason === "authorization_denied") return "Slack authorization was cancelled or denied.";
+  if (reason === "runtime_unavailable") return "Prism could not load the active Slack configuration.";
+  if (reason === "provider_rejected") return "Slack rejected the authorization exchange.";
+  if (reason === "invalid_provider_response") return "Slack returned an installation response Prism could not safely validate.";
+  if (reason === "persistence_failed") return "Prism could not safely store the new Slack connection.";
+  return "The attempted Slack authorization failed before a new connection was stored.";
 }
 
 async function readSlackWebsiteStatus(sessionToken: string | undefined): Promise<SlackWebsiteStatus> {

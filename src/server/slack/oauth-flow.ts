@@ -5,6 +5,7 @@ import { createHash, randomBytes as nodeRandomBytes, timingSafeEqual } from "nod
 import type { CredentialCipher, CredentialEnvelope } from "../credentials/encryption";
 import type { SlackAppConfigurationBinding } from "./app-configuration";
 import type { SlackOAuthClient, SlackOAuthSuccess } from "./oauth-client";
+import type { OrganizationWorkspaceDiscoveryResult, SlackOrganizationWorkspace } from "./organization-workspaces";
 
 export const slackOAuthStateCookieName = "prism_slack_oauth_state";
 export const prismSessionCookieName = "prism_session";
@@ -73,6 +74,11 @@ export type OAuthFlowStore = {
     source: "oauth" | "legacy_backfill" | "auth_teams_list" | "event";
     verifiedAt: Date;
   }): Promise<void>;
+  replaceOrganizationGrants(input: {
+    connectionId: string;
+    teams: SlackOrganizationWorkspace[];
+    verifiedAt: Date;
+  }): Promise<void>;
   saveSlackCredential(input: {
     connectionId: string;
     kind: "bot" | "user";
@@ -82,7 +88,12 @@ export type OAuthFlowStore = {
     expiresAt: Date | null;
     scopes: string | null;
   }): Promise<void>;
-  createWebsiteSession(input: { sessionTokenHash: string; prismUserId: string; expiresAt: Date }): Promise<void>;
+  createWebsiteSession(input: {
+    sessionTokenHash: string;
+    prismUserId: string;
+    connectionId: string;
+    expiresAt: Date;
+  }): Promise<void>;
   finalizeSetupConfiguration(input: {
     configurationVersionId: string;
     setupSessionId: string;
@@ -157,6 +168,7 @@ export async function completeSlackOAuthCallback({
   cookieState,
   oauthError = null,
   requestId,
+  discoverOrganizationWorkspaces,
   now = new Date(),
   randomBytes = nodeRandomBytes
 }: {
@@ -169,6 +181,7 @@ export async function completeSlackOAuthCallback({
   cookieState: string | null;
   oauthError?: string | null;
   requestId: string;
+  discoverOrganizationWorkspaces?: (accessToken: string) => Promise<OrganizationWorkspaceDiscoveryResult>;
   now?: Date;
   randomBytes?: (size: number) => Buffer;
 }): Promise<
@@ -179,6 +192,9 @@ export async function completeSlackOAuthCallback({
       oidcAuthorizationRequestId: string | null;
       delegatedDeliveryRequestId?: string | null;
       setupConfigurationActivated: boolean;
+      installationScope: "workspace" | "organization";
+      organizationGrantSync: "not_applicable" | "complete" | "unavailable";
+      organizationGrantCount: number;
     }
   | {
       kind: "invalid_state" | "slack_error";
@@ -186,6 +202,7 @@ export async function completeSlackOAuthCallback({
       oidcAuthorizationRequestId?: string | null;
       delegatedDeliveryRequestId?: string | null;
       sessionCookie?: undefined;
+      failureReason?: OAuthFailureReason;
     }
 > {
   if (!state || !cookieState || !equalSecret(state, cookieState)) {
@@ -206,7 +223,8 @@ export async function completeSlackOAuthCallback({
   if (oauthError || !code) {
     return {
       kind: "slack_error",
-      redirectUrl: statusRedirect(deployment, "error", setupBinding),
+      redirectUrl: statusRedirect(deployment, "error", setupBinding, undefined, "authorization_denied"),
+      failureReason: "authorization_denied",
       oidcAuthorizationRequestId: storedState.oidcAuthorizationRequestId,
       ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {})
     };
@@ -218,7 +236,8 @@ export async function completeSlackOAuthCallback({
   } catch {
     return {
       kind: "slack_error",
-      redirectUrl: statusRedirect(deployment, "error", setupBinding),
+      redirectUrl: statusRedirect(deployment, "error", setupBinding, undefined, "runtime_unavailable"),
+      failureReason: "runtime_unavailable",
       oidcAuthorizationRequestId: storedState.oidcAuthorizationRequestId,
       ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {})
     };
@@ -241,7 +260,8 @@ export async function completeSlackOAuthCallback({
   if (!slackResult.ok) {
     return {
       kind: "slack_error",
-      redirectUrl: statusRedirect(deployment, "error", setupBinding),
+      redirectUrl: statusRedirect(deployment, "error", setupBinding, undefined, "provider_rejected"),
+      failureReason: "provider_rejected",
       oidcAuthorizationRequestId: storedState.oidcAuthorizationRequestId,
       ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {})
     };
@@ -257,13 +277,22 @@ export async function completeSlackOAuthCallback({
   ) {
     return {
       kind: "slack_error",
-      redirectUrl: statusRedirect(deployment, "error", setupBinding),
+      redirectUrl: statusRedirect(deployment, "error", setupBinding, undefined, "invalid_provider_response"),
+      failureReason: "invalid_provider_response",
       oidcAuthorizationRequestId: storedState.oidcAuthorizationRequestId,
       ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {})
     };
   }
 
   const sessionToken = randomBytes(32).toString("base64url");
+  let organizationWorkspaceDiscovery: OrganizationWorkspaceDiscoveryResult | null = null;
+  if (slackResult.installationScope === "organization" && discoverOrganizationWorkspaces && slackResult.authedUser.accessToken) {
+    try {
+      organizationWorkspaceDiscovery = await discoverOrganizationWorkspaces(slackResult.authedUser.accessToken);
+    } catch {
+      organizationWorkspaceDiscovery = { kind: "provider_error", error: "slack_directory_unavailable" };
+    }
+  }
   try {
     await store.transaction(async (transactionStore) => {
       const prismUser = await transactionStore.upsertPrismUser({
@@ -292,6 +321,12 @@ export async function completeSlackOAuthCallback({
           teamId: slackResult.team.id,
           teamName: slackResult.team.name ?? null,
           source: "oauth",
+          verifiedAt: now
+        });
+      } else if (organizationWorkspaceDiscovery?.kind === "ok") {
+        await transactionStore.replaceOrganizationGrants({
+          connectionId: connection.id,
+          teams: organizationWorkspaceDiscovery.teams,
           verifiedAt: now
         });
       }
@@ -329,13 +364,15 @@ export async function completeSlackOAuthCallback({
       await transactionStore.createWebsiteSession({
         sessionTokenHash: hashSecret(sessionToken),
         prismUserId: prismUser.id,
+        connectionId: connection.id,
         expiresAt: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
       });
     });
   } catch {
     return {
       kind: "slack_error",
-      redirectUrl: statusRedirect(deployment, "error", setupBinding),
+      redirectUrl: statusRedirect(deployment, "error", setupBinding, undefined, "persistence_failed"),
+      failureReason: "persistence_failed",
       oidcAuthorizationRequestId: storedState.oidcAuthorizationRequestId,
       ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {})
     };
@@ -343,10 +380,18 @@ export async function completeSlackOAuthCallback({
 
   return {
     kind: "linked",
-    redirectUrl: statusRedirect(deployment, "linked", setupBinding),
+    redirectUrl: statusRedirect(deployment, "linked", setupBinding, {
+      installationScope: slackResult.installationScope,
+      organizationWorkspaceDiscovery
+    }),
     sessionCookie: sessionCookie(sessionToken, deployment.publicBaseUrl),
     oidcAuthorizationRequestId: storedState.oidcAuthorizationRequestId,
     setupConfigurationActivated: Boolean(setupBinding),
+    installationScope: slackResult.installationScope,
+    organizationGrantSync: slackResult.installationScope !== "organization"
+      ? "not_applicable"
+      : organizationWorkspaceDiscovery?.kind === "ok" ? "complete" : "unavailable",
+    organizationGrantCount: organizationWorkspaceDiscovery?.kind === "ok" ? organizationWorkspaceDiscovery.teams.length : 0,
     ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {})
   };
 }
@@ -411,7 +456,12 @@ function sessionCookie(value: string, publicBaseUrl: string): CookieSpec {
 function statusRedirect(
   config: Pick<SlackOAuthConfig, "publicBaseUrl">,
   status: "linked" | "error",
-  setupBinding: Extract<SlackAppConfigurationBinding, { kind: "database" }> | null = null
+  setupBinding: Extract<SlackAppConfigurationBinding, { kind: "database" }> | null = null,
+  linkedResult?: {
+    installationScope: "workspace" | "organization";
+    organizationWorkspaceDiscovery: OrganizationWorkspaceDiscoveryResult | null;
+  },
+  failureReason?: OAuthFailureReason
 ): string {
   const url = new URL(config.publicBaseUrl);
   url.pathname = setupBinding ? "/setup" : "/";
@@ -420,9 +470,25 @@ function statusRedirect(
     url.searchParams.set(status === "linked" ? "status" : "error", status === "linked" ? "complete" : "verification_failed");
   } else {
     url.searchParams.set("slack", status);
+    if (status === "error" && failureReason) url.searchParams.set("reason", failureReason);
+    if (status === "linked" && linkedResult?.installationScope === "organization") {
+      url.searchParams.set("installation", "organization");
+      if (linkedResult.organizationWorkspaceDiscovery?.kind === "ok") {
+        url.searchParams.set("grants", String(linkedResult.organizationWorkspaceDiscovery.teams.length));
+      } else {
+        url.searchParams.set("grant_sync", "unavailable");
+      }
+    }
   }
   return url.toString();
 }
+
+type OAuthFailureReason =
+  | "authorization_denied"
+  | "runtime_unavailable"
+  | "provider_rejected"
+  | "invalid_provider_response"
+  | "persistence_failed";
 
 async function storeCredentialIfPresent({
   store,

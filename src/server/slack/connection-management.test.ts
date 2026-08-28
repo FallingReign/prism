@@ -45,6 +45,8 @@ describe("Slack connection management", () => {
     const query = vi.fn(async (sql: string, params?: unknown[]) => {
       expect(sql).not.toMatch(/access_token_envelope|refresh_token_envelope|xox[bp]-|client_secret|prism_dev_|tokenHash|pepper/i);
       if (sql.includes("from prism_sessions s") && sql.includes("join slack_connections c")) {
+        expect(sql).toContain("c.id = s.slack_connection_id");
+        expect(sql).not.toContain("order by c.updated_at desc");
         expect(params).toEqual([hashSecret("session-token"), now]);
         return {
           rows: [

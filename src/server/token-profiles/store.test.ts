@@ -4,6 +4,30 @@ import type { Database } from "../db";
 import { createPostgresTokenProfileStore } from "./store";
 
 describe("Postgres Token profile store lifecycle resolution", () => {
+  it("resolves the owner from the website session's exact Slack connection", async () => {
+    const now = new Date("2026-08-28T00:00:00.000Z");
+    const query = vi.fn(async (sql: string, params?: unknown[]) => {
+      expect(sql).toContain("c.id = s.slack_connection_id");
+      expect(sql).not.toContain("order by c.updated_at desc");
+      expect(params).toEqual([expect.any(String), now]);
+      return {
+        rows: [{ prism_user_id: "user_1", slack_connection_id: "conn_org", status: "healthy" }],
+        rowCount: 1
+      };
+    });
+
+    await expect(
+      createPostgresTokenProfileStore(fakeDatabase(query)).resolveOwner({
+        sessionToken: "session-token",
+        now
+      })
+    ).resolves.toEqual({
+      prismUserId: "user_1",
+      slackConnectionId: "conn_org",
+      slackStatus: "healthy"
+    });
+  });
+
   it("checks workspace grants against the exact healthy organization connection", async () => {
     const query = vi.fn(async (sql: string, params?: unknown[]) => {
       expect(sql).toContain("slack_connection_workspace_grants");

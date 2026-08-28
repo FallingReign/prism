@@ -24,11 +24,11 @@ export function createPostgresTokenProfileStore(database: Database): TokenProfil
         slack_connection_id: string;
         status: "healthy" | "reauth_required";
       }>(
-        `select s.prism_user_id, c.id as slack_connection_id, c.status
+         `select s.prism_user_id, c.id as slack_connection_id, c.status
          from prism_sessions s
-         join slack_connections c on c.prism_user_id = s.prism_user_id
+         join slack_connections c
+           on c.id = s.slack_connection_id and c.prism_user_id = s.prism_user_id
          where s.session_token_hash = $1 and s.expires_at > $2
-         order by c.updated_at desc
          limit 1`,
         [hashSecret(sessionToken), now]
       );

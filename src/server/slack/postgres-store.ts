@@ -12,6 +12,7 @@ import type { OAuthFlowStore } from "./oauth-flow";
 import { hashSecret } from "./oauth-flow";
 import type { RefreshStore } from "./refresh";
 import { parseSlackWorkspaceGrantDisplay, type SlackWorkspaceGrantDisplay } from "./workspace-grant-display";
+import { replaceOrganizationWorkspaceGrants } from "./organization-workspace-grant-store";
 
 export function createPostgresOAuthFlowStore(
   database: Database,
@@ -200,13 +201,18 @@ export function createPostgresOAuthFlowStore(
         [randomUUID(), input.connectionId, input.teamId, input.teamName, input.source, input.verifiedAt]
       );
     },
+    async replaceOrganizationGrants(input) {
+      await replaceOrganizationWorkspaceGrants(database, input);
+    },
     async saveSlackCredential(input) {
       await saveCredential(database, input);
     },
     async createWebsiteSession(input) {
       await database.query(
-        "insert into prism_sessions (session_token_hash, prism_user_id, expires_at) values ($1, $2, $3)",
-        [input.sessionTokenHash, input.prismUserId, input.expiresAt]
+        `insert into prism_sessions
+           (session_token_hash, prism_user_id, slack_connection_id, expires_at)
+         values ($1, $2, $3, $4)`,
+        [input.sessionTokenHash, input.prismUserId, input.connectionId, input.expiresAt]
       );
     },
     async finalizeSetupConfiguration(input) {
@@ -365,9 +371,9 @@ export async function getSlackConnectionDisplayRecordForSession(database: Databa
               where g.slack_connection_id = c.id and g.status = 'active'
             ), '[]'::jsonb) as workspace_grants
      from prism_sessions s
-     join slack_connections c on c.prism_user_id = s.prism_user_id
+     join slack_connections c
+       on c.id = s.slack_connection_id and c.prism_user_id = s.prism_user_id
      where s.session_token_hash = $1 and s.expires_at > now()
-     order by c.updated_at desc
      limit 1`,
     [hashSecret(sessionToken)]
   );

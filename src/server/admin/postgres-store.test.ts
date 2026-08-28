@@ -41,7 +41,8 @@ describe("Postgres Prism admin identity store", () => {
 
     expect(database.query).toHaveBeenCalledWith(expect.stringContaining("from prism_sessions s"), [hashSecret("session-token"), now]);
     expect(database.query).toHaveBeenCalledWith(expect.stringContaining("s.expires_at > $2"), expect.any(Array));
-    expect(database.query).toHaveBeenCalledWith(expect.stringContaining("order by c.updated_at desc"), expect.any(Array));
+    expect(database.query).toHaveBeenCalledWith(expect.stringContaining("c.id = s.slack_connection_id"), expect.any(Array));
+    expect(database.query).toHaveBeenCalledWith(expect.not.stringContaining("order by c.updated_at desc"), expect.any(Array));
     expect(database.query).toHaveBeenCalledWith(expect.stringContaining("slack_connection_workspace_grants"), expect.any(Array));
   });
 

@@ -62,7 +62,7 @@ export function SlackStatusPanel({ status, variant = "panel" }: { status: SlackW
   function CompactSlackStatus({ status }: { status: SlackWebsiteStatus }) {
     if (status.kind === "setup_required") {
       return (
-        <section className="rounded-2xl border border-[color:var(--prism-warning)]/55 bg-[color:var(--prism-warning-soft)]/55 p-4" aria-labelledby="slack-status-title">
+        <section className="w-full min-w-0 rounded-2xl border border-[color:var(--prism-warning)]/55 bg-[color:var(--prism-warning-soft)]/55 p-4" aria-labelledby="slack-status-title">
           <CompactHeading title="Setup required" tone="warning" badge="Configuration needed" />
           <p className="mt-3 text-sm leading-6 text-muted-foreground">Use the guided setup to enter Slack app credentials, choose approved scopes, and verify the connection.</p>
           <LinkButton href="/setup" className="mt-4" variant="secondary">Configure Slack in Prism</LinkButton>
@@ -72,7 +72,7 @@ export function SlackStatusPanel({ status, variant = "panel" }: { status: SlackW
 
     if (status.kind === "not_linked") {
       return (
-        <section className="rounded-2xl border border-primary/35 bg-primary/5 p-4" aria-labelledby="slack-status-title">
+        <section className="w-full min-w-0 rounded-2xl border border-primary/35 bg-primary/5 p-4" aria-labelledby="slack-status-title">
           <CompactHeading title="Connect Slack" tone="primary" badge="Not connected" />
           <p className="mt-3 text-sm leading-6 text-muted-foreground">Connect Slack before creating Token profiles for local tools.</p>
           <LinkButton href="/v1/slack/oauth/start" className="mt-4" variant="secondary">
@@ -86,7 +86,7 @@ export function SlackStatusPanel({ status, variant = "panel" }: { status: SlackW
 
     if (status.status === "reauth_required") {
       return (
-        <section className="rounded-2xl border border-[color:var(--prism-warning)]/55 bg-[color:var(--prism-warning-soft)]/55 p-4" aria-labelledby="slack-status-title">
+        <section className="w-full min-w-0 rounded-2xl border border-[color:var(--prism-warning)]/55 bg-[color:var(--prism-warning-soft)]/55 p-4" aria-labelledby="slack-status-title">
           <CompactHeading title="Reconnect Slack" tone="warning" badge="Reconnect needed" />
           <p className="mt-3 text-sm leading-6 text-muted-foreground">
             {scope.label} <strong className="break-words text-foreground">{scope.value}</strong> is connected for Slack user{" "}
@@ -99,7 +99,7 @@ export function SlackStatusPanel({ status, variant = "panel" }: { status: SlackW
     }
 
     return (
-      <section className="rounded-2xl border border-[color:var(--prism-success)]/45 bg-[color:var(--prism-success-soft)]/55 p-4" aria-labelledby="slack-status-title">
+      <section className="w-full min-w-0 rounded-2xl border border-[color:var(--prism-success)]/45 bg-[color:var(--prism-success-soft)]/55 p-4" aria-labelledby="slack-status-title">
         <CompactHeading title="Slack connected" tone="success" badge="Connected" />
         <p className="mt-3 text-sm leading-6 text-muted-foreground">
           {scope.label} <strong className="break-words text-foreground">{scope.value}</strong> is connected for Slack user{" "}

@@ -42,9 +42,9 @@ export function createPostgresSlackConnectionManagementStore(database: Database)
         const current = await tx.query<CurrentConnectionRow>(
           `select c.id, c.prism_user_id, c.authed_user_id, nullif(c.team_id, '') as team_id, c.enterprise_id
            from prism_sessions s
-           join slack_connections c on c.prism_user_id = s.prism_user_id
+           join slack_connections c
+             on c.id = s.slack_connection_id and c.prism_user_id = s.prism_user_id
            where s.session_token_hash = $1 and s.expires_at > $2
-           order by c.updated_at desc
            limit 1
            for update of c`,
           [hashSecret(input.sessionToken), input.now]

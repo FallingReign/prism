@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createLocalAesGcmCredentialCipher } from "../credentials/encryption";
 import { completeSlackOAuthCallback, createSlackOAuthStart, type OAuthFlowStore } from "./oauth-flow";
@@ -88,6 +88,10 @@ function createMemoryStore(): OAuthFlowStore & { rows: Record<string, unknown[]>
       const existing = rows.workspaceGrants.find((row) => row.connectionId === input.connectionId && row.teamId === input.teamId);
       if (existing) Object.assign(existing, input, { status: "active" });
       else rows.workspaceGrants.push({ ...input, status: "active" });
+    },
+    async replaceOrganizationGrants(input) {
+      rows.workspaceGrants = rows.workspaceGrants.filter((row) => row.connectionId !== input.connectionId);
+      rows.workspaceGrants.push(...input.teams.map((team) => ({ ...team, connectionId: input.connectionId, status: "active", verifiedAt: input.verifiedAt })));
     },
     async saveSlackCredential(input) {
       rows.credentials = rows.credentials.filter((row) => !(row.connectionId === input.connectionId && row.kind === input.kind));
@@ -214,12 +218,92 @@ describe("Slack OAuth flow", () => {
     ]);
     expect(store.rows.tokenProfiles).toHaveLength(0);
     expect(store.rows.transactions).toHaveLength(1);
+    expect(store.rows.sessions).toMatchObject([
+      { prismUserId: "user_1", connectionId: "conn_1" }
+    ]);
 
     const persisted = JSON.stringify(store.rows);
     expect(persisted).not.toContain("xoxb-bot-token-canary");
     expect(persisted).not.toContain("xoxp-user-token-canary");
     expect(persisted).not.toContain("refresh-secret-canary");
     expect(JSON.stringify(result)).not.toMatch(/xox[bp]-|refresh-secret|client-secret/i);
+  });
+
+  it("discovers and persists all organization workspace grants before completing the bound session", async () => {
+    const store = createMemoryStore();
+    const cipher = createLocalAesGcmCredentialCipher({ key: encryptionKey, keyId: "local-test" });
+    const config = {
+      clientId: "client-id-123", clientSecret: "client-secret-must-not-appear",
+      redirectUri: "http://localhost:3732/v1/slack/oauth/callback", publicBaseUrl: "http://localhost:3732",
+      botScopes: ["channels:read"], userScopes: ["search:read"]
+    };
+    const start = await createTestSlackOAuthStart({ store, config, now, randomBytes: () => Buffer.alloc(32, 21) });
+    const discoverOrganizationWorkspaces = vi.fn(async () => ({
+      kind: "ok" as const,
+      teams: [{ teamId: "T111", teamName: "2136a Dev" }, { teamId: "T222", teamName: "2136b Dev" }]
+    }));
+
+    const result = await completeTestSlackOAuthCallback({
+      store, cipher, config, code: "valid-code", state: start.state, cookieState: start.state, now,
+      randomBytes: () => Buffer.alloc(32, 22), discoverOrganizationWorkspaces,
+      slackOAuthClient: {
+        async exchangeCode() {
+          return {
+            ok: true, appId: "A123", installationScope: "organization", isEnterpriseInstall: true,
+            team: null, enterprise: { id: "E123", name: "2136a" },
+            authedUser: { id: "U123", accessToken: "xoxp-org-user-canary", tokenType: "user", scope: "search:read" },
+            bot: { accessToken: "xoxb-org-bot-canary", tokenType: "bot", scope: "channels:read" }
+          };
+        },
+        async refreshToken() { throw new Error("not used"); }
+      }
+    });
+
+    expect(result).toMatchObject({
+      kind: "linked", installationScope: "organization", organizationGrantSync: "complete", organizationGrantCount: 2
+    });
+    expect(result.redirectUrl).toBe("http://localhost:3732/?slack=linked&installation=organization&grants=2");
+    expect(discoverOrganizationWorkspaces).toHaveBeenCalledWith("xoxp-org-user-canary");
+    expect(store.rows.connections).toMatchObject([{ id: "conn_1", installationScope: "organization", teamId: null, enterpriseId: "E123" }]);
+    expect(store.rows.workspaceGrants).toMatchObject([
+      { connectionId: "conn_1", teamId: "T111", teamName: "2136a Dev", status: "active" },
+      { connectionId: "conn_1", teamId: "T222", teamName: "2136b Dev", status: "active" }
+    ]);
+    expect(store.rows.sessions).toMatchObject([{ prismUserId: "user_1", connectionId: "conn_1" }]);
+    expect(JSON.stringify(result)).not.toMatch(/xox[bp]-|client-secret/i);
+  });
+
+  it("keeps a valid organization connection when workspace discovery is unavailable", async () => {
+    const store = createMemoryStore();
+    const cipher = createLocalAesGcmCredentialCipher({ key: encryptionKey, keyId: "local-test" });
+    const config = {
+      clientId: "client-id-123", clientSecret: "client-secret-must-not-appear",
+      redirectUri: "http://localhost:3732/v1/slack/oauth/callback", publicBaseUrl: "http://localhost:3732",
+      botScopes: [], userScopes: ["search:read"]
+    };
+    const start = await createTestSlackOAuthStart({ store, config, now, randomBytes: () => Buffer.alloc(32, 23) });
+
+    const result = await completeTestSlackOAuthCallback({
+      store, cipher, config, code: "valid-code", state: start.state, cookieState: start.state, now,
+      randomBytes: () => Buffer.alloc(32, 24),
+      discoverOrganizationWorkspaces: async () => ({ kind: "provider_error", error: "ratelimited" }),
+      slackOAuthClient: {
+        async exchangeCode() {
+          return {
+            ok: true, appId: "A123", installationScope: "organization", isEnterpriseInstall: true,
+            team: null, enterprise: { id: "E123", name: "2136a" },
+            authedUser: { id: "U123", accessToken: "xoxp-org-user-canary", tokenType: "user", scope: "search:read" }
+          };
+        },
+        async refreshToken() { throw new Error("not used"); }
+      }
+    });
+
+    expect(result).toMatchObject({ kind: "linked", installationScope: "organization", organizationGrantSync: "unavailable", organizationGrantCount: 0 });
+    expect(result.redirectUrl).toBe("http://localhost:3732/?slack=linked&installation=organization&grant_sync=unavailable");
+    expect(store.rows.connections).toHaveLength(1);
+    expect(store.rows.sessions).toHaveLength(1);
+    expect(store.rows.workspaceGrants).toHaveLength(0);
   });
 
   it("binds an OIDC authorization request to Slack state and returns it only after a successful callback", async () => {
@@ -380,7 +464,8 @@ describe("Slack OAuth flow", () => {
 
     expect(result).toEqual({
       kind: "slack_error",
-      redirectUrl: "http://localhost:3732/?slack=error",
+      redirectUrl: "http://localhost:3732/?slack=error&reason=authorization_denied",
+      failureReason: "authorization_denied",
       oidcAuthorizationRequestId: null,
       delegatedDeliveryRequestId
     });
@@ -543,7 +628,8 @@ describe("Slack OAuth flow", () => {
 
     expect(result).toEqual({
       kind: "slack_error",
-      redirectUrl: "http://localhost:3732/?slack=error",
+      redirectUrl: "http://localhost:3732/?slack=error&reason=authorization_denied",
+      failureReason: "authorization_denied",
       oidcAuthorizationRequestId: "oidc_request_cancelled"
     });
     expect(exchanged).toBe(false);

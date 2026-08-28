@@ -13,6 +13,7 @@ export type SlackWebApiCall = {
   payload: SlackForwardingPayload;
   executionMode: ConcreteExecutionMode;
   accessToken?: string;
+  timeoutMs?: number;
 };
 
 export type SlackWebApiResult = {
@@ -49,7 +50,8 @@ export class FetchSlackWebApiClient implements SlackWebApiClient {
     const headers: Record<string, string> = {
       Authorization: `Bearer ${input.accessToken}`
     };
-    const init: RequestInit = { method: input.httpMethod, headers };
+    const timeoutMs = Math.max(1, Math.min(input.timeoutMs ?? 15_000, 60_000));
+    const init: RequestInit = { method: input.httpMethod, headers, signal: AbortSignal.timeout(timeoutMs) };
 
     if (input.httpMethod === "GET") {
       appendPayload(url.searchParams, input.payload);
