@@ -260,6 +260,31 @@ describe("Slack method policy enforcement", () => {
     expect(decision).toMatchObject({ kind: "denied", body: { prism: { errorClass: "workspace_denied" } } });
   });
 
+  it("requires an explicit workspace header for organization identities", async () => {
+    const messages = buildTokenProfilePolicy({ preset: "messages_only", executionIdentity: "user" }, now);
+    const isWorkspaceAllowed = vi.fn(async () => true);
+    const decision = await evaluateSlackMethodPolicy({
+      store: {
+        async resolveDeveloperToken() {
+          return resolved(messages, { slackConnectionId: "conn_org_1", slackTeamId: null, slackEnterpriseId: "E123" });
+        },
+        isWorkspaceAllowed
+      },
+      bearerToken: "prism_dev_orgworkspacemissingcanarytokenxxxxxxxx",
+      developerTokenConfig: { pepper: "pepper-secret-canary", pepperId: "local-pepper" },
+      method: "chat.postMessage",
+      requestId: "req_org_missing_workspace",
+      requestContext: { surface: "public_channel" },
+      now
+    });
+
+    expect(decision).toMatchObject({
+      kind: "denied",
+      body: { ok: false, error: "not_allowed", prism: { errorClass: "workspace_required" } }
+    });
+    expect(isWorkspaceAllowed).not.toHaveBeenCalled();
+  });
+
   it("denies expired, revoked, bootstrap, reauth, and selectable identity unavailable profiles before forwarding", async () => {
     const messages = buildTokenProfilePolicy({ preset: "messages_only", executionIdentity: "selectable" }, now);
     const expired = await evaluateSlackMethodPolicy({

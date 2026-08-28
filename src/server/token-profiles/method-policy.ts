@@ -127,7 +127,14 @@ async function checkWorkspace(
   store: SlackMethodPolicyStore
 ): Promise<SlackMethodPolicyDecision | null> {
   const workspaceId = requestContext.workspaceId?.trim();
-  if (!workspaceId) return null;
+  if (!workspaceId) {
+    // A workspace installation is already bound to exactly one team, so its
+    // legacy callers may omit the header. An organization installation is not
+    // bound to a default team: require an explicit header so a caller cannot
+    // bypass the grant lookup by placing team_id only in the Slack payload.
+    if (resolved.slackTeamId) return null;
+    return deniedBody(method, requestId, classification.category, "workspace_required", "not_allowed", resolved);
+  }
 
   // A workspace-scoped installation never receives cross-workspace access.
   if (resolved.slackTeamId) {
