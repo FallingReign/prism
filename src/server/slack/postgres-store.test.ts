@@ -183,6 +183,42 @@ describe("Postgres Slack OAuth continuation state", () => {
 });
 
 describe("Postgres Slack OAuth identity continuity", () => {
+  it.each([
+    {
+      scope: "workspace" as const,
+      teamId: "T123",
+      enterpriseId: "E123",
+      conflictTarget: "on conflict (app_id, team_id, authed_user_id) where installation_scope = 'workspace'"
+    },
+    {
+      scope: "organization" as const,
+      teamId: null,
+      enterpriseId: "E123",
+      conflictTarget: "on conflict (app_id, enterprise_id, authed_user_id) where installation_scope = 'organization'"
+    }
+  ])("generates a valid partial-index conflict target for $scope connections", async ({ scope, teamId, enterpriseId, conflictTarget }) => {
+    const query = vi.fn(async (sql: string) => {
+      const normalizedSql = sql.replace(/\s+/g, " ").trim();
+      expect(normalizedSql).toContain(conflictTarget);
+      expect(normalizedSql).not.toContain(`${conflictTarget})`);
+      return { rows: [{ id: `${scope}_connection` }], rowCount: 1 };
+    });
+
+    await expect(createPostgresOAuthFlowStore(fakeDatabase(query)).upsertSlackConnection({
+      prismUserId: "prism_user_1",
+      installationScope: scope,
+      isEnterpriseInstall: scope === "organization",
+      teamId,
+      teamName: teamId ? "Workspace" : null,
+      enterpriseId,
+      enterpriseName: "Enterprise",
+      authedUserId: "U123",
+      appId: "A123",
+      botScopes: "channels:read",
+      userScopes: "search:read"
+    })).resolves.toEqual({ id: `${scope}_connection` });
+  });
+
   it("reuses the existing workspace Prism subject for a same-enterprise organization upgrade", async () => {
     const query = vi.fn(async (sql: string, params?: unknown[]) => {
       if (sql.includes("from prism_users") && sql.includes("for update")) {

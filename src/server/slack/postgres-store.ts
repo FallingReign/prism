@@ -153,8 +153,9 @@ export function createPostgresOAuthFlowStore(
            enterprise_id, enterprise_name, authed_user_id, app_id, bot_scopes, user_scopes, status, last_error_class)
          values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'healthy', null)
          on conflict (${input.installationScope === "organization"
-           ? "app_id, enterprise_id, authed_user_id) where installation_scope = 'organization'"
-           : "app_id, team_id, authed_user_id) where installation_scope = 'workspace'"})
+           ? "app_id, enterprise_id, authed_user_id"
+           : "app_id, team_id, authed_user_id"})
+         where installation_scope = '${input.installationScope === "organization" ? "organization" : "workspace"}'
          do update set
           prism_user_id = excluded.prism_user_id,
            is_enterprise_install = excluded.is_enterprise_install,
