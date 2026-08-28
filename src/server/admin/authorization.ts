@@ -1,5 +1,7 @@
 import "server-only";
 
+import type { SlackWorkspaceGrantDisplay } from "../slack/workspace-grant-display";
+
 export type AdminScope = { kind: "global" } | { kind: "enterprise"; enterpriseId: string } | { kind: "team"; teamId: string };
 
 export type AdminAllowlistEntry = {
@@ -19,6 +21,8 @@ export type AdminSessionIdentity = {
   teamName: string | null;
   enterpriseId: string | null;
   enterpriseName: string | null;
+  installationScope?: "workspace" | "organization";
+  workspaceGrants?: SlackWorkspaceGrantDisplay[];
 };
 
 export type AdminIdentityStore = {

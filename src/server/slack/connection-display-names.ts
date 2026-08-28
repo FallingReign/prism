@@ -2,9 +2,11 @@ import "server-only";
 
 import type { SlackForwardingCredentialProvider } from "./forwarding-credentials";
 import type { SlackWebApiClient } from "./web-api-client";
+import type { SlackWorkspaceGrantDisplay } from "./workspace-grant-display";
 
 export type SlackConnectionDisplayRecord = {
   connectionId: string;
+  installationScope?: "workspace" | "organization";
   status: "healthy" | "reauth_required";
   teamId: string | null;
   teamName: string | null;
@@ -14,6 +16,7 @@ export type SlackConnectionDisplayRecord = {
   slackUserDisplayName: string | null;
   displayNamesEnrichedAt: Date | null;
   lastErrorClass: string | null;
+  workspaceGrants?: SlackWorkspaceGrantDisplay[];
 };
 
 export type SlackConnectionDisplayNameStore = {
@@ -104,13 +107,18 @@ export async function enrichSlackConnectionDisplayNames({
   }
   found.slackUserDisplayName ??= fallbackSlackUserDisplayName;
 
-  return store.updateConnectionDisplayNames({
+  const updated = await store.updateConnectionDisplayNames({
     connectionId: connection.connectionId,
     teamName: found.teamName,
     enterpriseName: found.enterpriseName,
     slackUserDisplayName: found.slackUserDisplayName,
     enrichedAt: now
   });
+  return {
+    ...updated,
+    installationScope: updated.installationScope ?? connection.installationScope,
+    workspaceGrants: updated.workspaceGrants ?? connection.workspaceGrants
+  };
 }
 
 export function needsSlackConnectionDisplayNameEnrichment(

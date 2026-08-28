@@ -39,6 +39,9 @@ describe("Prism website Slack status", () => {
     expect(html).toContain("Connected");
     expect(html).toContain("Example Workspace");
     expect(html).toContain("T123");
+    expect(html).toContain("Workspace only");
+    expect(html).toContain("Prism can access only");
+    expect(html).toContain("select the Enterprise Grid organization");
     expect(html).toContain("U123");
     expect(html).toContain("Change Slack authorization");
     expect(html).toContain("/v1/slack/oauth/start");
@@ -88,7 +91,12 @@ describe("Prism website Slack status", () => {
           enterpriseId: "E123",
           enterpriseName: "Example Enterprise",
           slackUserId: "U123",
-          lastErrorClass: null
+          lastErrorClass: null,
+          installationScope: "organization",
+          workspaceGrants: [
+            { teamId: "T2136A", teamName: "2136A Dev" },
+            { teamId: "T2136B", teamName: "2136B Dev" }
+          ]
         }}
       />
     );
@@ -97,8 +105,36 @@ describe("Prism website Slack status", () => {
     expect(html).toContain("organization");
     expect(html).toContain("Example Enterprise");
     expect(html).toContain("E123");
+    expect(html).toContain("Organization");
+    expect(html).toContain("2 granted workspaces");
+    expect(html).toContain("2136A Dev");
+    expect(html).toContain("T2136A");
+    expect(html).toContain("2136B Dev");
+    expect(html).toContain("T2136B");
     expect(html).not.toContain("workspace <strong></strong>");
     expect(html).not.toMatch(/xox[bp]-|refresh|client_secret|access_token/i);
+  });
+
+  it("shows organization approval with zero effective workspace grants without implying global Slack access", () => {
+    const html = renderToStaticMarkup(
+      <SlackStatusPanel
+        status={{
+          kind: "linked",
+          status: "healthy",
+          installationScope: "organization",
+          teamId: null,
+          enterpriseId: "E123",
+          enterpriseName: "Example Enterprise",
+          slackUserId: "U123",
+          lastErrorClass: null,
+          workspaceGrants: []
+        }}
+      />
+    );
+
+    expect(html).toContain("0 granted workspaces");
+    expect(html).toContain("No workspaces are currently granted");
+    expect(html).not.toContain("all workspaces");
   });
 
   it("redacts credential-shaped text from Slack display metadata", () => {

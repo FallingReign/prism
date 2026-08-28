@@ -1,5 +1,6 @@
 import type { AdminAuthorizationDecision, AdminScope } from "../../src/server/admin/authorization";
 import { LinkButton, Panel, StatusBadge, SummaryMetric } from "../ui";
+import { SlackAccessDetails } from "../slack-access-details";
 
 type AuthorizedAdminDecision = Extract<AdminAuthorizationDecision, { kind: "authorized" }>;
 
@@ -59,9 +60,21 @@ export function AdminConsoleShell({ decision }: { decision: AuthorizedAdminDecis
 
       <Panel title="Active scope" titleId="admin-scope-title" eyebrow="Authorization" accent="primary" badge={<StatusBadge tone="success">{scope.badge}</StatusBadge>}>
         <div className="grid gap-3 sm:grid-cols-3">
-          <SummaryMetric label="Scope" value={scope.value} detail={scope.detail} tone="primary" />
+          <SummaryMetric label="Prism admin scope" value={scope.value} detail={scope.detail} tone="primary" />
           <SummaryMetric label="Prism admin" value={actorLabel} detail="Resolved from the current Slack-authenticated website session." tone="neutral" />
-          <SummaryMetric label="Workspace" value={decision.teamName ?? decision.teamId ?? "No workspace"} detail="Current Slack connection used for scoped authorization." tone="info" />
+          <SummaryMetric
+            label="Slack installation"
+            value={(decision.installationScope ?? (decision.teamId ? "workspace" : "organization")) === "organization" ? "Organization level" : "Workspace only"}
+            detail="Slack installation access is separate from Prism administrator authority."
+            tone="info"
+          />
+        </div>
+        <div className="mt-4 rounded-2xl border border-border/70 bg-muted/25 p-4">
+          <SlackAccessDetails access={decision} />
+          <p className="mt-3 text-sm leading-6 text-muted-foreground">
+            Prism admin scope controls this Prism deployment only. Even a global Prism administrator cannot access additional Slack
+            workspaces unless Slack granted them to the current connection.
+          </p>
         </div>
       </Panel>
 

@@ -23,6 +23,7 @@ describe("Postgres Slack website status", () => {
           {
             id: "conn_1",
             status: "healthy",
+            installation_scope: "organization",
             team_id: "T123",
             team_name: "Example Workspace",
             enterprise_id: "E123",
@@ -30,7 +31,11 @@ describe("Postgres Slack website status", () => {
             authed_user_id: "U123",
             authed_user_display_name: "Ada Lovelace",
             display_names_enriched_at: new Date("2026-01-01T00:00:00.000Z"),
-            last_error_class: null
+            last_error_class: null,
+            workspace_grants: [
+              { team_id: "TDEVA123", team_name: "2136A Dev" },
+              { team_id: "TDEVB123", team_name: "2136B Dev" }
+            ]
           }
         ],
         rowCount: 1
@@ -40,13 +45,18 @@ describe("Postgres Slack website status", () => {
     await expect(getSlackLinkStatus(fakeDatabase(query), "session-token")).resolves.toEqual({
       kind: "linked",
       status: "healthy",
+      installationScope: "organization",
       teamId: "T123",
       teamName: "Example Workspace",
       enterpriseId: "E123",
       enterpriseName: "Example Enterprise",
       slackUserId: "U123",
       slackUserDisplayName: "Ada Lovelace",
-      lastErrorClass: null
+      lastErrorClass: null,
+      workspaceGrants: [
+        { teamId: "TDEVA123", teamName: "2136A Dev" },
+        { teamId: "TDEVB123", teamName: "2136B Dev" }
+      ]
     });
   });
 });

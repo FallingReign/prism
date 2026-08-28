@@ -15,7 +15,12 @@ describe("Postgres Prism admin identity store", () => {
         team_id: "T_DEV",
         team_name: "Dev Workspace",
         enterprise_id: "E_ORG",
-        enterprise_name: "Dev Org"
+        enterprise_name: "Dev Org",
+        installation_scope: "organization",
+        workspace_grants: [
+          { team_id: "TDEVA123", team_name: "2136A Dev" },
+          { team_id: "TDEVB123", team_name: "2136B Dev" }
+        ]
       }
     ]);
 
@@ -26,12 +31,18 @@ describe("Postgres Prism admin identity store", () => {
       teamId: "T_DEV",
       teamName: "Dev Workspace",
       enterpriseId: "E_ORG",
-      enterpriseName: "Dev Org"
+      enterpriseName: "Dev Org",
+      installationScope: "organization",
+      workspaceGrants: [
+        { teamId: "TDEVA123", teamName: "2136A Dev" },
+        { teamId: "TDEVB123", teamName: "2136B Dev" }
+      ]
     });
 
     expect(database.query).toHaveBeenCalledWith(expect.stringContaining("from prism_sessions s"), [hashSecret("session-token"), now]);
     expect(database.query).toHaveBeenCalledWith(expect.stringContaining("s.expires_at > $2"), expect.any(Array));
     expect(database.query).toHaveBeenCalledWith(expect.stringContaining("order by c.updated_at desc"), expect.any(Array));
+    expect(database.query).toHaveBeenCalledWith(expect.stringContaining("slack_connection_workspace_grants"), expect.any(Array));
   });
 
   it("returns null when the website session does not resolve to a current Slack connection", async () => {

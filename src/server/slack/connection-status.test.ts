@@ -21,6 +21,7 @@ describe("Slack website status display names", () => {
         });
         return {
           connectionId: "conn_1",
+          installationScope: "workspace",
           status: "healthy",
           teamId: "T123",
           teamName: input.teamName,
@@ -29,7 +30,8 @@ describe("Slack website status display names", () => {
           slackUserId: "U123",
           slackUserDisplayName: input.slackUserDisplayName,
           displayNamesEnrichedAt: input.enrichedAt,
-          lastErrorClass: null
+          lastErrorClass: null,
+          workspaceGrants: [{ teamId: "T123", teamName: "Example Workspace" }]
         };
       }
     };
@@ -57,13 +59,15 @@ describe("Slack website status display names", () => {
     ).resolves.toEqual({
       kind: "linked",
       status: "healthy",
+      installationScope: "workspace",
       teamId: "T123",
       teamName: "Example Workspace",
       enterpriseId: null,
       enterpriseName: null,
       slackUserId: "U123",
       slackUserDisplayName: "Ada Lovelace",
-      lastErrorClass: null
+      lastErrorClass: null,
+      workspaceGrants: [{ teamId: "T123", teamName: "Example Workspace" }]
     });
   });
 
@@ -99,13 +103,15 @@ describe("Slack website status display names", () => {
     ).resolves.toEqual({
       kind: "linked",
       status: "healthy",
+      installationScope: "workspace",
       teamId: "T123",
       teamName: null,
       enterpriseId: null,
       enterpriseName: null,
       slackUserId: "U123",
       slackUserDisplayName: null,
-      lastErrorClass: null
+      lastErrorClass: null,
+      workspaceGrants: []
     });
     expect(consoleError).toHaveBeenCalledWith(
       "prism_slack_connection_display_name_enrichment_failed",
@@ -125,6 +131,7 @@ function fakeDatabase(): Database {
           {
             id: "conn_1",
             status: "healthy",
+            installation_scope: "workspace",
             team_id: "T123",
             team_name: null,
             enterprise_id: null,
@@ -132,7 +139,8 @@ function fakeDatabase(): Database {
             authed_user_id: "U123",
             authed_user_display_name: null,
             display_names_enriched_at: null,
-            last_error_class: null
+            last_error_class: null,
+            workspace_grants: []
           }
         ],
         rowCount: 1

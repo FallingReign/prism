@@ -11,6 +11,7 @@ import type { SlackConnectionDisplayNameStore, SlackConnectionDisplayRecord } fr
 import type { OAuthFlowStore } from "./oauth-flow";
 import { hashSecret } from "./oauth-flow";
 import type { RefreshStore } from "./refresh";
+import { parseSlackWorkspaceGrantDisplay, type SlackWorkspaceGrantDisplay } from "./workspace-grant-display";
 
 export function createPostgresOAuthFlowStore(
   database: Database,
@@ -318,6 +319,7 @@ export type SlackLinkStatus =
   | {
       kind: "linked";
       status: "healthy" | "reauth_required";
+      installationScope: "workspace" | "organization";
       teamId: string | null;
       teamName: string | null;
       enterpriseId: string | null;
@@ -325,6 +327,7 @@ export type SlackLinkStatus =
       slackUserId: string;
       slackUserDisplayName: string | null;
       lastErrorClass: string | null;
+      workspaceGrants: SlackWorkspaceGrantDisplay[];
     };
 
 export async function getSlackLinkStatus(database: Database, sessionToken: string | undefined): Promise<SlackLinkStatus> {
@@ -337,6 +340,7 @@ export async function getSlackConnectionDisplayRecordForSession(database: Databa
   const result = await database.query<{
     id: string;
     status: "healthy" | "reauth_required";
+    installation_scope: "workspace" | "organization";
     team_id: string | null;
     team_name: string | null;
     enterprise_id: string | null;
@@ -345,11 +349,21 @@ export async function getSlackConnectionDisplayRecordForSession(database: Databa
     authed_user_display_name: string | null;
     display_names_enriched_at: Date | null;
     last_error_class: string | null;
+    workspace_grants: unknown;
   }>(
-    `select c.id, c.status, nullif(c.team_id, '') as team_id, nullif(c.team_name, '') as team_name,
+    `select c.id, c.status, c.installation_scope,
+            nullif(c.team_id, '') as team_id, nullif(c.team_name, '') as team_name,
             c.enterprise_id, nullif(c.enterprise_name, '') as enterprise_name,
             c.authed_user_id, nullif(c.authed_user_display_name, '') as authed_user_display_name,
-            c.display_names_enriched_at, c.last_error_class
+            c.display_names_enriched_at, c.last_error_class,
+            coalesce((
+              select jsonb_agg(
+                jsonb_build_object('team_id', g.team_id, 'team_name', nullif(g.team_name, ''))
+                order by lower(coalesce(g.team_name, g.team_id)), g.team_id
+              )
+              from slack_connection_workspace_grants g
+              where g.slack_connection_id = c.id and g.status = 'active'
+            ), '[]'::jsonb) as workspace_grants
      from prism_sessions s
      join slack_connections c on c.prism_user_id = s.prism_user_id
      where s.session_token_hash = $1 and s.expires_at > now()
@@ -361,6 +375,7 @@ export async function getSlackConnectionDisplayRecordForSession(database: Databa
   return row
     ? {
         connectionId: row.id,
+        installationScope: row.installation_scope ?? (row.team_id ? "workspace" : "organization"),
         status: row.status,
         teamId: row.team_id,
         teamName: row.team_name,
@@ -369,7 +384,8 @@ export async function getSlackConnectionDisplayRecordForSession(database: Databa
         slackUserId: row.authed_user_id,
         slackUserDisplayName: row.authed_user_display_name,
         displayNamesEnrichedAt: row.display_names_enriched_at,
-        lastErrorClass: row.last_error_class
+        lastErrorClass: row.last_error_class,
+        workspaceGrants: parseSlackWorkspaceGrantDisplay(row.workspace_grants)
       }
     : null;
 }
@@ -443,13 +459,15 @@ export function toSlackLinkStatus(connection: SlackConnectionDisplayRecord): Exc
   return {
     kind: "linked",
     status: connection.status,
+    installationScope: connection.installationScope ?? (connection.teamId ? "workspace" : "organization"),
     teamId: connection.teamId,
     teamName: connection.teamName,
     enterpriseId: connection.enterpriseId,
     enterpriseName: connection.enterpriseName,
     slackUserId: connection.slackUserId,
     slackUserDisplayName: connection.slackUserDisplayName,
-    lastErrorClass: connection.lastErrorClass
+    lastErrorClass: connection.lastErrorClass,
+    workspaceGrants: connection.workspaceGrants ?? []
   };
 }
 

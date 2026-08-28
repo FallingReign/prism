@@ -1,6 +1,8 @@
 import { LinkButton, Notice, Panel, StatusBadge } from "./ui";
 import { slackScopeDisplay, slackUserDisplay } from "./slack-connection-display";
 import { SlackConnectionActions } from "./slack-connection-actions";
+import { SlackAccessDetails } from "./slack-access-details";
+import type { SlackWorkspaceGrantDisplay } from "../src/server/slack/workspace-grant-display";
 
 export type SlackWebsiteStatus =
   | { kind: "not_linked" }
@@ -8,6 +10,7 @@ export type SlackWebsiteStatus =
   | {
       kind: "linked";
       status: "healthy" | "reauth_required";
+      installationScope?: "workspace" | "organization";
       teamId: string | null;
       teamName?: string | null;
       enterpriseId?: string | null;
@@ -15,6 +18,7 @@ export type SlackWebsiteStatus =
       slackUserId: string;
       slackUserDisplayName?: string | null;
       lastErrorClass: string | null;
+      workspaceGrants?: SlackWorkspaceGrantDisplay[];
     };
 
 export function SlackStatusPanel({ status, variant = "panel" }: { status: SlackWebsiteStatus; variant?: "panel" | "compact" }) {
@@ -88,6 +92,7 @@ export function SlackStatusPanel({ status, variant = "panel" }: { status: SlackW
             {scope.label} <strong className="break-words text-foreground">{scope.value}</strong> is connected for Slack user{" "}
             <strong className="break-words text-foreground">{slackUserDisplay(status)}</strong>. Reconnect before Slack calls resume.
           </p>
+          <SlackAccessDetails access={status} compact />
           <SlackConnectionActions reauthRequired compact />
         </section>
       );
@@ -101,6 +106,7 @@ export function SlackStatusPanel({ status, variant = "panel" }: { status: SlackW
           <strong className="break-words text-foreground">{slackUserDisplay(status)}</strong>.
         </p>
         <p className="mt-3 text-sm leading-6 text-muted-foreground">Credentials are encrypted on the server. Local tools use Prism developer tokens.</p>
+        <SlackAccessDetails access={status} compact />
         <SlackConnectionActions compact />
       </section>
     );
@@ -135,6 +141,7 @@ export function SlackStatusPanel({ status, variant = "panel" }: { status: SlackW
           {scope.label} <strong className="break-words">{scope.value}</strong> is connected for Slack user <strong className="break-words">{slackUserDisplay(status)}</strong>,
           but Slack calls need a fresh authorization.
         </p>
+        <SlackAccessDetails access={status} />
       </Panel>
     );
   }
@@ -152,6 +159,7 @@ export function SlackStatusPanel({ status, variant = "panel" }: { status: SlackW
       <p>
         {scope.label} <strong className="break-words">{scope.value}</strong> is connected for Slack user <strong className="break-words">{slackUserDisplay(status)}</strong>.
       </p>
+      <SlackAccessDetails access={status} />
       <Notice title="Custody boundary" tone="success">
         Credentials are encrypted on the server. Local tools use Prism developer tokens.
       </Notice>

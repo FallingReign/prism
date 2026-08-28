@@ -21,6 +21,11 @@ describe("Prism admin console shell", () => {
             teamName: "Dev Workspace",
             enterpriseId: "E_DEV_ORG",
             enterpriseName: "Dev Org",
+            installationScope: "organization",
+            workspaceGrants: [
+              { teamId: "T_DEV_A", teamName: "2136A Dev" },
+              { teamId: "T_DEV_B", teamName: "2136B Dev" }
+            ],
             scope
           }}
         />
@@ -37,6 +42,13 @@ describe("Prism admin console shell", () => {
         expect(html).not.toContain('href="/admin/configuration"');
       }
       expect(html).toContain("Audited admin actions");
+      expect(html).toContain("Prism admin scope");
+      expect(html).toContain("Slack installation");
+      expect(html).toContain("Organization level");
+      expect(html).toContain("2 granted workspaces");
+      expect(html).toContain("2136A Dev");
+      expect(html).toContain("T_DEV_A");
+      expect(html).toContain("global Prism administrator cannot access additional Slack");
       expect(html).not.toContain("Admin surfaces unlock in the next slices");
       expect(html).not.toContain("Destructive admin actions remain separate");
       expect(html).toContain(scope.kind);

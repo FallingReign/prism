@@ -2,6 +2,7 @@ import "server-only";
 
 import type { Database } from "../db";
 import { hashSecret } from "../slack/oauth-flow";
+import { parseSlackWorkspaceGrantDisplay } from "../slack/workspace-grant-display";
 import type { AdminIdentityStore, AdminSessionIdentity } from "./authorization";
 
 export function createPostgresAdminIdentityStore(database: Database): AdminIdentityStore {
@@ -15,6 +16,8 @@ export function createPostgresAdminIdentityStore(database: Database): AdminIdent
         team_name: string | null;
         enterprise_id: string | null;
         enterprise_name: string | null;
+        installation_scope: "workspace" | "organization";
+        workspace_grants: unknown;
       }>(
         `select s.prism_user_id,
                 c.authed_user_id as slack_user_id,
@@ -22,7 +25,16 @@ export function createPostgresAdminIdentityStore(database: Database): AdminIdent
                 nullif(c.team_id, '') as team_id,
                 nullif(c.team_name, '') as team_name,
                 c.enterprise_id,
-                nullif(c.enterprise_name, '') as enterprise_name
+                nullif(c.enterprise_name, '') as enterprise_name,
+                c.installation_scope,
+                coalesce((
+                  select jsonb_agg(
+                    jsonb_build_object('team_id', g.team_id, 'team_name', nullif(g.team_name, ''))
+                    order by lower(coalesce(g.team_name, g.team_id)), g.team_id
+                  )
+                  from slack_connection_workspace_grants g
+                  where g.slack_connection_id = c.id and g.status = 'active'
+                ), '[]'::jsonb) as workspace_grants
          from prism_sessions s
          join prism_users u on u.id = s.prism_user_id
          join slack_connections c on c.prism_user_id = u.id
@@ -57,6 +69,8 @@ function toAdminSessionIdentity(row: {
   team_name: string | null;
   enterprise_id: string | null;
   enterprise_name: string | null;
+  installation_scope?: "workspace" | "organization";
+  workspace_grants?: unknown;
 }): AdminSessionIdentity {
   return {
     prismUserId: row.prism_user_id,
@@ -65,6 +79,8 @@ function toAdminSessionIdentity(row: {
     teamId: row.team_id,
     teamName: row.team_name,
     enterpriseId: row.enterprise_id,
-    enterpriseName: row.enterprise_name
+    enterpriseName: row.enterprise_name,
+    installationScope: row.installation_scope ?? (row.team_id ? "workspace" : "organization"),
+    workspaceGrants: parseSlackWorkspaceGrantDisplay(row.workspace_grants)
   };
 }
