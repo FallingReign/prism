@@ -12,12 +12,12 @@ describe("Postgres Playtest first-party token store", () => {
       if (normalized.includes("from slack_connections c") && normalized.includes("for update")) {
         return rows([{ id: "connection-1" }]);
       }
-      if (normalized.includes("select id, name from token_profiles")) {
-        return rows(profileExists ? [{ id: "profile-playtest", name: "shg_playtest_app" }] : []);
+      if (normalized.includes("select id, name, slack_connection_id from token_profiles")) {
+        return rows(profileExists ? [{ id: "profile-playtest", name: "shg_playtest_app", slack_connection_id: "connection-1" }] : []);
       }
       if (normalized.includes("insert into token_profiles")) {
         profileExists = true;
-        return rows([{ id: "profile-playtest", name: "shg_playtest_app" }]);
+        return rows([{ id: "profile-playtest", name: "shg_playtest_app", slack_connection_id: "connection-1" }]);
       }
       if (normalized.includes("insert into prism_activity_audit")) {
         return rows([auditRow(profileExists ? "token_profile_rotated" : "token_profile_created")]);
@@ -74,6 +74,49 @@ describe("Postgres Playtest first-party token store", () => {
     });
     expect(result).toBeNull();
     expect(query.mock.calls.some(([sql]) => String(sql).includes("insert into token_profiles"))).toBe(false);
+  });
+
+  it("securely rebinds the one active Playtest profile and revokes old-connection tokens", async () => {
+    const calls: Array<{ sql: string; params?: unknown[] }> = [];
+    const query = vi.fn(async (sql: string, params?: unknown[]) => {
+      const normalized = sql.toLowerCase().replace(/\s+/g, " ").trim();
+      calls.push({ sql: normalized, params });
+      if (normalized.includes("from slack_connections c") && normalized.includes("for update")) {
+        return rows([{ id: "connection-grid" }]);
+      }
+      if (normalized.includes("select id, name, slack_connection_id from token_profiles")) {
+        expect(normalized).not.toContain("slack_connection_id = $2");
+        expect(params).toEqual(["user-1", "shg-playtest"]);
+        return rows([{ id: "profile-playtest", name: "shg_playtest_app", slack_connection_id: "connection-workspace" }]);
+      }
+      if (normalized.startsWith("update token_profiles") && normalized.includes("set slack_connection_id = $2")) {
+        expect(params).toEqual([
+          "profile-playtest", "connection-grid", new Date("2026-08-31T00:00:00.000Z"), "user-1", "shg-playtest"
+        ]);
+        return rows([{ id: "profile-playtest", name: "shg_playtest_app", slack_connection_id: "connection-grid" }]);
+      }
+      if (normalized.includes("insert into prism_activity_audit")) return rows([auditRow("token_profile_rotated")]);
+      return rows([]);
+    });
+    const database = {
+      query,
+      transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(database))
+    } as any;
+
+    await expect(createPostgresTokenProfileStore(database).issuePlaytestAppToken({
+      prismUserId: "user-1",
+      slackConnectionId: "connection-grid",
+      verifier: { tokenHash: "a".repeat(64), algorithm: "hmac-sha256", pepperId: "v1" },
+      expiresAt: new Date("2026-08-31T08:00:00.000Z"),
+      now: new Date("2026-08-31T00:00:00.000Z"),
+      requestId: "request-grid-rebind"
+    })).resolves.toEqual({ profileId: "profile-playtest" });
+
+    expect(calls.some(({ sql }) => sql.includes("insert into token_profiles"))).toBe(false);
+    expect(calls.some(({ sql }) =>
+      sql.includes("rotation_overlap_expires_at = null") && sql.includes("revoked_at is null")
+    )).toBe(true);
+    expect(calls.some(({ sql }) => sql.includes("insert into prism_developer_tokens"))).toBe(true);
   });
 });
 

@@ -62,16 +62,17 @@ export function createPostgresTokenProfileStore(database: Database): TokenProfil
         );
         if (!eligible.rows[0]) return null;
 
-        let profile = await tx.query<{ id: string; name: string }>(
-          `select id, name from token_profiles
-           where prism_user_id = $1 and slack_connection_id = $2
-             and client_id = $3 and status = 'active'
+        let profile = await tx.query<{ id: string; name: string; slack_connection_id: string }>(
+          `select id, name, slack_connection_id from token_profiles
+           where prism_user_id = $1
+             and client_id = $2 and status = 'active'
            for update`,
-          [input.prismUserId, input.slackConnectionId, PLAYTEST_APP_CLIENT_ID]
+          [input.prismUserId, PLAYTEST_APP_CLIENT_ID]
         );
         let created = false;
+        let rebound = false;
         if (!profile.rows[0]) {
-          profile = await tx.query<{ id: string; name: string }>(
+          profile = await tx.query<{ id: string; name: string; slack_connection_id: string }>(
             `insert into token_profiles
                (id, prism_user_id, slack_connection_id, client_id, name,
                 name_normalized, intended_use, preset, capability_map,
@@ -79,7 +80,7 @@ export function createPostgresTokenProfileStore(database: Database): TokenProfil
              values ($1, $2, $3, $4, $5, $5,
                      'Send SHG Playtest announcements as this Slack user.',
                      'custom', $6::jsonb, $8, 'active', $7)
-             returning id, name`,
+             returning id, name, slack_connection_id`,
             [
               randomUUID(), input.prismUserId, input.slackConnectionId,
               PLAYTEST_APP_CLIENT_ID, PLAYTEST_APP_PROFILE_NAME,
@@ -87,6 +88,16 @@ export function createPostgresTokenProfileStore(database: Database): TokenProfil
             ]
           );
           created = true;
+        } else if (profile.rows[0].slack_connection_id !== input.slackConnectionId) {
+          const reboundProfile = await tx.query<{ id: string; name: string; slack_connection_id: string }>(
+            `update token_profiles
+             set slack_connection_id = $2, updated_at = $3
+             where id = $1 and prism_user_id = $4 and client_id = $5 and status = 'active'
+             returning id, name, slack_connection_id`,
+            [profile.rows[0].id, input.slackConnectionId, input.now, input.prismUserId, PLAYTEST_APP_CLIENT_ID]
+          );
+          profile = reboundProfile;
+          rebound = true;
         }
         const row = profile.rows[0];
         if (!row) return null;
@@ -105,6 +116,18 @@ export function createPostgresTokenProfileStore(database: Database): TokenProfil
              and expires_at is not null and expires_at <= $2`,
           [row.id, input.now]
         );
+        if (rebound) {
+          // A token minted for the previous Slack connection must never gain
+          // access to newly granted organization workspaces through a profile
+          // rebind. Revoke every remaining token before issuing the replacement.
+          await tx.query(
+            `update prism_developer_tokens
+             set revoked_at = coalesce(revoked_at, $2), is_current = false,
+                 rotation_overlap_expires_at = null
+             where token_profile_id = $1 and revoked_at is null`,
+            [row.id, input.now]
+          );
+        }
         const newTokenId = randomUUID();
         await tx.query(
           `insert into prism_developer_tokens
