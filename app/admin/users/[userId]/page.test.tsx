@@ -20,7 +20,7 @@ const mockRedirect = vi.hoisted(() =>
 
 vi.mock("../../../../src/server/db", () => ({ database: mockDb }));
 vi.mock("next/headers", () => ({ cookies: mockCookies }));
-vi.mock("next/navigation", () => ({ redirect: mockRedirect }));
+vi.mock("next/navigation", () => ({ redirect: mockRedirect, useRouter: () => ({ refresh: vi.fn() }) }));
 
 const tempDirs: string[] = [];
 

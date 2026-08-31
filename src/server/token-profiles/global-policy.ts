@@ -265,11 +265,10 @@ export function parseGlobalTokenProfilePolicy(value: unknown): { kind: "valid"; 
 
 function classifyExpiry(candidate: TokenProfilePolicyCandidate, policy: GlobalTokenProfilePolicy): GlobalPolicyReasonCode | null {
   if (candidate.expiresAt === null) {
-    // Allow no expiry for read-only when explicitly allowed
-    if (candidate.preset === "read_only" && policy.expiry.allowNoExpiryForReadOnly) return null;
-    // Allow no expiry for non-destructive tokens
-    if (!candidate.capabilityMap.actions.destructive) return null;
-    // Destructive tokens must have expiry
+    if (candidate.preset === "read_only") {
+      return policy.expiry.allowNoExpiryForReadOnly ? null : "no_expiry_disallowed";
+    }
+    if (!candidate.capabilityMap.actions.destructive && policy.expiry.maximumDays.nonDestructive === null) return null;
     return "no_expiry_disallowed";
   }
 

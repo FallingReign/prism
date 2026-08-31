@@ -586,7 +586,7 @@ describe("Token profile service", () => {
       profiles: [
         {
           id: created.profile.id,
-          globalPolicyStatus: { kind: "outside", reasons: [{ code: "expiry_exceeds_maximum" }] }
+          globalPolicyStatus: { kind: "outside", reasons: [{ code: "no_expiry_disallowed" }] }
         }
       ]
     });
@@ -683,7 +683,8 @@ describe("Token profile service", () => {
         name: "Message writer",
         intendedUse: "Post approved messages from a local CLI",
         preset: "messages_only",
-        executionIdentity: "automatic"
+        executionIdentity: "automatic",
+        expiryDays: 99
       },
       now,
       randomBytes: () => Buffer.alloc(32, 8)

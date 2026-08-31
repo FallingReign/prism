@@ -18,11 +18,11 @@ describe("Token profile presets", () => {
     expect(readOnly.expiresAt).toBeNull();
     expect(readOnly.capabilityMap.actions).toMatchObject({ read: true, search: true, writeMessages: false, reactions: false, destructive: false });
 
-    expect(messages.expiresAt?.toISOString()).toBe("2026-04-01T00:00:00.000Z");
+    expect(messages.expiresAt).toBeNull();
     expect(messages.capabilityMap.actions).toMatchObject({ read: true, writeMessages: true, reactions: true, filesMetadata: false, destructive: false });
     expect(messages.capabilityMap.deferred.fileTransfer).toBe(false);
 
-    expect(fullBridge.expiresAt?.toISOString()).toBe("2026-04-01T00:00:00.000Z");
+    expect(fullBridge.expiresAt).toBeNull();
     expect(fullBridge.capabilityMap.actions.destructive).toBe(false);
     expect(fullBridge.capabilityMap.mutation.destructiveOptIn).toBe(false);
 

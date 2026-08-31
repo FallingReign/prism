@@ -19,7 +19,7 @@ describe("Global Token profile policy", () => {
     expect(policy.executionIdentities).toEqual({ allowed: ["automatic", "user", "bot", "selectable"], default: "automatic" });
     expect(policy.expiry).toMatchObject({
       allowNoExpiryForReadOnly: true,
-      maximumDays: { readOnly: null, nonDestructive: 90, destructive: 30 },
+      maximumDays: { readOnly: null, nonDestructive: null, destructive: 30 },
       allowedExperimentTtls: ["24h", "7d"],
       defaultExperimentTtl: null
     });
