@@ -243,7 +243,8 @@ export function getSlackOAuthEnvironmentBundle(
   // cannot block the database-backed setup UI before it is even reachable.
   const hasExplicitScopeSelection =
     !mockOAuthRequested &&
-    (env.SLACK_BOT_SCOPES !== undefined || env.SLACK_USER_SCOPES !== undefined);
+    (configuredValue(env.SLACK_BOT_SCOPES) !== undefined ||
+      configuredValue(env.SLACK_USER_SCOPES) !== undefined);
   let scopeSelection;
   try {
     scopeSelection = canonicalizeSlackScopeSelection(

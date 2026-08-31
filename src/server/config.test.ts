@@ -279,6 +279,17 @@ describe("server setup config", () => {
       userScopes: ["channels:read", "chat:write"]
     });
 
+    expect(getSlackOAuthEnvironmentBundle({
+      ...deployment,
+      SLACK_CLIENT_ID: "client-id",
+      SLACK_CLIENT_SECRET: "secret-canary",
+      SLACK_USER_SCOPES: "",
+      SLACK_BOT_SCOPES: ""
+    })).toMatchObject({
+      botScopes: expect.arrayContaining(["channels:read", "chat:write", "users:read"]),
+      userScopes: expect.arrayContaining(["channels:read", "chat:write", "search:read"])
+    });
+
     expect(() => getSlackOAuthEnvironmentBundle({
       ...deployment,
       SLACK_CLIENT_ID: "client-id",
