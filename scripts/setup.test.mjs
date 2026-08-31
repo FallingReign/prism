@@ -1,10 +1,17 @@
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
   inspectBootstrapConfig,
+  parsePlaytestDelegationRegistrationCode,
   parseEnv,
   runSetupWizard,
   updateManagedEnvValues,
@@ -25,7 +32,7 @@ describe("Prism setup wizard", () => {
     const envPath = join(directory, ".env.local");
     const examplePath = join(directory, ".env.example");
     writeFileSync(examplePath, minimalTemplate());
-    const answers = ["", "", "2"];
+    const answers = ["", "", "n", "2"];
     const messages = [];
 
     const result = await runSetupWizard({
@@ -36,12 +43,19 @@ describe("Prism setup wizard", () => {
     });
 
     expect(result.selection).toBe("docker");
-    expect(inspectBootstrapConfig({ envPath })).toMatchObject({ configured: true, missing: [] });
+    expect(inspectBootstrapConfig({ envPath })).toMatchObject({
+      configured: true,
+      missing: [],
+    });
     const env = parseEnv(readFileSync(envPath, "utf8"));
     expect(env.PRISM_PUBLIC_BASE_URL).toBe("http://localhost:3732");
-    expect(env.SLACK_OAUTH_REDIRECT_URI).toBe("http://localhost:3732/v1/slack/oauth/callback");
+    expect(env.SLACK_OAUTH_REDIRECT_URI).toBe(
+      "http://localhost:3732/v1/slack/oauth/callback",
+    );
     expect(env.PRISM_CREDENTIAL_ENCRYPTION_KEY).not.toContain("replace-with");
-    expect(env.PRISM_OIDC_SIGNING_PRIVATE_KEY_BASE64).not.toContain("replace-with");
+    expect(env.PRISM_OIDC_SIGNING_PRIVATE_KEY_BASE64).not.toContain(
+      "replace-with",
+    );
   });
 
   it("returns Docker when setup uses an HTTPS public URL", async () => {
@@ -56,6 +70,7 @@ describe("Prism setup wizard", () => {
       ask: fakePrompt([
         "https://prism.example",
         "https://playtest.example/api/auth/callback",
+        "n",
         "2",
       ]),
       output: quietOutput(),
@@ -69,12 +84,21 @@ describe("Prism setup wizard", () => {
     const envPath = join(directory, ".env.local");
     const examplePath = join(directory, ".env.example");
     writeFileSync(examplePath, minimalTemplate());
-    writeFileSync(envPath, `${configuredEnv({
-      PRISM_CREDENTIAL_ENCRYPTION_KEY: "existing-encryption-key",
-      PRISM_DEVELOPER_TOKEN_PEPPER: "existing-pepper",
-      PRISM_OIDC_SIGNING_PRIVATE_KEY_BASE64: "existing-oidc-key",
-    })}\nSLACK_CLIENT_SECRET="secret with spaces"\n`);
-    const answers = ["https://prism.example", "https://playtest.example/api/auth/callback", "n", "3"];
+    writeFileSync(
+      envPath,
+      `${configuredEnv({
+        PRISM_CREDENTIAL_ENCRYPTION_KEY: "existing-encryption-key",
+        PRISM_DEVELOPER_TOKEN_PEPPER: "existing-pepper",
+        PRISM_OIDC_SIGNING_PRIVATE_KEY_BASE64: "existing-oidc-key",
+      })}\nSLACK_CLIENT_SECRET="secret with spaces"\n`,
+    );
+    const answers = [
+      "https://prism.example",
+      "https://playtest.example/api/auth/callback",
+      "n",
+      "n",
+      "3",
+    ];
 
     await runSetupWizard({
       envPath,
@@ -89,7 +113,9 @@ describe("Prism setup wizard", () => {
     expect(env.PRISM_CREDENTIAL_ENCRYPTION_KEY).toBe("existing-encryption-key");
     expect(env.PRISM_DEVELOPER_TOKEN_PEPPER).toBe("existing-pepper");
     expect(env.PRISM_OIDC_SIGNING_PRIVATE_KEY_BASE64).toBe("existing-oidc-key");
-    expect(readFileSync(envPath, "utf8")).toContain('SLACK_CLIENT_SECRET="secret with spaces"');
+    expect(readFileSync(envPath, "utf8")).toContain(
+      'SLACK_CLIENT_SECRET="secret with spaces"',
+    );
   });
 
   it("fails clearly instead of prompting during noninteractive startup", async () => {
@@ -113,6 +139,7 @@ describe("Prism setup wizard", () => {
         "http://169.254.10.20:3732",
         "http://playtest.example/api/auth/callback",
         "http://10.20.30.40:3847/api/auth/callback",
+        "n",
         "3",
       ]),
       output: captureOutput(messages),
@@ -120,27 +147,74 @@ describe("Prism setup wizard", () => {
 
     const env = parseEnv(readFileSync(envPath, "utf8"));
     expect(env.PRISM_PUBLIC_BASE_URL).toBe("http://169.254.10.20:3732");
-    expect(env.PRISM_OIDC_PLAYTEST_REDIRECT_URI).toBe("http://10.20.30.40:3847/api/auth/callback");
-    expect(messages.filter((message) => message.includes("HTTP is allowed only"))).toHaveLength(2);
+    expect(env.PRISM_OIDC_PLAYTEST_REDIRECT_URI).toBe(
+      "http://10.20.30.40:3847/api/auth/callback",
+    );
+    expect(
+      messages.filter((message) => message.includes("HTTP is allowed only")),
+    ).toHaveLength(2);
   });
 
   it("deduplicates managed keys without changing unknown lines or comments", () => {
-    const updated = updateManagedEnvValues([
-      "# keep this comment",
-      "PRISM_PUBLIC_BASE_URL=http://old.example",
-      "UNKNOWN_VALUE=\"keep exactly\"",
-      "PRISM_PUBLIC_BASE_URL=http://duplicate.example",
-      "",
-    ].join("\n"), {
-      PRISM_PUBLIC_BASE_URL: "https://prism.example",
-      POSTGRES_PORT: "5432",
-    });
+    const updated = updateManagedEnvValues(
+      [
+        "# keep this comment",
+        "PRISM_PUBLIC_BASE_URL=http://old.example",
+        'UNKNOWN_VALUE="keep exactly"',
+        "PRISM_PUBLIC_BASE_URL=http://duplicate.example",
+        "",
+      ].join("\n"),
+      {
+        PRISM_PUBLIC_BASE_URL: "https://prism.example",
+        POSTGRES_PORT: "5432",
+      },
+    );
 
     expect(updated.match(/^PRISM_PUBLIC_BASE_URL=/gm)).toHaveLength(1);
     expect(updated).toContain("# keep this comment\n");
     expect(updated).toContain('UNKNOWN_VALUE="keep exactly"\n');
     expect(updated).toContain("PRISM_PUBLIC_BASE_URL=https://prism.example\n");
     expect(updated).toContain("POSTGRES_PORT=5432\n");
+  });
+
+  it("accepts the public Playtest registration and generates a distinct grant pepper", async () => {
+    const directory = temporaryDirectory();
+    const envPath = join(directory, ".env.local");
+    const examplePath = join(directory, ".env.example");
+    writeFileSync(examplePath, minimalTemplate());
+    const code = registrationCode();
+
+    await runSetupWizard({
+      envPath,
+      examplePath,
+      ask: fakePrompt(["", "", "y", code, "3"]),
+      output: quietOutput(),
+    });
+
+    const env = parseEnv(readFileSync(envPath, "utf8"));
+    expect(env.PRISM_DELEGATED_SLACK_DELIVERY_ENABLED).toBe("1");
+    expect(env.PRISM_DELEGATED_SLACK_DELIVERY_CALLBACK_URI).toBe(
+      "http://localhost:3847/api/announcements/delegation/callback",
+    );
+    expect(
+      JSON.parse(env.PRISM_DELEGATED_SLACK_DELIVERY_CLIENT_JWKS).keys[0],
+    ).not.toHaveProperty("d");
+    expect(env.PRISM_DELEGATED_SLACK_DELIVERY_GRANT_PEPPER).not.toBe(
+      env.PRISM_DEVELOPER_TOKEN_PEPPER,
+    );
+  });
+
+  it("rejects registration codes containing private key material", () => {
+    const registration = JSON.parse(
+      Buffer.from(registrationCode(), "base64url").toString("utf8"),
+    );
+    registration.jwks.keys[0].d = "private-secret";
+    const code = Buffer.from(JSON.stringify(registration), "utf8").toString(
+      "base64url",
+    );
+    expect(() => parsePlaytestDelegationRegistrationCode(code)).toThrow(
+      "invalid registration",
+    );
   });
 
   it("atomically replaces the env file and cleans temporary files on failure", () => {
@@ -152,9 +226,13 @@ describe("Prism setup wizard", () => {
     expect(readFileSync(envPath, "utf8")).toBe("VALUE=new\n");
     expect(readdirSync(directory)).toEqual([".env.local"]);
 
-    expect(() => writeEnvFileAtomically(envPath, "VALUE=broken\n", {
-      rename: () => { throw new Error("rename failed"); },
-    })).toThrow("rename failed");
+    expect(() =>
+      writeEnvFileAtomically(envPath, "VALUE=broken\n", {
+        rename: () => {
+          throw new Error("rename failed");
+        },
+      }),
+    ).toThrow("rename failed");
     expect(readFileSync(envPath, "utf8")).toBe("VALUE=new\n");
     expect(readdirSync(directory)).toEqual([".env.local"]);
   });
@@ -178,7 +256,10 @@ function quietOutput() {
 }
 
 function captureOutput(messages) {
-  return { log: (message = "") => messages.push(String(message)), error: () => undefined };
+  return {
+    log: (message = "") => messages.push(String(message)),
+    error: () => undefined,
+  };
 }
 
 function minimalTemplate() {
@@ -212,5 +293,33 @@ function configuredEnv(overrides = {}) {
     PRISM_DEVELOPER_TOKEN_PEPPER: "developer-pepper",
     PRISM_DEVELOPER_TOKEN_PEPPER_ID: "developer-pepper-id",
     ...overrides,
-  }).map(([key, value]) => `${key}=${value}`).join("\n");
+  })
+    .map(([key, value]) => `${key}=${value}`)
+    .join("\n");
+}
+
+function registrationCode() {
+  return Buffer.from(
+    JSON.stringify({
+      version: 1,
+      client_id: "shg-playtest-delegation",
+      callback_uri:
+        "http://localhost:3847/api/announcements/delegation/callback",
+      jwks: {
+        keys: [
+          {
+            kty: "EC",
+            crv: "P-256",
+            alg: "ES256",
+            kid: "playtest-es256-v1",
+            x: "x".repeat(43),
+            y: "y".repeat(43),
+            use: "sig",
+            key_ops: ["verify"],
+          },
+        ],
+      },
+    }),
+    "utf8",
+  ).toString("base64url");
 }

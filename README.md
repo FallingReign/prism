@@ -96,7 +96,10 @@ fixed message-posting-only policy and returns the copy-once credential only in
 the no-store server-to-server token response. The status endpoint asserts the
 credential's canonical Prism subject, client binding, effective capability map,
 and Slack connection health. This browser credential is for immediate sends;
-scheduled delivery continues to require a separately approved delegated grant.
+scheduled delivery requires a separately approved delegated grant. Run
+`npm run setup` in Playtest first, then paste its one-line public scheduling
+registration code into Prism's setup wizard. Prism stores only the callback and
+public verification key; private Playtest key material never leaves Playtest.
 
 ## Reference MCP adapter
 

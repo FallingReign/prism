@@ -26,7 +26,10 @@ describe("Prism local startup", () => {
 
   it("starts Docker Desktop on Windows when needed", async () => {
     const calls = [];
-    const probeDocker = vi.fn().mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+    const probeDocker = vi
+      .fn()
+      .mockResolvedValueOnce(false)
+      .mockResolvedValueOnce(true);
 
     await startLocalPrism({
       platform: "win32",
@@ -82,7 +85,8 @@ describe("Prism local startup", () => {
 
   it("runs setup on first start and honors the Docker selection", async () => {
     const calls = [];
-    const inspectConfig = vi.fn()
+    const inspectConfig = vi
+      .fn()
       .mockReturnValueOnce({ configured: false, missing: [".env.local"] })
       .mockReturnValueOnce({
         configured: true,
@@ -100,7 +104,16 @@ describe("Prism local startup", () => {
     });
 
     expect(calls).toEqual([
-      ["docker", "compose", "--env-file", ".env.local", "up", "-d", "--build", "--wait"],
+      [
+        "docker",
+        "compose",
+        "--env-file",
+        ".env.local",
+        "up",
+        "-d",
+        "--build",
+        "--wait",
+      ],
     ]);
   });
 
@@ -123,14 +136,16 @@ describe("Prism local startup", () => {
   it("rejects private HTTP without the explicit setup opt-in", async () => {
     const run = vi.fn();
 
-    await expect(startDockerPrism({
-      inspectConfig: () => ({
-        configured: true,
-        missing: [],
-        env: { PRISM_PUBLIC_BASE_URL: "http://localhost:3732" },
+    await expect(
+      startDockerPrism({
+        inspectConfig: () => ({
+          configured: true,
+          missing: [],
+          env: { PRISM_PUBLIC_BASE_URL: "http://localhost:3732" },
+        }),
+        run,
       }),
-      run,
-    })).rejects.toThrow("requires HTTPS");
+    ).rejects.toThrow("requires HTTPS");
 
     expect(run).not.toHaveBeenCalled();
   });
@@ -152,6 +167,14 @@ describe("Prism local startup", () => {
       log: () => undefined,
     });
 
-    expect(run).toHaveBeenCalledWith("docker", ["compose", "--env-file", ".env.local", "up", "-d", "--build", "--wait"]);
+    expect(run).toHaveBeenCalledWith("docker", [
+      "compose",
+      "--env-file",
+      ".env.local",
+      "up",
+      "-d",
+      "--build",
+      "--wait",
+    ]);
   });
 });

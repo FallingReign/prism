@@ -34,6 +34,13 @@ const MANAGED_ENV_KEYS = [
   "PRISM_CREDENTIAL_ENCRYPTION_KEY_ID",
   "PRISM_DEVELOPER_TOKEN_PEPPER",
   "PRISM_DEVELOPER_TOKEN_PEPPER_ID",
+  "PRISM_DELEGATED_SLACK_DELIVERY_ENABLED",
+  "PRISM_DELEGATED_SLACK_DELIVERY_CLIENT_ID",
+  "PRISM_DELEGATED_SLACK_DELIVERY_CALLBACK_URI",
+  "PRISM_DELEGATED_SLACK_DELIVERY_CLIENT_JWKS",
+  "PRISM_DELEGATED_SLACK_DELIVERY_GRANT_PEPPER",
+  "PRISM_DELEGATED_SLACK_DELIVERY_GRANT_PEPPER_ID",
+  "PRISM_DELEGATED_SLACK_DELIVERY_ALLOW_INSECURE_HTTP",
 ];
 
 export function parseEnv(text) {
@@ -72,7 +79,9 @@ export async function runSetupWizard({
   }
 
   const existingText = existsSync(envPath) ? readFileSync(envPath, "utf8") : "";
-  const templateText = existsSync(examplePath) ? readFileSync(examplePath, "utf8") : "";
+  const templateText = existsSync(examplePath)
+    ? readFileSync(examplePath, "utf8")
+    : "";
   let text = existingText || templateText;
   const values = { ...parseEnv(templateText), ...parseEnv(existingText) };
   const prompt = ask ?? createTerminalPrompt();
@@ -89,14 +98,20 @@ export async function runSetupWizard({
 
   const publicBaseUrl = await askUrl(prompt, {
     label: "Prism public URL",
-    current: configuredOr(values.PRISM_PUBLIC_BASE_URL, "http://localhost:3732"),
+    current: configuredOr(
+      values.PRISM_PUBLIC_BASE_URL,
+      "http://localhost:3732",
+    ),
     originOnly: true,
     output,
   });
   const defaultPlaytestCallback = "http://localhost:3847/api/auth/callback";
   const playtestCallback = await askUrl(prompt, {
     label: "Playtest login callback URL",
-    current: configuredOr(values.PRISM_OIDC_PLAYTEST_REDIRECT_URI, defaultPlaytestCallback),
+    current: configuredOr(
+      values.PRISM_OIDC_PLAYTEST_REDIRECT_URI,
+      defaultPlaytestCallback,
+    ),
     originOnly: false,
     output,
   });
@@ -107,6 +122,42 @@ export async function runSetupWizard({
         false,
       )
     : false;
+  const delegationAlreadyConfigured =
+    values.PRISM_DELEGATED_SLACK_DELIVERY_ENABLED === "1" &&
+    isConfigured(values.PRISM_DELEGATED_SLACK_DELIVERY_CLIENT_JWKS) &&
+    isConfigured(values.PRISM_DELEGATED_SLACK_DELIVERY_CALLBACK_URI);
+  const configureDelegation = await askYesNo(
+    prompt,
+    "Enable automatic scheduled Playtest announcements?",
+    delegationAlreadyConfigured,
+  );
+  let delegationRegistration = null;
+  if (configureDelegation) {
+    const replaceRegistration = delegationAlreadyConfigured
+      ? await askYesNo(
+          prompt,
+          "Replace the existing Playtest scheduling registration?",
+          false,
+        )
+      : true;
+    if (replaceRegistration) {
+      while (!delegationRegistration) {
+        const code = (
+          await prompt.ask(
+            "Paste the scheduling registration code from Playtest: ",
+          )
+        ).trim();
+        try {
+          delegationRegistration =
+            parsePlaytestDelegationRegistrationCode(code);
+        } catch {
+          output.log(
+            "That registration code is invalid. Generate a new code with `npm run setup` in Playtest.",
+          );
+        }
+      }
+    }
+  }
 
   values.POSTGRES_USER = configuredOr(values.POSTGRES_USER, "prism");
   values.POSTGRES_PASSWORD = secretValue(values.POSTGRES_PASSWORD, 24, rotate);
@@ -114,8 +165,13 @@ export async function runSetupWizard({
   values.POSTGRES_HOST = "localhost";
   values.POSTGRES_PORT = configuredOr(values.POSTGRES_PORT, "5432");
   values.PRISM_PUBLIC_BASE_URL = publicBaseUrl;
-  values.SLACK_OAUTH_REDIRECT_URI = new URL("/v1/slack/oauth/callback", `${publicBaseUrl}/`).toString();
-  values.PRISM_OIDC_ALLOW_INSECURE_HTTP = publicBaseUrl.startsWith("http:") ? "1" : "0";
+  values.SLACK_OAUTH_REDIRECT_URI = new URL(
+    "/v1/slack/oauth/callback",
+    `${publicBaseUrl}/`,
+  ).toString();
+  values.PRISM_OIDC_ALLOW_INSECURE_HTTP = publicBaseUrl.startsWith("http:")
+    ? "1"
+    : "0";
   values.PRISM_OIDC_PLAYTEST_CLIENT_ID = configuredOr(
     values.PRISM_OIDC_PLAYTEST_CLIENT_ID,
     "shg-playtest",
@@ -141,6 +197,35 @@ export async function runSetupWizard({
     "developer-pepper",
     rotate,
   );
+  values.PRISM_DELEGATED_SLACK_DELIVERY_ENABLED = configureDelegation
+    ? "1"
+    : "0";
+  if (configureDelegation) {
+    if (delegationRegistration) {
+      values.PRISM_DELEGATED_SLACK_DELIVERY_CLIENT_ID =
+        delegationRegistration.client_id;
+      values.PRISM_DELEGATED_SLACK_DELIVERY_CALLBACK_URI =
+        delegationRegistration.callback_uri;
+      values.PRISM_DELEGATED_SLACK_DELIVERY_CLIENT_JWKS = JSON.stringify(
+        delegationRegistration.jwks,
+      );
+    }
+    values.PRISM_DELEGATED_SLACK_DELIVERY_GRANT_PEPPER = generatedValue(
+      values.PRISM_DELEGATED_SLACK_DELIVERY_GRANT_PEPPER,
+      () => randomBytes(32).toString("base64url"),
+      rotate,
+    );
+    values.PRISM_DELEGATED_SLACK_DELIVERY_GRANT_PEPPER_ID = generatedId(
+      values.PRISM_DELEGATED_SLACK_DELIVERY_GRANT_PEPPER_ID,
+      "delegated-grants",
+      rotate,
+    );
+    values.PRISM_DELEGATED_SLACK_DELIVERY_ALLOW_INSECURE_HTTP =
+      values.PRISM_DELEGATED_SLACK_DELIVERY_CALLBACK_URI?.startsWith("http:") ||
+      publicBaseUrl.startsWith("http:")
+        ? "1"
+        : "0";
+  }
 
   if (rotate || !isConfigured(values.PRISM_OIDC_SIGNING_PRIVATE_KEY_BASE64)) {
     const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -158,7 +243,9 @@ export async function runSetupWizard({
   const managedValues = Object.fromEntries(
     MANAGED_ENV_KEYS.flatMap((key) => {
       const value = values[key];
-      return isConfigured(value) || requiredEvenWhenZero(key) ? [[key, value]] : [];
+      return isConfigured(value) || requiredEvenWhenZero(key)
+        ? [[key, value]]
+        : [];
     }),
   );
   text = updateManagedEnvValues(text, managedValues);
@@ -166,12 +253,21 @@ export async function runSetupWizard({
 
   const status = inspectBootstrapConfig({ envPath });
   if (!status.configured) {
-    throw new Error(`Prism setup could not complete: ${status.missing.join(", ")}`);
+    throw new Error(
+      `Prism setup could not complete: ${status.missing.join(", ")}`,
+    );
   }
 
   output.log("");
   output.log(`Configuration saved to ${envPath}.`);
-  output.log("Slack apps and workspace connections remain managed in Prism's web setup.");
+  output.log(
+    "Slack apps and workspace connections remain managed in Prism's web setup.",
+  );
+  output.log(
+    configureDelegation
+      ? "Automatic scheduled Playtest announcements are registered."
+      : "Automatic scheduled Playtest announcements remain disabled.",
+  );
   output.log("");
 
   const selection = await askRunSelection(prompt, output, publicBaseUrl);
@@ -183,7 +279,9 @@ export async function main() {
   try {
     const result = await runSetupWizard();
     if (result.selection === "none") {
-      console.log("Prism is configured. Start it later with `npm start` or `docker compose --env-file .env.local up -d`.");
+      console.log(
+        "Prism is configured. Start it later with `npm start` or `docker compose --env-file .env.local up -d`.",
+      );
       return 0;
     }
 
@@ -195,7 +293,9 @@ export async function main() {
     }
     return 0;
   } catch (error) {
-    console.error(error instanceof Error ? error.message : "Prism setup failed.");
+    console.error(
+      error instanceof Error ? error.message : "Prism setup failed.",
+    );
     return 1;
   }
 }
@@ -210,7 +310,8 @@ function createTerminalPrompt() {
 
 async function askUrl(prompt, { label, current, originOnly, output }) {
   while (true) {
-    const answer = (await prompt.ask(`${label} [${current}]: `)).trim() || current;
+    const answer =
+      (await prompt.ask(`${label} [${current}]: `)).trim() || current;
     try {
       const url = new URL(answer);
       if (
@@ -224,13 +325,22 @@ async function askUrl(prompt, { label, current, originOnly, output }) {
       ) {
         throw new Error("invalid");
       }
-      if (url.protocol === "http:" && !isAllowedInsecureHttpHost(url.hostname)) {
-        output.log("HTTP is allowed only for localhost, private-network, or link-local addresses. Use HTTPS for public hosts.");
+      if (
+        url.protocol === "http:" &&
+        !isAllowedInsecureHttpHost(url.hostname)
+      ) {
+        output.log(
+          "HTTP is allowed only for localhost, private-network, or link-local addresses. Use HTTPS for public hosts.",
+        );
         continue;
       }
       return originOnly ? url.origin : url.toString();
     } catch {
-      output.log(originOnly ? "Enter an HTTP(S) origin without a path." : "Enter a complete HTTP(S) callback URL.");
+      output.log(
+        originOnly
+          ? "Enter an HTTP(S) origin without a path."
+          : "Enter a complete HTTP(S) callback URL.",
+      );
     }
   }
 }
@@ -238,7 +348,9 @@ async function askUrl(prompt, { label, current, originOnly, output }) {
 async function askYesNo(prompt, label, defaultValue) {
   const suffix = defaultValue ? "[Y/n]" : "[y/N]";
   while (true) {
-    const answer = (await prompt.ask(`${label} ${suffix}: `)).trim().toLowerCase();
+    const answer = (await prompt.ask(`${label} ${suffix}: `))
+      .trim()
+      .toLowerCase();
     if (!answer) return defaultValue;
     if (["y", "yes"].includes(answer)) return true;
     if (["n", "no"].includes(answer)) return false;
@@ -261,7 +373,8 @@ async function askRunSelection(prompt, output, publicBaseUrl) {
 
 export function updateManagedEnvValues(text, managedValues) {
   for (const [key, value] of Object.entries(managedValues)) {
-    if (/[\r\n]/.test(value)) throw new Error(`Invalid multiline value for ${key}.`);
+    if (/[\r\n]/.test(value))
+      throw new Error(`Invalid multiline value for ${key}.`);
   }
 
   const managedKeys = new Set(Object.keys(managedValues));
@@ -288,12 +401,16 @@ export function updateManagedEnvValues(text, managedValues) {
   return `${output.join("\n")}\n`;
 }
 
-export function writeEnvFileAtomically(envPath, text, {
-  write = writeFileSync,
-  rename = renameSync,
-  remove = rmSync,
-  chmod = chmodSync,
-} = {}) {
+export function writeEnvFileAtomically(
+  envPath,
+  text,
+  {
+    write = writeFileSync,
+    rename = renameSync,
+    remove = rmSync,
+    chmod = chmodSync,
+  } = {},
+) {
   const temporaryPath = join(
     dirname(envPath),
     `.${basename(envPath)}.${process.pid}.${randomBytes(8).toString("hex")}.tmp`,
@@ -329,7 +446,11 @@ function isConfigured(value) {
 }
 
 function secretValue(value, bytes, rotate) {
-  return generatedValue(value, () => randomBytes(bytes).toString("base64url"), rotate);
+  return generatedValue(
+    value,
+    () => randomBytes(bytes).toString("base64url"),
+    rotate,
+  );
 }
 
 function generatedValue(value, generate, rotate) {
@@ -337,11 +458,63 @@ function generatedValue(value, generate, rotate) {
 }
 
 function generatedId(value, purpose, rotate) {
-  return generatedValue(value, () => `prism-${purpose}-${Date.now().toString(36)}`, rotate);
+  return generatedValue(
+    value,
+    () => `prism-${purpose}-${Date.now().toString(36)}`,
+    rotate,
+  );
 }
 
 function requiredEvenWhenZero(key) {
-  return key === "PRISM_OIDC_ALLOW_INSECURE_HTTP";
+  return (
+    key === "PRISM_OIDC_ALLOW_INSECURE_HTTP" ||
+    key === "PRISM_DELEGATED_SLACK_DELIVERY_ENABLED"
+  );
+}
+
+export function parsePlaytestDelegationRegistrationCode(code) {
+  if (!/^[A-Za-z0-9_-]{32,16384}$/.test(code))
+    throw new Error("invalid registration");
+  let candidate;
+  try {
+    candidate = JSON.parse(Buffer.from(code, "base64url").toString("utf8"));
+  } catch {
+    throw new Error("invalid registration");
+  }
+  const key = candidate?.jwks?.keys?.[0];
+  if (
+    candidate?.version !== 1 ||
+    candidate?.client_id !== "shg-playtest-delegation" ||
+    !candidate?.callback_uri ||
+    !candidate?.jwks ||
+    !Array.isArray(candidate.jwks.keys) ||
+    candidate.jwks.keys.length !== 1 ||
+    key?.kty !== "EC" ||
+    key?.crv !== "P-256" ||
+    key?.alg !== "ES256" ||
+    key?.use !== "sig" ||
+    key?.d !== undefined ||
+    !/^[A-Za-z0-9._-]{1,80}$/.test(key?.kid || "") ||
+    !/^[A-Za-z0-9_-]{43}$/.test(key?.x || "") ||
+    !/^[A-Za-z0-9_-]{43}$/.test(key?.y || "") ||
+    JSON.stringify(key?.key_ops) !== '["verify"]'
+  ) {
+    throw new Error("invalid registration");
+  }
+  const callback = new URL(candidate.callback_uri);
+  if (
+    !["http:", "https:"].includes(callback.protocol) ||
+    callback.username ||
+    callback.password ||
+    callback.search ||
+    callback.hash ||
+    callback.pathname !== "/api/announcements/delegation/callback" ||
+    (callback.protocol === "http:" &&
+      !isAllowedInsecureHttpHost(callback.hostname))
+  ) {
+    throw new Error("invalid registration");
+  }
+  return candidate;
 }
 
 function stripMatchingQuotes(value) {
