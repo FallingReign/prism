@@ -109,6 +109,10 @@ Operational controls:
 
 ## Explicit v1 deferrals
 
-Prism v1 excludes inbound events, Socket Mode fanout, slash commands, interactivity, app mentions, file transfer, canvases, lists, payload logging, content moderation, Supabase platform services, and Slack administration.
+Prism's general Slack-compatible API excludes inbound events, Socket Mode fanout, slash commands, interactivity, app mentions, file transfer, canvases, lists, payload logging, content moderation, Supabase platform services, and Slack administration. Remote Codex has one separately authenticated exception: signed HTTPS `app_home_opened` events and its exact attach-button action. Those routes verify Slack's signature against the raw body, bind actions to the exact Slack actor, and never accept Prism developer tokens.
+
+Remote Codex is disabled by default. It stores only safe session labels, status, machine label, opaque IDs, and Slack binding metadata; it does not store Codex prompts, output, diffs, paths, transcripts, or Slack message replies. Pairing uses copy-once secrets, canonical device-key fingerprints, hashed rotating runner credentials, replay nonces, and bounded global/source/device abuse controls. Source attribution is enabled only behind a trusted ingress that overwrites forwarding headers and blocks direct origin access.
+
+Every non-loopback production origin requires HTTPS. The separately compiled private-HTTP companion is an explicitly labelled, exact-origin VPN pilot artifact, not a production release, and the server requires its independent `PRISM_REMOTE_CODEX_ALLOW_INSECURE_HTTP=1` opt-in. It does not make the private VM reachable by Slack and does not provide trustworthy client-source attribution.
 
 Prism is not an unmanaged Slack proxy. The **Method registry** and **Capability map** decide what a **Slack-compatible endpoint** may do before forwarding. Slack administration still owns workspace/org policy and the maximum approved app capability.

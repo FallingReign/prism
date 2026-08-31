@@ -9,9 +9,12 @@ import {
   getDelegatedDeliveryMaintenanceConfig,
   getDeveloperTokenConfig,
   getOidcProviderConfig,
+  getRemoteCodexConfig,
+  getRemoteCodexInstallerUrl,
   getSlackOAuthConfig,
   getSlackOAuthEnvironmentBundle,
   getSetupAbuseProtectionConfig,
+  getSlackSigningSecret,
   getSlackWebApiConfig,
   isSetupRequiredError
 } from "./config";
@@ -220,6 +223,81 @@ describe("server setup config", () => {
     expect(getSetupAbuseProtectionConfig({ NODE_ENV: "test", PRISM_SETUP_TRUST_PROXY_HEADERS: "1" })).toEqual({
       trustProxyHeaders: true
     });
+  });
+
+  it("reuses the deployment origin for Remote Codex and has a dedicated proxy trust flag", () => {
+    const base = {
+      NODE_ENV: "production",
+      PRISM_PUBLIC_BASE_URL: "http://10.62.240.10:3732/",
+      PRISM_OIDC_ALLOW_INSECURE_HTTP: "1"
+    };
+    expect(getRemoteCodexConfig(base)).toEqual({
+      enabled: false,
+      publicBaseUrl: "http://10.62.240.10:3732",
+      trustProxyHeaders: false
+    });
+    expect(() => getRemoteCodexConfig({
+      ...base,
+      PRISM_REMOTE_CODEX_ENABLED: "1",
+      PRISM_REMOTE_CODEX_TRUST_PROXY_HEADERS: "1"
+    })).toThrow("setup-required:PRISM_REMOTE_CODEX_ALLOW_INSECURE_HTTP");
+    expect(getRemoteCodexConfig({
+      ...base,
+      PRISM_REMOTE_CODEX_ENABLED: "1",
+      PRISM_REMOTE_CODEX_ALLOW_INSECURE_HTTP: "1",
+      PRISM_REMOTE_CODEX_TRUST_PROXY_HEADERS: "1"
+    })).toEqual({
+      enabled: true,
+      publicBaseUrl: "http://10.62.240.10:3732",
+      trustProxyHeaders: true
+    });
+    expect(getRemoteCodexConfig({
+      ...base,
+      PRISM_REMOTE_CODEX_TRUST_PROXY_HEADERS: "yes"
+    })).toMatchObject({ trustProxyHeaders: false });
+    expect(getRemoteCodexConfig({
+      PRISM_PUBLIC_BASE_URL: "http://127.0.0.1:3732",
+      PRISM_REMOTE_CODEX_ENABLED: "1"
+    })).toMatchObject({
+      enabled: true,
+      publicBaseUrl: "http://127.0.0.1:3732"
+    });
+  });
+
+  it("loads the Slack signing secret without echoing missing values", () => {
+    expect(getSlackSigningSecret({ SLACK_SIGNING_SECRET: "signing-secret-canary" }))
+      .toBe("signing-secret-canary");
+    expect(() => getSlackSigningSecret({ SLACK_SIGNING_SECRET: "replace-with-signing-secret" }))
+      .toThrow("setup-required:SLACK_SIGNING_SECRET");
+  });
+
+  it("accepts only an HTTPS or same-origin executable installer URL", () => {
+    const base = {
+      PRISM_PUBLIC_BASE_URL: "http://10.62.240.10:3732",
+      PRISM_REMOTE_CODEX_ALLOW_INSECURE_HTTP: "1"
+    };
+    expect(getRemoteCodexInstallerUrl(base)).toBeNull();
+    expect(getRemoteCodexInstallerUrl({
+      ...base,
+      PRISM_REMOTE_CODEX_INSTALLER_URL: "http://10.62.240.10:3732/downloads/PrismCompanionSetup.exe"
+    })).toBe("http://10.62.240.10:3732/downloads/PrismCompanionSetup.exe");
+    expect(getRemoteCodexInstallerUrl({
+      ...base,
+      PRISM_REMOTE_CODEX_INSTALLER_URL: "https://downloads.example/PrismCompanionSetup.exe"
+    })).toBe("https://downloads.example/PrismCompanionSetup.exe");
+    expect(() => getRemoteCodexInstallerUrl({
+      ...base,
+      PRISM_REMOTE_CODEX_INSTALLER_URL: "http://attacker.example/setup.exe"
+    })).toThrow("setup-required:PRISM_REMOTE_CODEX_INSTALLER_URL");
+    expect(() => getRemoteCodexInstallerUrl({
+      PRISM_PUBLIC_BASE_URL: "http://10.62.240.10:3732",
+      PRISM_OIDC_ALLOW_INSECURE_HTTP: "1",
+      PRISM_REMOTE_CODEX_INSTALLER_URL: "http://10.62.240.10:3732/downloads/PrismCompanionSetup.exe"
+    })).toThrow("setup-required:PRISM_REMOTE_CODEX_ALLOW_INSECURE_HTTP");
+    expect(getRemoteCodexInstallerUrl({
+      PRISM_PUBLIC_BASE_URL: "http://localhost:3732",
+      PRISM_REMOTE_CODEX_INSTALLER_URL: "http://localhost:3732/downloads/PrismCompanionSetup.exe"
+    })).toBe("http://localhost:3732/downloads/PrismCompanionSetup.exe");
   });
 
   it("defaults an omitted Slack scope selection to every reviewed Prism-supported scope", () => {

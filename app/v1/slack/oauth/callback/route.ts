@@ -75,6 +75,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         if (decision.kind === "redirect") continuationUrl = decision.location;
       }
     }
+    if (!continuationUrl && result.remoteCodexPairingId) {
+      continuationUrl = remoteCodexPairingResumeUrl(deployment.publicBaseUrl, result.remoteCodexPairingId);
+    }
     const response = NextResponse.redirect(continuationUrl ?? result.redirectUrl, { status: 302 });
     if (result.kind !== "invalid_state") response.cookies.delete(slackOAuthStateCookieName);
     if (result.sessionCookie) {
@@ -98,6 +101,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     response.cookies.delete(slackOAuthStateCookieName);
     return secureOAuthResponse(response, correlationId);
   }
+}
+
+function remoteCodexPairingResumeUrl(publicBaseUrl: string, pairingId: string): string | null {
+  if (!/^rc_pair_[A-Za-z0-9_-]{8,120}$/.test(pairingId)) return null;
+  return new URL(`/remote-codex/pair/${encodeURIComponent(pairingId)}`, publicBaseUrl).toString();
 }
 
 type ParsedAuthorizationResponse = {

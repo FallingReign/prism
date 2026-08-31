@@ -37,6 +37,7 @@ export type OAuthFlowStore = {
     configurationBinding: SlackAppConfigurationBinding;
     oidcAuthorizationRequestId?: string | null;
     delegatedDeliveryRequestId?: string | null;
+    remoteCodexPairingId?: string | null;
     expiresAt: Date;
   }): Promise<void>;
   consumeOAuthState(input: {
@@ -47,6 +48,7 @@ export type OAuthFlowStore = {
     configurationBinding: SlackAppConfigurationBinding;
     oidcAuthorizationRequestId: string | null;
     delegatedDeliveryRequestId?: string | null;
+    remoteCodexPairingId?: string | null;
   } | null>;
   upsertPrismUser(input: {
     identityScope: "workspace" | "organization";
@@ -117,6 +119,7 @@ export async function createSlackOAuthStart({
   configurationBinding,
   oidcAuthorizationRequestId = null,
   delegatedDeliveryRequestId = null,
+  remoteCodexPairingId = null,
   now = new Date(),
   randomBytes = nodeRandomBytes
 }: {
@@ -125,10 +128,11 @@ export async function createSlackOAuthStart({
   configurationBinding: SlackAppConfigurationBinding;
   oidcAuthorizationRequestId?: string | null;
   delegatedDeliveryRequestId?: string | null;
+  remoteCodexPairingId?: string | null;
   now?: Date;
   randomBytes?: (size: number) => Buffer;
 }): Promise<{ state: string; stateHash: string; redirectUrl: string; cookie: CookieSpec }> {
-  if (oidcAuthorizationRequestId && delegatedDeliveryRequestId) {
+  if ([oidcAuthorizationRequestId, delegatedDeliveryRequestId, remoteCodexPairingId].filter(Boolean).length > 1) {
     throw new Error("slack-oauth-continuation-conflict");
   }
   const state = randomBytes(32).toString("base64url");
@@ -140,6 +144,7 @@ export async function createSlackOAuthStart({
     configurationBinding,
     oidcAuthorizationRequestId,
     ...(delegatedDeliveryRequestId ? { delegatedDeliveryRequestId } : {}),
+    ...(remoteCodexPairingId ? { remoteCodexPairingId } : {}),
     expiresAt
   });
 
@@ -191,6 +196,7 @@ export async function completeSlackOAuthCallback({
       sessionCookie: CookieSpec;
       oidcAuthorizationRequestId: string | null;
       delegatedDeliveryRequestId?: string | null;
+      remoteCodexPairingId?: string | null;
       setupConfigurationActivated: boolean;
       installationScope: "workspace" | "organization";
       organizationGrantSync: "not_applicable" | "complete" | "unavailable";
@@ -201,6 +207,7 @@ export async function completeSlackOAuthCallback({
       redirectUrl: string;
       oidcAuthorizationRequestId?: string | null;
       delegatedDeliveryRequestId?: string | null;
+      remoteCodexPairingId?: string | null;
       sessionCookie?: undefined;
       failureReason?: OAuthFailureReason;
     }
@@ -226,7 +233,8 @@ export async function completeSlackOAuthCallback({
       redirectUrl: statusRedirect(deployment, "error", setupBinding, undefined, "authorization_denied"),
       failureReason: "authorization_denied",
       oidcAuthorizationRequestId: storedState.oidcAuthorizationRequestId,
-      ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {})
+      ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {}),
+      ...(storedState.remoteCodexPairingId ? { remoteCodexPairingId: storedState.remoteCodexPairingId } : {})
     };
   }
 
@@ -239,7 +247,8 @@ export async function completeSlackOAuthCallback({
       redirectUrl: statusRedirect(deployment, "error", setupBinding, undefined, "runtime_unavailable"),
       failureReason: "runtime_unavailable",
       oidcAuthorizationRequestId: storedState.oidcAuthorizationRequestId,
-      ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {})
+      ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {}),
+      ...(storedState.remoteCodexPairingId ? { remoteCodexPairingId: storedState.remoteCodexPairingId } : {})
     };
   }
   if (
@@ -263,7 +272,8 @@ export async function completeSlackOAuthCallback({
       redirectUrl: statusRedirect(deployment, "error", setupBinding, undefined, "provider_rejected"),
       failureReason: "provider_rejected",
       oidcAuthorizationRequestId: storedState.oidcAuthorizationRequestId,
-      ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {})
+      ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {}),
+      ...(storedState.remoteCodexPairingId ? { remoteCodexPairingId: storedState.remoteCodexPairingId } : {})
     };
   }
 
@@ -280,7 +290,8 @@ export async function completeSlackOAuthCallback({
       redirectUrl: statusRedirect(deployment, "error", setupBinding, undefined, "invalid_provider_response"),
       failureReason: "invalid_provider_response",
       oidcAuthorizationRequestId: storedState.oidcAuthorizationRequestId,
-      ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {})
+      ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {}),
+      ...(storedState.remoteCodexPairingId ? { remoteCodexPairingId: storedState.remoteCodexPairingId } : {})
     };
   }
 
@@ -374,7 +385,8 @@ export async function completeSlackOAuthCallback({
       redirectUrl: statusRedirect(deployment, "error", setupBinding, undefined, "persistence_failed"),
       failureReason: "persistence_failed",
       oidcAuthorizationRequestId: storedState.oidcAuthorizationRequestId,
-      ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {})
+      ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {}),
+      ...(storedState.remoteCodexPairingId ? { remoteCodexPairingId: storedState.remoteCodexPairingId } : {})
     };
   }
 
@@ -392,7 +404,8 @@ export async function completeSlackOAuthCallback({
       ? "not_applicable"
       : organizationWorkspaceDiscovery?.kind === "ok" ? "complete" : "unavailable",
     organizationGrantCount: organizationWorkspaceDiscovery?.kind === "ok" ? organizationWorkspaceDiscovery.teams.length : 0,
-    ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {})
+    ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {}),
+    ...(storedState.remoteCodexPairingId ? { remoteCodexPairingId: storedState.remoteCodexPairingId } : {})
   };
 }
 

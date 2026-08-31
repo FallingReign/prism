@@ -124,6 +124,23 @@ describe("GET /v1/slack/oauth/start", () => {
     );
   });
 
+  it("binds a well-formed Remote Codex pairing id into server-side OAuth state", async () => {
+    const pairingId = "rc_pair_abcdefgh12345678";
+    mockDb.query.mockResolvedValue({ rows: [], rowCount: 1 });
+    const { GET } = await import("./route");
+
+    const response = await GET(
+      new NextRequest(`http://localhost:3732/v1/slack/oauth/start?remote_codex_pairing=${pairingId}`)
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).not.toContain(pairingId);
+    expect(mockDb.query).toHaveBeenCalledWith(
+      expect.stringContaining("remote_codex_pairing_id"),
+      expect.arrayContaining([pairingId])
+    );
+  });
+
   it("rejects a delegated continuation before OAuth state persistence while the feature is disabled", async () => {
     const { GET } = await import("./route");
     const requestId = "ddr_12345678-1234-4123-8123-123456789012";

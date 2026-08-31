@@ -60,4 +60,34 @@ describe("Prism substrate dependencies", () => {
       await expect(readFile(file, "utf8")).resolves.toMatch(/^import "server-only";/);
     }
   });
+
+  it("keeps Remote Codex ownership, pairing, runner auth, and Slack ingress modules server-only", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const files = [
+      "src/server/http/browser-mutation-csrf.ts",
+      "src/server/http/deferred-work.ts",
+      "src/server/remote-codex/app-home-service.ts",
+      "src/server/remote-codex/binding-postgres-store.ts",
+      "src/server/remote-codex/binding-service.ts",
+      "src/server/remote-codex/binding-status.ts",
+      "src/server/remote-codex/browser-pairing.ts",
+      "src/server/remote-codex/credential-refresh.ts",
+      "src/server/remote-codex/internal-slack-service.ts",
+      "src/server/remote-codex/pairing-service.ts",
+      "src/server/remote-codex/postgres-store.ts",
+      "src/server/remote-codex/request-source.ts",
+      "src/server/remote-codex/runner-auth.ts",
+      "src/server/remote-codex/runner-postgres-store.ts",
+      "src/server/remote-codex/session-service.ts",
+      "src/server/remote-codex/slack-catalog.ts",
+      "src/server/remote-codex/slack-projection.ts",
+      "src/server/remote-codex/slack-rate-limit.ts",
+      "src/server/slack/inbound-receipts.ts",
+      "src/server/slack/inbound-signature.ts"
+    ];
+
+    for (const file of files) {
+      await expect(readFile(file, "utf8")).resolves.toMatch(/^import "server-only";/);
+    }
+  });
 });

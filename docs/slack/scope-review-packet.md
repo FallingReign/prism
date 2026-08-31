@@ -33,9 +33,9 @@ User-backed scopes are expected for methods that operate with the installing use
 
 ### Bot-backed execution candidates
 
-Bot-backed scopes are candidates only where the Method registry approves bot execution:
+Remote Codex requires the bot identity for App Home publishing and owner-private DM threads. Other bot-backed scopes are candidates only where the Method registry approves bot execution:
 
-- Conversation list/read/history: `channels:read`, `channels:history`, `groups:read`, `groups:history`, `im:read`, `im:history`, `mpim:read`, `mpim:history`
+- Conversation list/read/history and owner DM open: `channels:read`, `channels:history`, `groups:read`, `groups:history`, `im:read`, `im:history`, `im:write`, `mpim:read`, `mpim:history`
 - Message write: `chat:write`
 - Reactions: `reactions:read`, `reactions:write`
 - File metadata discovery: `files:read`
@@ -67,7 +67,7 @@ Exclude these families from the v1 app review and manifest:
 - Admin and organization governance: `admin.*`, `admin`, `auditlogs:read`, `discovery:*`, `ekm:*`, `scim:*`, org management, provisioning, app-management, authorization-management, and policy-management scopes.
 - App/config management scopes that let Prism manage Slack installations or app configuration, including `apps:*` or `authorizations:*` style capabilities.
 - Workspace/channel management and provisioning-style write scopes such as `channels:manage`, `groups:write`, `team:*` write/admin variants, and `usergroups:write` where used for provisioning or policy.
-- Inbound surfaces deferred from v1: event subscriptions, slash commands, shortcuts, interactivity, workflows/functions, triggers, datastores, canvases, lists, and incoming webhooks.
+- Inbound surfaces deferred from the general API: slash commands, shortcuts, general event subscriptions/interactivity, workflows/functions, triggers, datastores, canvases, lists, and incoming webhooks. The reviewed Remote Codex exception is limited to signed HTTPS `app_home_opened` and its exact attach-button action.
 - File transfer or mutation: file upload, write, delete, remote file mutation, or download/content-transfer capabilities.
 
 ## Review checkpoints

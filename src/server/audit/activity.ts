@@ -28,7 +28,10 @@ export type ActivityType =
   | "delegated_delivery_outcome_unknown"
   | "slack_configuration_candidate_created"
   | "slack_configuration_activated"
-  | "configuration_admin_claimed";
+  | "configuration_admin_claimed"
+  | "remote_codex_app_home_published"
+  | "remote_codex_binding_created"
+  | "remote_codex_binding_status_updated";
 
 export type ActivityStatus =
   | "attempted"

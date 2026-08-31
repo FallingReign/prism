@@ -18,10 +18,12 @@ This plan documents the required human Slack admin/security steps before any rea
    - dev tunnel: `https://<dev-tunnel-host>/v1/slack/oauth/callback`
    - hosted: `https://<prism-hostname>/v1/slack/oauth/callback` or `https://prism.<internal-domain>/v1/slack/oauth/callback`
 4. Confirm Enterprise Grid org-ready deployment for the dev pilot. The committed manifest enables org deploy so org-level issues surface during development; production org rollout still requires explicit Slack admin/security approval.
-5. Keep Socket Mode disabled for v1. Do not configure event subscriptions, slash commands, interactivity, workflows, incoming webhooks, canvases, lists, or file transfer.
+5. Keep Socket Mode disabled. Configure only the manifest's signed HTTPS Remote Codex `app_home_opened` subscription and attach interactivity URL. Do not configure slash commands, other event subscriptions/shortcuts, workflows, incoming webhooks, canvases, lists, or file transfer.
 6. Approve and install only after final scope review.
 7. Record approved scopes, workspace/org target, and admin decision notes outside source control.
 8. Store Slack client secret, signing secret, bot/user/refresh tokens, and any app-level token only in approved deployment secret storage. Do not commit, print, or paste them into docs.
+
+The private VPN HTTP VM is not a valid Slack Events API or interactivity request URL. Do not enable Remote Codex there as an end-to-end Slack feature until an approved, Slack-reachable HTTPS ingress is in place. If public ingress is prohibited, Socket Mode requires a separate architecture and security review.
 
 ## Enterprise Grid notes
 

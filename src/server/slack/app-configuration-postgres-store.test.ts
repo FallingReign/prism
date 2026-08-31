@@ -28,7 +28,7 @@ describe("Postgres Slack app configuration store", () => {
       if (sql.includes("insert into prism_slack_app_configuration_versions")) {
         expect(params[0]).toBe("configuration-id");
         expect(typeof params[2]).toBe("string");
-        expect(params[3]).toHaveLength(13);
+        expect(params[3]).toHaveLength(14);
         expect(params[4]).toHaveLength(14);
         return result([
           row({

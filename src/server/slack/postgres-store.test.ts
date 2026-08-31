@@ -98,16 +98,17 @@ describe("Postgres Slack OAuth continuation state", () => {
     expect(query).toHaveBeenCalledTimes(1);
   });
 
-  it("stores and consumes typed delegated-delivery and immutable configuration bindings", async () => {
-    const delegatedDeliveryRequestId = "ddr_12345678-1234-4123-8123-123456789012";
+  it("stores and consumes typed Remote Codex pairing and immutable configuration bindings", async () => {
+    const remoteCodexPairingId = "rc_pair_abcdefgh12345678";
     const query = vi.fn(async (sql: string, params?: unknown[]) => {
       if (sql.includes("insert into slack_oauth_states")) {
-        expect(sql).toContain("delegated_delivery_request_id");
+        expect(sql).toContain("remote_codex_pairing_id");
         expect(params).toEqual([
           "state-hash",
           "http://localhost:3732/v1/slack/oauth/callback",
           null,
-          delegatedDeliveryRequestId,
+          null,
+          remoteCodexPairingId,
           new Date("2026-08-22T00:10:00.000Z"),
           "configuration-version",
           null,
@@ -116,12 +117,13 @@ describe("Postgres Slack OAuth continuation state", () => {
         return { rows: [], rowCount: 1 };
       }
       if (sql.includes("update slack_oauth_states")) {
-        expect(sql).toContain("delegated_delivery_request_id");
+        expect(sql).toContain("remote_codex_pairing_id");
         return {
           rows: [{
             redirect_uri: "http://localhost:3732/v1/slack/oauth/callback",
             oidc_authorization_request_id: null,
-            delegated_delivery_request_id: delegatedDeliveryRequestId,
+            delegated_delivery_request_id: null,
+            remote_codex_pairing_id: remoteCodexPairingId,
             slack_app_configuration_version_id: "configuration-version",
             setup_session_id: null,
             environment_configuration_fingerprint: null
@@ -141,7 +143,7 @@ describe("Postgres Slack OAuth continuation state", () => {
         setupSessionId: null
       },
       oidcAuthorizationRequestId: null,
-      delegatedDeliveryRequestId,
+      remoteCodexPairingId,
       expiresAt: new Date("2026-08-22T00:10:00.000Z")
     });
 
@@ -156,7 +158,8 @@ describe("Postgres Slack OAuth continuation state", () => {
         setupSessionId: null
       },
       oidcAuthorizationRequestId: null,
-      delegatedDeliveryRequestId
+      delegatedDeliveryRequestId: null,
+      remoteCodexPairingId
     });
   });
 

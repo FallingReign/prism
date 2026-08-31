@@ -34,6 +34,12 @@ export type SetupAbuseProtectionConfig = {
   trustProxyHeaders: boolean;
 };
 
+export type RemoteCodexServerConfig = {
+  enabled: boolean;
+  publicBaseUrl: string;
+  trustProxyHeaders: boolean;
+};
+
 export type DeveloperTokenServerConfig = {
   pepper: string;
   pepperId: string;
@@ -319,6 +325,60 @@ export function getSetupAbuseProtectionConfig(
   return {
     trustProxyHeaders: env.PRISM_SETUP_TRUST_PROXY_HEADERS === "1"
   };
+}
+
+export function getRemoteCodexConfig(
+  env: NodeJS.ProcessEnv = process.env
+): RemoteCodexServerConfig {
+  const enabled = env.PRISM_REMOTE_CODEX_ENABLED === "1";
+  const publicBase = parsePublicBaseUrl(requiredConfiguredValue(
+    env.PRISM_PUBLIC_BASE_URL,
+    "PRISM_PUBLIC_BASE_URL"
+  ));
+  if (
+    enabled &&
+    publicBase.protocol === "http:" &&
+    !isLoopbackHttpHost(publicBase.hostname) &&
+    (!isAllowedInsecureHttpHost(publicBase.hostname) || env.PRISM_REMOTE_CODEX_ALLOW_INSECURE_HTTP !== "1")
+  ) {
+    throw new Error("setup-required:PRISM_REMOTE_CODEX_ALLOW_INSECURE_HTTP");
+  }
+  return {
+    enabled,
+    publicBaseUrl: publicBase.toString().replace(/\/$/, ""),
+    trustProxyHeaders: env.PRISM_REMOTE_CODEX_TRUST_PROXY_HEADERS === "1"
+  };
+}
+
+export function getSlackSigningSecret(env: NodeJS.ProcessEnv = process.env): string {
+  return requiredConfiguredValue(env.SLACK_SIGNING_SECRET, "SLACK_SIGNING_SECRET");
+}
+
+export function getRemoteCodexInstallerUrl(env: NodeJS.ProcessEnv = process.env): string | null {
+  const configured = configuredValue(env.PRISM_REMOTE_CODEX_INSTALLER_URL);
+  if (!configured) return null;
+  const deployment = parsePublicBaseUrl(requiredConfiguredValue(
+    env.PRISM_PUBLIC_BASE_URL,
+    "PRISM_PUBLIC_BASE_URL"
+  ));
+  if (
+    deployment.protocol === "http:" &&
+    !isLoopbackHttpHost(deployment.hostname) &&
+    (!isAllowedInsecureHttpHost(deployment.hostname) || env.PRISM_REMOTE_CODEX_ALLOW_INSECURE_HTTP !== "1")
+  ) {
+    throw new Error("setup-required:PRISM_REMOTE_CODEX_ALLOW_INSECURE_HTTP");
+  }
+  try {
+    const url = new URL(configured);
+    if (
+      (url.protocol !== "https:" && url.origin !== deployment.origin) ||
+      url.username || url.password || url.search || url.hash ||
+      !url.pathname.toLowerCase().endsWith(".exe")
+    ) throw new Error("invalid");
+    return url.toString();
+  } catch {
+    throw new Error("setup-required:PRISM_REMOTE_CODEX_INSTALLER_URL");
+  }
 }
 
 export function getDelegatedDeliveryConfig(env: NodeJS.ProcessEnv = process.env): DelegatedDeliveryConfig {
@@ -859,6 +919,13 @@ function isAllowedInsecureHttpHost(hostname: string): boolean {
     (first === 192 && second === 168) ||
     first === 127
   );
+}
+
+function isLoopbackHttpHost(hostname: string): boolean {
+  const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (normalized === "localhost" || normalized === "::1") return true;
+  const octets = normalized.split(".").map((part) => Number(part));
+  return octets.length === 4 && octets.every((octet) => Number.isInteger(octet) && octet >= 0 && octet <= 255) && octets[0] === 127;
 }
 
 function validateHttpDeploymentUrl(url: URL, env: NodeJS.ProcessEnv, name: string): void {

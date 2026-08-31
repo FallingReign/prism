@@ -8,6 +8,7 @@ export const SLACK_SCOPE_CATALOG = [
   scope("groups:read", "bot", "conversations", "Read private-channel metadata", "read"),
   scope("groups:history", "bot", "conversations", "Read private-channel history", "read"),
   scope("im:read", "bot", "conversations", "Read direct-message metadata", "read"),
+  scope("im:write", "bot", "conversations", "Open private Remote Codex status threads", "write"),
   scope("im:history", "bot", "conversations", "Read direct-message history", "read"),
   scope("mpim:read", "bot", "conversations", "Read group-message metadata", "read"),
   scope("mpim:history", "bot", "conversations", "Read group-message history", "read"),

@@ -10,6 +10,10 @@ display_information:
   background_color: "#111111"
 
 features:
+  app_home:
+    home_tab_enabled: true
+    messages_tab_enabled: false
+    messages_tab_read_only_enabled: true
   bot_user:
     display_name: Prism
     always_online: false
@@ -43,14 +47,15 @@ oauth_config:
       - search:read
       - files:read
       - users:read
-    # Bot scopes are OPTIONAL - only needed for workspace-wide capabilities
-    # Comment out or remove bot section if not needed
+    # Bot scopes are required when Remote Codex is enabled; otherwise they are
+    # optional and should be narrowed to the reviewed Method registry needs.
     bot:
       - channels:read
       - channels:history
       - groups:read
       - groups:history
       - im:read
+      - im:write
       - im:history
       - mpim:read
       - mpim:history
@@ -61,9 +66,16 @@ oauth_config:
       - users:read
 
 settings:
+  event_subscriptions:
+    request_url: https://<prism-hostname>/v1/slack/events
+    bot_events:
+      - app_home_opened
+  interactivity:
+    is_enabled: true
+    request_url: https://<prism-hostname>/v1/slack/interactivity
   # Dev pilot targets org-ready behavior so Enterprise Grid issues surface early.
   org_deploy_enabled: true
-  # Socket Mode and event delivery are deferred. Do not enable for v1.
+  # Socket Mode remains disabled; signed callbacks require Slack-reachable HTTPS ingress.
   socket_mode_enabled: false
   # Security recommendation for issue #4 OAuth custody; confirm in Slack admin review.
   token_rotation_enabled: true

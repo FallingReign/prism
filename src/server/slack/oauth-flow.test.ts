@@ -64,7 +64,8 @@ function createMemoryStore(): OAuthFlowStore & { rows: Record<string, unknown[]>
         redirectUri: state.redirectUri,
         configurationBinding: state.configurationBinding,
         oidcAuthorizationRequestId: state.oidcAuthorizationRequestId ?? null,
-        delegatedDeliveryRequestId: state.delegatedDeliveryRequestId ?? null
+        delegatedDeliveryRequestId: state.delegatedDeliveryRequestId ?? null,
+        remoteCodexPairingId: state.remoteCodexPairingId ?? null
       };
     },
     async upsertPrismUser(input) {
@@ -429,6 +430,61 @@ describe("Slack OAuth flow", () => {
     });
 
     expect(result).toMatchObject({ kind: "linked", delegatedDeliveryRequestId });
+  });
+
+  it("preserves one typed Remote Codex pairing continuation without exposing it to Slack", async () => {
+    const store = createMemoryStore();
+    const config = {
+      clientId: "client-id-123",
+      clientSecret: "client-secret-must-not-appear",
+      redirectUri: "http://localhost:3732/v1/slack/oauth/callback",
+      publicBaseUrl: "http://localhost:3732",
+      botScopes: [],
+      userScopes: ["chat:write"]
+    };
+    const remoteCodexPairingId = "rc_pair_abcdefgh12345678";
+    const start = await createTestSlackOAuthStart({
+      store,
+      config,
+      remoteCodexPairingId,
+      now,
+      randomBytes: () => Buffer.alloc(32, 15)
+    });
+
+    expect(start.redirectUrl).not.toContain(remoteCodexPairingId);
+    expect(store.rows.states).toMatchObject([{ remoteCodexPairingId }]);
+
+    const result = await completeTestSlackOAuthCallback({
+      store,
+      cipher: createLocalAesGcmCredentialCipher({ key: encryptionKey, keyId: "local-test" }),
+      config,
+      code: "valid-code",
+      state: start.state,
+      cookieState: start.state,
+      now,
+      randomBytes: () => Buffer.alloc(32, 16),
+      slackOAuthClient: {
+        async exchangeCode() {
+          return {
+            ok: true,
+            appId: "A0123456789",
+            installationScope: "workspace",
+            isEnterpriseInstall: false,
+            team: { id: "T0123456789" },
+            enterprise: null,
+            authedUser: {
+              id: "U0123456789",
+              scope: "chat:write",
+              accessToken: "xoxp-remote-codex-user-token-canary",
+              tokenType: "user"
+            }
+          };
+        },
+        async refreshToken() { throw new Error("not used"); }
+      }
+    });
+
+    expect(result).toMatchObject({ kind: "linked", remoteCodexPairingId });
   });
 
   it("preserves the delegated continuation on Slack cancellation without linking", async () => {

@@ -327,6 +327,20 @@ All Prism responses include `Cache-Control: no-store` and `X-Prism-Request-ID` w
 
 The reference MCP adapter lives in [`../examples/prism-mcp-adapter`](../examples/prism-mcp-adapter/). Configure it with `PRISM_BASE_URL` and `PRISM_DEVELOPER_TOKEN`. It validates `/v1/prism/status` and `/v1/prism/capabilities`, exposes representative tools, and calls only Prism endpoints.
 
+## Remote Codex companion
+
+Remote Codex is a separate, status-only Slack surface. Set `PRISM_REMOTE_CODEX_ENABLED=1` only after all of these are true:
+
+- the Windows Tauri companion installer is published and `PRISM_REMOTE_CODEX_INSTALLER_URL` points to its HTTPS URL or same-origin `.exe` path;
+- the Slack bot installation has both `chat:write` and `im:write` and affected workspace connections have been reauthorized;
+- `SLACK_SIGNING_SECRET` is configured;
+- `/v1/slack/events` and `/v1/slack/interactivity` are reachable by Slack over approved public HTTPS;
+- any trusted forwarding headers are overwritten by ingress and direct origin access is blocked before `PRISM_REMOTE_CODEX_TRUST_PROXY_HEADERS=1` is enabled.
+
+Users then open `/remote-codex`, install the companion, choose **Connect to Prism**, confirm the matching phrase in the browser, and choose **Share to Slack** beside a Codex session. The Slack App Home offers the inverse **Attach to Slack** path. Both target the paired connection and an explicit workspace grant; neither derives a workspace from login identity.
+
+The private `http://10.62.240.10:3732` VM can support only a separately compiled and labelled VPN pilot companion, with the independent server-side `PRISM_REMOTE_CODEX_ALLOW_INSECURE_HTTP=1` opt-in. It cannot receive Slack callbacks, so App Home and Slack-side attach are not live there without approved HTTPS ingress or a separately designed Socket Mode slice.
+
 ## Deferred v1 surfaces
 
-Prism v1 does not include inbound events, Socket Mode, slash commands, interactivity, app mentions, file transfer, canvases, lists, payload logging, content moderation, Supabase platform services, or Slack administration. These are explicit deferrals, not hidden features.
+Prism's developer-token API does not expose inbound events, slash commands, interactivity, app mentions, file transfer, canvases, lists, payload logging, content moderation, Supabase platform services, or Slack administration. The only inbound Slack exception is the dedicated Remote Codex App Home and attach flow: its HTTPS routes require Slack's raw-body signature and are not reachable through developer-token capabilities. Socket Mode remains disabled.

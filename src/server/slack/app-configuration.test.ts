@@ -15,7 +15,7 @@ describe("Slack app configuration", () => {
   it("uses every reviewed Prism-supported scope when no selection is supplied", () => {
     expect(canonicalizeSlackScopeSelection()).toEqual(DEFAULT_SLACK_SCOPE_SELECTION);
     expect(DEFAULT_SLACK_SCOPE_SELECTION).toEqual(ALL_PRISM_SUPPORTED_SLACK_SCOPES);
-    expect(DEFAULT_SLACK_SCOPE_SELECTION.botScopes).toHaveLength(13);
+    expect(DEFAULT_SLACK_SCOPE_SELECTION.botScopes).toHaveLength(14);
     expect(DEFAULT_SLACK_SCOPE_SELECTION.userScopes).toHaveLength(14);
     expect(JSON.stringify(DEFAULT_SLACK_SCOPE_SELECTION)).not.toContain("*");
     expect(SLACK_SCOPE_CATALOG.every((scope) => scope.defaultSelected)).toBe(true);
@@ -24,7 +24,7 @@ describe("Slack app configuration", () => {
   it("selects the exact reviewed Prism catalogue without a wildcard", () => {
     const selected = selectAllPrismSupportedSlackScopes();
     expect(selected).toEqual(ALL_PRISM_SUPPORTED_SLACK_SCOPES);
-    expect(selected.botScopes).toHaveLength(13);
+    expect(selected.botScopes).toHaveLength(14);
     expect(selected.userScopes).toHaveLength(14);
     expect(JSON.stringify(selected)).not.toContain("*");
   });

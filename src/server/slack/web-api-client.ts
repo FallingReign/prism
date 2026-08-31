@@ -101,6 +101,8 @@ function mockBody({ method, payload, executionMode }: SlackWebApiCall): unknown 
       response_metadata: { next_cursor: "mock-next-cursor" }
     };
   }
+  if (method === "conversations.open") return { ok: true, channel: { id: "D-MOCK-OWNER" } };
+  if (method === "views.publish") return { ok: true, view: payload.view };
   if (method === "auth.teams.list") {
     return {
       ok: true,
