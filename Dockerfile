@@ -22,6 +22,10 @@ COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/.artifacts ./.artifacts
 COPY --from=builder /app/scripts ./scripts
 COPY --from=builder /app/db ./db
+# The host-level setup capability command is also supported inside the Docker
+# service. It loads these TypeScript modules through tsx at runtime so an
+# operator does not need a separate host npm install for recovery/onboarding.
+COPY --from=builder /app/src ./src
 
 EXPOSE 3732
 CMD ["node", "scripts/docker-entrypoint.mjs"]
