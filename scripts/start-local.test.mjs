@@ -120,7 +120,7 @@ describe("Prism local startup", () => {
     expect(setupWizard).not.toHaveBeenCalled();
   });
 
-  it("rejects localhost HTTP before starting the production-mode Docker server", async () => {
+  it("rejects private HTTP without the explicit setup opt-in", async () => {
     const run = vi.fn();
 
     await expect(startDockerPrism({
@@ -130,8 +130,28 @@ describe("Prism local startup", () => {
         env: { PRISM_PUBLIC_BASE_URL: "http://localhost:3732" },
       }),
       run,
-    })).rejects.toThrow("requires an HTTPS public URL");
+    })).rejects.toThrow("requires HTTPS");
 
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it("starts Docker for setup-approved private HTTP", async () => {
+    const run = vi.fn();
+
+    await startDockerPrism({
+      inspectConfig: () => ({
+        configured: true,
+        missing: [],
+        env: {
+          PRISM_PUBLIC_BASE_URL: "http://10.62.240.10:3732",
+          PRISM_OIDC_ALLOW_INSECURE_HTTP: "1",
+        },
+      }),
+      probeDocker: async () => true,
+      run,
+      log: () => undefined,
+    });
+
+    expect(run).toHaveBeenCalledWith("docker", ["compose", "--env-file", ".env.local", "up", "-d", "--build", "--wait"]);
   });
 });

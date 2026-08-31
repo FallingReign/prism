@@ -248,19 +248,12 @@ async function askYesNo(prompt, label, defaultValue) {
 async function askRunSelection(prompt, output, publicBaseUrl) {
   output.log("How would you like to continue?");
   output.log("  1. Run on this host");
-  output.log("  2. Run with Docker in the background (HTTPS public URL required)");
+  output.log("  2. Run with Docker in the background");
   output.log("  3. Not now");
   while (true) {
     const answer = (await prompt.ask("Choose [1]: ")).trim() || "1";
     if (answer === "1") return "host";
-    if (answer === "2") {
-      if (!publicBaseUrl.startsWith("https://")) {
-        output.log("Detached Docker uses Prism's production server and requires an HTTPS public URL.");
-        output.log("Choose host for this private HTTP configuration, choose Not now, or rerun setup with HTTPS.");
-        continue;
-      }
-      return "docker";
-    }
+    if (answer === "2") return "docker";
     if (answer === "3") return "none";
     output.log("Choose 1, 2, or 3.");
   }

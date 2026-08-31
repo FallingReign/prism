@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { setTimeout as wait } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
 
-import { inspectBootstrapConfig, runSetupWizard } from "./setup.mjs";
+import { inspectBootstrapConfig, isAllowedInsecureHttpHost, runSetupWizard } from "./setup.mjs";
 
 const DEFAULT_DOCKER_WAIT_ATTEMPTS = 60;
 const DEFAULT_DOCKER_WAIT_MS = 1_000;
@@ -81,15 +81,29 @@ export async function startDockerPrism({
   if (!config.configured) {
     throw new Error(`Prism configuration is incomplete: ${config.missing.join(", ")}. Run npm run setup first.`);
   }
-  if (!config.env?.PRISM_PUBLIC_BASE_URL?.startsWith("https://")) {
+  if (!dockerPublicUrlAllowed(config.env)) {
     throw new Error(
-      "Prism's detached Docker server requires an HTTPS public URL. Run `npm run setup` and enter the deployed HTTPS URL, or use `npm start` for localhost/private HTTP.",
+      "Prism Docker requires HTTPS, or explicit HTTP opt-in for a localhost, private-network, or link-local URL written by `npm run setup`.",
     );
   }
   await ensureDocker({ platform, probeDocker, run, pause, log, dockerWaitAttempts, dockerWaitMs });
   log("Building and starting Prism with Docker in the background...");
   await run("docker", ["compose", "--env-file", ".env.local", "up", "-d", "--build", "--wait"]);
   log("Prism is healthy in Docker at the configured public URL.");
+}
+
+export function dockerPublicUrlAllowed(environment = {}) {
+  try {
+    const url = new URL(environment.PRISM_PUBLIC_BASE_URL);
+    if (url.protocol === "https:") return true;
+    return (
+      url.protocol === "http:" &&
+      ["1", "true"].includes(String(environment.PRISM_OIDC_ALLOW_INSECURE_HTTP).toLowerCase()) &&
+      isAllowedInsecureHttpHost(url.hostname)
+    );
+  } catch {
+    return false;
+  }
 }
 
 async function ensureDocker({

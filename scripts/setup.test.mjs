@@ -20,12 +20,12 @@ afterEach(() => {
 });
 
 describe("Prism setup wizard", () => {
-  it("creates one shared configuration and re-prompts when Docker is selected for HTTP", async () => {
+  it("creates one shared configuration and allows Docker for explicitly configured private HTTP", async () => {
     const directory = temporaryDirectory();
     const envPath = join(directory, ".env.local");
     const examplePath = join(directory, ".env.example");
     writeFileSync(examplePath, minimalTemplate());
-    const answers = ["", "", "2", "1"];
+    const answers = ["", "", "2"];
     const messages = [];
 
     const result = await runSetupWizard({
@@ -35,8 +35,7 @@ describe("Prism setup wizard", () => {
       output: captureOutput(messages),
     });
 
-    expect(result.selection).toBe("host");
-    expect(messages.join("\n")).toContain("requires an HTTPS public URL");
+    expect(result.selection).toBe("docker");
     expect(inspectBootstrapConfig({ envPath })).toMatchObject({ configured: true, missing: [] });
     const env = parseEnv(readFileSync(envPath, "utf8"));
     expect(env.PRISM_PUBLIC_BASE_URL).toBe("http://localhost:3732");
