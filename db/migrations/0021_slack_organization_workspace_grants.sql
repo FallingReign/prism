@@ -85,4 +85,5 @@ SELECT
 FROM slack_connections c
 WHERE c.installation_scope = 'workspace'
   AND c.team_id IS NOT NULL
+  AND c.team_id ~ '^T[A-Z0-9]{2,31}$'
 ON CONFLICT (slack_connection_id, team_id) DO NOTHING;

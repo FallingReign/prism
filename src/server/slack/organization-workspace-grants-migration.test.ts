@@ -21,6 +21,7 @@ describe("Slack organization workspace grant migration", () => {
     expect(migration).toContain("CREATE TABLE IF NOT EXISTS slack_connection_workspace_grants");
     expect(migration).toContain("source IN ('legacy_backfill', 'oauth', 'auth_teams_list', 'event')");
     expect(migration).toContain("WHERE c.installation_scope = 'workspace'");
+    expect(migration).toContain("c.team_id ~ '^T[A-Z0-9]{2,31}$'");
     expect(migration).toContain("ON CONFLICT (slack_connection_id, team_id) DO NOTHING");
   });
 
