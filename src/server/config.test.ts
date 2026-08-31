@@ -92,15 +92,23 @@ describe("server setup config", () => {
     ).toThrow("setup-required:PRISM_DELEGATED_SLACK_DELIVERY_GRANT_PEPPER_ID_DISTINCT");
   });
 
-  it("enforces delegated HTTPS policy, hard timing ceilings, and coherent abuse caps", () => {
+  it("allows opted-in private HTTP delegation in production and enforces timing and abuse caps", () => {
     const base = delegatedDeliveryEnv();
-    expect(() =>
+    expect(
       getDelegatedDeliveryConfig({
         ...base,
         NODE_ENV: "production",
         PRISM_DELEGATED_SLACK_DELIVERY_ALLOW_INSECURE_HTTP: "1"
       })
-    ).toThrow("setup-required:PRISM_PUBLIC_BASE_URL_HTTPS");
+    ).toMatchObject({ enabled: true, allowInsecureHttp: true });
+    expect(() =>
+      getDelegatedDeliveryConfig({
+        ...base,
+        NODE_ENV: "production",
+        PRISM_PUBLIC_BASE_URL: "http://example.com:3732",
+        PRISM_DELEGATED_SLACK_DELIVERY_ALLOW_INSECURE_HTTP: "1"
+      })
+    ).toThrow("setup-required:PRISM_DELEGATED_SLACK_DELIVERY_ALLOW_INSECURE_HTTP");
     expect(() =>
       getDelegatedDeliveryConfig({
         ...base,
@@ -420,21 +428,27 @@ describe("server setup config", () => {
     })).toThrow("setup-required:PRISM_OIDC_ABUSE_PROTECTION_LIMITS");
   });
 
-  it("requires an explicit non-production HTTP opt-in and rejects HTTP in production", () => {
+  it("requires an explicit HTTP opt-in and allows private HTTP in production", () => {
     const base = {
       PRISM_PUBLIC_BASE_URL: "http://localhost:3732",
       PRISM_OIDC_PLAYTEST_CLIENT_ID: "shg-playtest",
       PRISM_OIDC_PLAYTEST_REDIRECT_URI: "http://localhost:3847/api/auth/callback",
-      PRISM_OIDC_SIGNING_PRIVATE_KEY_BASE64: "a2V5",
+      PRISM_OIDC_SIGNING_PRIVATE_KEY_BASE64: Buffer.from(
+        "-----BEGIN PRIVATE KEY-----\nkey\n-----END PRIVATE KEY-----"
+      ).toString("base64"),
       PRISM_OIDC_SIGNING_KEY_ID: "local-rs256-v1"
     };
 
     expect(() => getOidcProviderConfig({ ...base, NODE_ENV: "development" })).toThrow(
       "setup-required:PRISM_OIDC_ALLOW_INSECURE_HTTP"
     );
-    expect(() => getOidcProviderConfig({ ...base, NODE_ENV: "production", PRISM_OIDC_ALLOW_INSECURE_HTTP: "1" })).toThrow(
-      "setup-required:PRISM_PUBLIC_BASE_URL_HTTPS"
-    );
+    expect(
+      getOidcProviderConfig({
+        ...base,
+        NODE_ENV: "production",
+        PRISM_OIDC_ALLOW_INSECURE_HTTP: "1"
+      })
+    ).toMatchObject({ issuer: "http://localhost:3732", allowInsecureHttp: true });
   });
 
   it("canonicalizes and validates Slack public and callback URLs using the same HTTP policy", () => {
@@ -456,9 +470,15 @@ describe("server setup config", () => {
     expect(() => getSlackOAuthConfig({ ...base, PRISM_OIDC_ALLOW_INSECURE_HTTP: undefined })).toThrow(
       "setup-required:PRISM_OIDC_ALLOW_INSECURE_HTTP"
     );
-    expect(() => getSlackOAuthConfig({ ...base, NODE_ENV: "production", PRISM_PUBLIC_BASE_URL: "http://localhost:3732", SLACK_OAUTH_REDIRECT_URI: "https://prism.example/v1/slack/oauth/callback" })).toThrow(
-      "setup-required:PRISM_PUBLIC_BASE_URL_HTTPS"
-    );
+    expect(getSlackOAuthConfig({
+      ...base,
+      NODE_ENV: "production",
+      PRISM_PUBLIC_BASE_URL: "http://localhost:3732",
+      SLACK_OAUTH_REDIRECT_URI: "http://localhost:3732/v1/slack/oauth/callback"
+    })).toMatchObject({
+      publicBaseUrl: "http://localhost:3732",
+      redirectUri: "http://localhost:3732/v1/slack/oauth/callback"
+    });
     expect(() => getSlackOAuthConfig({ ...base, PRISM_PUBLIC_BASE_URL: "https://prism.example", SLACK_OAUTH_REDIRECT_URI: "http://example.com:3732/v1/slack/oauth/callback" })).toThrow(
       "setup-required:PRISM_OIDC_ALLOW_INSECURE_HTTP"
     );

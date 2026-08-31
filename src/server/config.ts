@@ -334,7 +334,7 @@ export function getDelegatedDeliveryConfig(env: NodeJS.ProcessEnv = process.env)
   }
 
   const allowInsecureHttp =
-    env.NODE_ENV !== "production" && env.PRISM_DELEGATED_SLACK_DELIVERY_ALLOW_INSECURE_HTTP === "1";
+    env.PRISM_DELEGATED_SLACK_DELIVERY_ALLOW_INSECURE_HTTP === "1";
   const baseUrl = parsePublicBaseUrl(
     requiredConfiguredValue(env.PRISM_PUBLIC_BASE_URL, "PRISM_PUBLIC_BASE_URL")
   );
@@ -551,7 +551,7 @@ export function getOidcProviderConfig(env: NodeJS.ProcessEnv = process.env): Oid
   const publicBaseUrl = requiredConfiguredValue(env.PRISM_PUBLIC_BASE_URL, "PRISM_PUBLIC_BASE_URL");
   const baseUrl = parsePublicBaseUrl(publicBaseUrl);
   const insecureHttpRequested = env.PRISM_OIDC_ALLOW_INSECURE_HTTP === "1";
-  const allowInsecureHttp = env.NODE_ENV !== "production" && insecureHttpRequested;
+  const allowInsecureHttp = insecureHttpRequested;
   validateHttpDeploymentUrl(baseUrl, env, "PRISM_PUBLIC_BASE_URL");
 
   const redirectUri = requiredConfiguredValue(env.PRISM_OIDC_PLAYTEST_REDIRECT_URI, "PRISM_OIDC_PLAYTEST_REDIRECT_URI");
@@ -789,9 +789,6 @@ function validateDelegatedDeliveryUrl(
   name: string,
   allowInsecureHttp: boolean
 ): void {
-  if (env.NODE_ENV === "production" && url.protocol !== "https:") {
-    throw new Error(`setup-required:${name}_HTTPS`);
-  }
   if (url.protocol === "http:" && (!allowInsecureHttp || !isAllowedInsecureHttpHost(url.hostname))) {
     throw new Error("setup-required:PRISM_DELEGATED_SLACK_DELIVERY_ALLOW_INSECURE_HTTP");
   }
@@ -864,10 +861,7 @@ function isAllowedInsecureHttpHost(hostname: string): boolean {
 }
 
 function validateHttpDeploymentUrl(url: URL, env: NodeJS.ProcessEnv, name: string): void {
-  if (env.NODE_ENV === "production" && url.protocol !== "https:") {
-    throw new Error(`setup-required:${name}_HTTPS`);
-  }
-  const allowInsecureHttp = env.NODE_ENV !== "production" && env.PRISM_OIDC_ALLOW_INSECURE_HTTP === "1";
+  const allowInsecureHttp = env.PRISM_OIDC_ALLOW_INSECURE_HTTP === "1";
   if (url.protocol === "http:" && (!allowInsecureHttp || !isAllowedInsecureHttpHost(url.hostname))) {
     throw new Error("setup-required:PRISM_OIDC_ALLOW_INSECURE_HTTP");
   }
