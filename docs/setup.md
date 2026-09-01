@@ -129,26 +129,26 @@ direct requests cannot exhaust a service-wide ten-request source bucket). Set
 headers and direct access to the Prism origin is blocked. Otherwise an attacker
 could rotate a spoofed header to evade a source bucket.
 
-## Configure Playtest delegated Slack delivery
+## Configure delegated Slack-message authorization
 
-Per-message Playtest delivery is a separate first-party registration, not a
-Prism developer Token profile and not the public Playtest OIDC client. It is
-disabled unless `PRISM_DELEGATED_SLACK_DELIVERY_ENABLED=1`; when disabled,
-Prism does not require or load any delegation registration, JWK, or grant
-pepper value.
+Per-message delegated delivery is a separate registered-application capability,
+not a Prism developer Token profile or an OIDC login session. It is disabled
+unless `PRISM_DELEGATED_SLACK_DELIVERY_ENABLED=1`; when disabled, Prism does not
+require or load any delegation registration, JWK, or grant pepper value.
 
 Before enabling it, configure all of the following:
 
 - `PRISM_PUBLIC_BASE_URL` as the exact Prism issuer origin.
-- `PRISM_DELEGATED_SLACK_DELIVERY_CLIENT_ID=shg-playtest-delegation`. No other
-  client id is accepted.
-- `PRISM_DELEGATED_SLACK_DELIVERY_CALLBACK_URI` as the one exact Playtest
-  callback, without query parameters, fragments, wildcards, or alternate
-  origins.
+- `PRISM_DELEGATED_SLACK_DELIVERY_CLIENT_ID` as the registered application's
+  stable identifier. It may contain letters, numbers, `.`, `_`, `~`, or `-` and
+  must be at most 128 characters.
+- `PRISM_DELEGATED_SLACK_DELIVERY_CALLBACK_URI` as the one exact requesting
+  application callback, without query parameters, fragments, wildcards, or
+  alternate origins.
 - `PRISM_DELEGATED_SLACK_DELIVERY_CLIENT_JWKS` as a JWKS JSON object containing
   one to five public `EC`/`P-256`/`ES256` keys with unique `kid` values. Prism
   rejects private JWK parameters. Keep the corresponding private keys only in
-  Playtest deployment secret storage.
+  the requesting application's deployment secret storage.
 - `PRISM_DELEGATED_SLACK_DELIVERY_GRANT_PEPPER` and
   `PRISM_DELEGATED_SLACK_DELIVERY_GRANT_PEPPER_ID` as a dedicated grant-hash
   secret and stable key id. Neither value may reuse its Prism developer-token
@@ -184,9 +184,9 @@ Run `npm run db:migrate` before enabling the flag. Migration `0016` adds the
 hash-only code/grant stores, encrypted request custody, DPoP replay protection,
 delegated rate buckets, typed Slack OAuth continuations, ownership constraints,
 and metadata-only audit lifecycle values. Enabling the Prism flag alone does
-not authorize delivery: Playtest must use the matching callback and managed
-private key, and the approved Prism Slack user connection must have a healthy
-user credential with `chat:write`.
+not authorize delivery: the registered application must use the matching
+callback and managed private key, and the approved Prism Slack user connection
+must have a healthy user credential with `chat:write`.
 
 Schedule `npm run delegated-delivery:cleanup` at least every five minutes in
 the Prism deployment (for example with the platform scheduler, Kubernetes

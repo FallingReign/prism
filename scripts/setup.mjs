@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { generateKeyPairSync, randomBytes } from "node:crypto";
+import { createPublicKey, generateKeyPairSync, randomBytes } from "node:crypto";
 import {
   chmodSync,
   existsSync,
@@ -128,7 +128,7 @@ export async function runSetupWizard({
     isConfigured(values.PRISM_DELEGATED_SLACK_DELIVERY_CALLBACK_URI);
   const configureDelegation = await askYesNo(
     prompt,
-    "Enable automatic scheduled Playtest announcements?",
+    "Enable delegated Slack-message authorization for a registered application?",
     delegationAlreadyConfigured,
   );
   let delegationRegistration = null;
@@ -136,7 +136,7 @@ export async function runSetupWizard({
     const replaceRegistration = delegationAlreadyConfigured
       ? await askYesNo(
           prompt,
-          "Replace the existing Playtest scheduling registration?",
+          "Replace the existing delegated client registration?",
           false,
         )
       : true;
@@ -144,15 +144,15 @@ export async function runSetupWizard({
       while (!delegationRegistration) {
         const code = (
           await prompt.ask(
-            "Paste the scheduling registration code from Playtest: ",
+            "Paste the delegated client registration code: ",
           )
         ).trim();
         try {
           delegationRegistration =
-            parsePlaytestDelegationRegistrationCode(code);
+            parseDelegatedDeliveryRegistrationCode(code);
         } catch {
           output.log(
-            "That registration code is invalid. Generate a new code with `npm run setup` in Playtest.",
+            "That registration code is invalid. Generate a new code in the requesting application and try again.",
           );
         }
       }
@@ -265,8 +265,8 @@ export async function runSetupWizard({
   );
   output.log(
     configureDelegation
-      ? "Automatic scheduled Playtest announcements are registered."
-      : "Automatic scheduled Playtest announcements remain disabled.",
+      ? "Delegated Slack-message authorization is registered."
+      : "Delegated Slack-message authorization remains disabled.",
   );
   output.log("");
 
@@ -472,7 +472,7 @@ function requiredEvenWhenZero(key) {
   );
 }
 
-export function parsePlaytestDelegationRegistrationCode(code) {
+export function parseDelegatedDeliveryRegistrationCode(code) {
   if (!/^[A-Za-z0-9_-]{32,16384}$/.test(code))
     throw new Error("invalid registration");
   let candidate;
@@ -481,40 +481,95 @@ export function parsePlaytestDelegationRegistrationCode(code) {
   } catch {
     throw new Error("invalid registration");
   }
-  const key = candidate?.jwks?.keys?.[0];
   if (
     candidate?.version !== 1 ||
-    candidate?.client_id !== "shg-playtest-delegation" ||
+    !/^[A-Za-z0-9._~-]{1,128}$/.test(candidate?.client_id || "") ||
     !candidate?.callback_uri ||
-    !candidate?.jwks ||
+    !isPlainRecord(candidate?.jwks) ||
+    Object.keys(candidate.jwks).length !== 1 ||
     !Array.isArray(candidate.jwks.keys) ||
-    candidate.jwks.keys.length !== 1 ||
-    key?.kty !== "EC" ||
-    key?.crv !== "P-256" ||
-    key?.alg !== "ES256" ||
-    key?.use !== "sig" ||
-    key?.d !== undefined ||
-    !/^[A-Za-z0-9._-]{1,80}$/.test(key?.kid || "") ||
-    !/^[A-Za-z0-9_-]{43}$/.test(key?.x || "") ||
-    !/^[A-Za-z0-9_-]{43}$/.test(key?.y || "") ||
-    JSON.stringify(key?.key_ops) !== '["verify"]'
+    candidate.jwks.keys.length < 1 ||
+    candidate.jwks.keys.length > 5
   ) {
     throw new Error("invalid registration");
   }
-  const callback = new URL(candidate.callback_uri);
+  const keyIds = new Set();
+  for (const key of candidate.jwks.keys) {
+    validateDelegatedRegistrationJwk(key);
+    if (keyIds.has(key.kid)) throw new Error("invalid registration");
+    keyIds.add(key.kid);
+  }
+  let callback;
+  try {
+    callback = new URL(candidate.callback_uri);
+  } catch {
+    throw new Error("invalid registration");
+  }
   if (
     !["http:", "https:"].includes(callback.protocol) ||
     callback.username ||
     callback.password ||
     callback.search ||
     callback.hash ||
-    callback.pathname !== "/api/announcements/delegation/callback" ||
     (callback.protocol === "http:" &&
       !isAllowedInsecureHttpHost(callback.hostname))
   ) {
     throw new Error("invalid registration");
   }
   return candidate;
+}
+
+function validateDelegatedRegistrationJwk(key) {
+  const allowedFields = new Set([
+    "kty",
+    "crv",
+    "alg",
+    "kid",
+    "x",
+    "y",
+    "use",
+    "key_ops",
+  ]);
+  if (
+    !isPlainRecord(key) ||
+    Object.keys(key).some((field) => !allowedFields.has(field)) ||
+    key.kty !== "EC" ||
+    key.crv !== "P-256" ||
+    key.alg !== "ES256" ||
+    !/^[A-Za-z0-9._~-]{1,128}$/.test(key.kid || "") ||
+    !isP256Coordinate(key.x) ||
+    !isP256Coordinate(key.y) ||
+    (key.use !== undefined && key.use !== "sig") ||
+    (key.key_ops !== undefined &&
+      (!Array.isArray(key.key_ops) ||
+        key.key_ops.length !== 1 ||
+        key.key_ops[0] !== "verify"))
+  ) {
+    throw new Error("invalid registration");
+  }
+  try {
+    createPublicKey({
+      key: { kty: key.kty, crv: key.crv, x: key.x, y: key.y },
+      format: "jwk",
+    });
+  } catch {
+    throw new Error("invalid registration");
+  }
+}
+
+function isP256Coordinate(value) {
+  return (
+    typeof value === "string" &&
+    /^[A-Za-z0-9_-]{43}$/.test(value) &&
+    Buffer.from(value, "base64url").byteLength === 32
+  );
+}
+
+function isPlainRecord(value) {
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
 
 function stripMatchingQuotes(value) {

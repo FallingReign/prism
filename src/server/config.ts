@@ -108,7 +108,7 @@ export type DelegatedDeliveryConfig =
   | {
       enabled: true;
       issuer: string;
-      clientId: "shg-playtest-delegation";
+      clientId: string;
       callbackUri: string;
       clientJwks: DelegatedDeliveryPublicJwk[];
       grantPepper: string;
@@ -122,8 +122,6 @@ export type DelegatedDeliveryMaintenanceConfig = Pick<
   DelegatedDeliveryLimits,
   "statusRetentionMs" | "cleanupBatchSize"
 >;
-
-export const DELEGATED_DELIVERY_CLIENT_ID = "shg-playtest-delegation" as const;
 
 const RESERVED_SLACK_OAUTH_MOCK_CLIENT_ID = "mock-playtest-client";
 
@@ -330,7 +328,7 @@ export function getDelegatedDeliveryConfig(env: NodeJS.ProcessEnv = process.env)
     env.PRISM_DELEGATED_SLACK_DELIVERY_CLIENT_ID,
     "PRISM_DELEGATED_SLACK_DELIVERY_CLIENT_ID"
   );
-  if (clientId !== DELEGATED_DELIVERY_CLIENT_ID) {
+  if (!/^[A-Za-z0-9._~-]{1,128}$/.test(clientId)) {
     throw new Error("setup-required:PRISM_DELEGATED_SLACK_DELIVERY_CLIENT_ID");
   }
 
@@ -380,7 +378,7 @@ export function getDelegatedDeliveryConfig(env: NodeJS.ProcessEnv = process.env)
   return {
     enabled: true,
     issuer: baseUrl.toString().replace(/\/$/, ""),
-    clientId: DELEGATED_DELIVERY_CLIENT_ID,
+    clientId,
     callbackUri: callbackUri.toString(),
     clientJwks: parseDelegatedDeliveryClientJwks(env.PRISM_DELEGATED_SLACK_DELIVERY_CLIENT_JWKS),
     grantPepper,

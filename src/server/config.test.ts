@@ -28,13 +28,13 @@ describe("server setup config", () => {
     expect(getDelegatedDeliveryConfig({ NODE_ENV: "test" })).toEqual({ enabled: false });
   });
 
-  it("loads the exact delegated Playtest registration and bounded defaults", () => {
+  it("loads an exact delegated client registration and bounded defaults", () => {
     expect(getDelegatedDeliveryConfig(delegatedDeliveryEnv())).toMatchObject({
       enabled: true,
       issuer: "http://localhost:3732",
-      clientId: "shg-playtest-delegation",
-      callbackUri: "http://localhost:3847/api/announcements/delegation/callback",
-      clientJwks: [{ kty: "EC", crv: "P-256", alg: "ES256", kid: "playtest-es256-v1" }],
+      clientId: "example-application",
+      callbackUri: "http://localhost:3847/integrations/prism/callback",
+      clientJwks: [{ kty: "EC", crv: "P-256", alg: "ES256", kid: "example-client-es256-v1" }],
       grantPepperId: "delegated-grants-v1",
       allowInsecureHttp: true,
       trustProxyHeaders: false,
@@ -59,10 +59,18 @@ describe("server setup config", () => {
     });
   });
 
-  it("rejects a broadened delegated registration, private JWK material, or shared pepper", () => {
+  it("accepts another valid delegated client identifier", () => {
+    const config = getDelegatedDeliveryConfig({
+      ...delegatedDeliveryEnv(),
+      PRISM_DELEGATED_SLACK_DELIVERY_CLIENT_ID: "another-application"
+    });
+    expect(config).toMatchObject({ enabled: true, clientId: "another-application" });
+  });
+
+  it("rejects a malformed delegated client identifier, private JWK material, or shared pepper", () => {
     const base = delegatedDeliveryEnv();
     expect(() =>
-      getDelegatedDeliveryConfig({ ...base, PRISM_DELEGATED_SLACK_DELIVERY_CLIENT_ID: "another-client" })
+      getDelegatedDeliveryConfig({ ...base, PRISM_DELEGATED_SLACK_DELIVERY_CLIENT_ID: "invalid client" })
     ).toThrow("setup-required:PRISM_DELEGATED_SLACK_DELIVERY_CLIENT_ID");
 
     const jwks = JSON.parse(base.PRISM_DELEGATED_SLACK_DELIVERY_CLIENT_JWKS!) as { keys: Array<Record<string, unknown>> };
@@ -579,16 +587,16 @@ function delegatedDeliveryEnv(): NodeJS.ProcessEnv {
     PRISM_PUBLIC_BASE_URL: "http://localhost:3732",
     PRISM_DELEGATED_SLACK_DELIVERY_ENABLED: "1",
     PRISM_DELEGATED_SLACK_DELIVERY_ALLOW_INSECURE_HTTP: "1",
-    PRISM_DELEGATED_SLACK_DELIVERY_CLIENT_ID: "shg-playtest-delegation",
+    PRISM_DELEGATED_SLACK_DELIVERY_CLIENT_ID: "example-application",
     PRISM_DELEGATED_SLACK_DELIVERY_CALLBACK_URI:
-      "http://localhost:3847/api/announcements/delegation/callback",
+      "http://localhost:3847/integrations/prism/callback",
     PRISM_DELEGATED_SLACK_DELIVERY_CLIENT_JWKS: JSON.stringify({
       keys: [
         {
           kty: "EC",
           crv: "P-256",
           alg: "ES256",
-          kid: "playtest-es256-v1",
+          kid: "example-client-es256-v1",
           x: publicJwk.x,
           y: publicJwk.y,
           use: "sig",

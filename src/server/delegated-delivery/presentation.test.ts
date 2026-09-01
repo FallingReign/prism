@@ -44,6 +44,8 @@ describe("delegated delivery consent presentation", () => {
     expect(html).toContain("<details><summary>Advanced payload verification</summary>");
     expect(html).toContain("&quot;channel&quot;:&quot;C123ABC&quot;");
     expect(html).toContain("Approve by");
+    expect(html).toContain("Application request");
+    expect(html).not.toContain('<meta name="referrer"');
     expect(html).toContain("@media(max-width:600px)");
     expect(html).toContain(".meta,.block-fields{grid-template-columns:minmax(0,1fr)}");
   });
@@ -51,12 +53,15 @@ describe("delegated delivery consent presentation", () => {
   it("separates an unverifiable browser mutation from identity policy denial", () => {
     const csrf = renderDelegatedConsentCsrfErrorPage();
     expect(csrf).toContain("Approval request could not be verified");
-    expect(csrf).toContain("Return to the original Prism approval page and try again.");
+    expect(csrf).toContain("Return to the original Prism authorization page and try again.");
+    expect(csrf).toContain("requesting application");
+    expect(csrf).not.toContain('<meta name="referrer"');
     expect(csrf).not.toContain("not available for this identity");
     expect(csrf).not.toContain("<script");
 
     const policy = renderDelegatedConsentErrorPage(403);
     expect(policy).toContain("Approval is not available for this identity");
+    expect(policy).toContain("application that started this request");
     expect(policy).not.toContain("could not be verified");
   });
 });
