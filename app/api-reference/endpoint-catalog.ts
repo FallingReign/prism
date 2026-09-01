@@ -1,4 +1,4 @@
-export type ApiAuthModel = "none" | "prismDeveloperToken" | "websiteSession";
+export type ApiAuthModel = "none" | "deviceCode" | "prismDeveloperToken" | "websiteSession";
 export type ApiSurface = "local-tool" | "website-session" | "public-distribution" | "admin-handoff";
 export type ApiMethod = "GET" | "POST" | "DELETE";
 
@@ -33,6 +33,28 @@ export const apiEndpointGroups = [
         summary: "Process health for deployment checks.",
         details: ["No bearer token is required.", "Returns a small JSON health payload and no-store caching headers."],
         example: "curl \"$PRISM_BASE_URL/v1/prism/health\""
+      },
+      {
+        method: "POST",
+        path: "/v1/prism/local-app/authorizations",
+        authModel: "none",
+        surface: "local-tool",
+        summary: "Start browser-approved pairing for a generic local application.",
+        details: [
+          "Accepts one unverified client identifier and the fixed messages-only, user-execution policy.",
+          "Returns a high-entropy polling code, short human code, approval URL, expiry, and polling interval. Prism persists hashes only."
+        ]
+      },
+      {
+        method: "POST",
+        path: "/v1/prism/local-app/authorizations/token",
+        authModel: "deviceCode",
+        surface: "local-tool",
+        summary: "Poll and exchange an approved local-app pairing request.",
+        details: [
+          "The high-entropy device code is the polling bearer; follow Retry-After and the returned interval.",
+          "An approved exchange returns one copy-once Prism developer token and the explicitly granted Slack workspace choices."
+        ]
       },
       {
         method: "GET",
@@ -220,6 +242,7 @@ export const apiEndpointGroups = [
 
 export function authModelLabel(authModel: ApiAuthModel): string {
   if (authModel === "none") return "No auth";
+  if (authModel === "deviceCode") return "One-time device code";
   if (authModel === "prismDeveloperToken") return "Authorization: Bearer prism_dev_...";
   return "Prism website session cookie";
 }

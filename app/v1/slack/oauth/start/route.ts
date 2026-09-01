@@ -29,7 +29,8 @@ export async function GET(request?: NextRequest): Promise<NextResponse> {
       config,
       configurationBinding: resolved.binding,
       oidcAuthorizationRequestId: continuation.oidcAuthorizationRequestId,
-      delegatedDeliveryRequestId: continuation.delegatedDeliveryRequestId
+      delegatedDeliveryRequestId: continuation.delegatedDeliveryRequestId,
+      localAppAuthorizationId: continuation.localAppAuthorizationId
     });
     const response = NextResponse.redirect(start.redirectUrl, { status: 302 });
     response.cookies.set(start.cookie.name, start.cookie.value, {
@@ -53,19 +54,22 @@ export async function GET(request?: NextRequest): Promise<NextResponse> {
 }
 
 function parseContinuation(params?: URLSearchParams):
-  | { kind: "valid"; oidcAuthorizationRequestId: string | null; delegatedDeliveryRequestId: string | null }
+  | { kind: "valid"; oidcAuthorizationRequestId: string | null; delegatedDeliveryRequestId: string | null; localAppAuthorizationId: string | null }
   | { kind: "invalid" } {
-  if (!params) return { kind: "valid", oidcAuthorizationRequestId: null, delegatedDeliveryRequestId: null };
-  if ([...params.keys()].some((key) => key !== "oidc_request" && key !== "delegation_request")) return { kind: "invalid" };
+  if (!params) return { kind: "valid", oidcAuthorizationRequestId: null, delegatedDeliveryRequestId: null, localAppAuthorizationId: null };
+  if ([...params.keys()].some((key) => key !== "oidc_request" && key !== "delegation_request" && key !== "local_app_request")) return { kind: "invalid" };
   const oidc = params.getAll("oidc_request");
   const delegated = params.getAll("delegation_request");
-  if (oidc.length > 1 || delegated.length > 1 || (oidc.length === 1 && delegated.length === 1)) return { kind: "invalid" };
+  const localApp = params.getAll("local_app_request");
+  if (oidc.length > 1 || delegated.length > 1 || localApp.length > 1 || oidc.length + delegated.length + localApp.length > 1) return { kind: "invalid" };
   if (oidc.length === 1 && !/^[A-Za-z0-9_-]{43}$/.test(oidc[0]!)) return { kind: "invalid" };
   if (delegated.length === 1 && !/^ddr_[A-Za-z0-9-]{16,64}$/.test(delegated[0]!)) return { kind: "invalid" };
+  if (localApp.length === 1 && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(localApp[0]!)) return { kind: "invalid" };
   return {
     kind: "valid",
     oidcAuthorizationRequestId: oidc[0] ?? null,
-    delegatedDeliveryRequestId: delegated[0] ?? null
+    delegatedDeliveryRequestId: delegated[0] ?? null,
+    localAppAuthorizationId: localApp[0] ?? null
   };
 }
 

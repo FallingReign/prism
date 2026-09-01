@@ -108,6 +108,7 @@ describe("Postgres Slack OAuth continuation state", () => {
           "http://localhost:3732/v1/slack/oauth/callback",
           null,
           delegatedDeliveryRequestId,
+          null,
           new Date("2026-08-22T00:10:00.000Z"),
           "configuration-version",
           null,
@@ -122,6 +123,7 @@ describe("Postgres Slack OAuth continuation state", () => {
             redirect_uri: "http://localhost:3732/v1/slack/oauth/callback",
             oidc_authorization_request_id: null,
             delegated_delivery_request_id: delegatedDeliveryRequestId,
+            local_app_authorization_id: null,
             slack_app_configuration_version_id: "configuration-version",
             setup_session_id: null,
             environment_configuration_fingerprint: null
@@ -156,7 +158,8 @@ describe("Postgres Slack OAuth continuation state", () => {
         setupSessionId: null
       },
       oidcAuthorizationRequestId: null,
-      delegatedDeliveryRequestId
+      delegatedDeliveryRequestId,
+      localAppAuthorizationId: null
     });
   });
 

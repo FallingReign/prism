@@ -89,6 +89,16 @@ complete reserved development-mock bundle from `.env.local`, Prism treats it as 
 or `/setup` can win; the bundle is never promoted into a real Slack request. A mock flag paired with a non-reserved real
 client and partial real credential pairs remain invalid.
 
+Generic local applications can pair without asking a non-technical user to
+create or paste a Token profile. The app starts a short-lived request at
+`POST /v1/prism/local-app/authorizations`, opens the returned Prism approval
+page, and polls `POST /v1/prism/local-app/authorizations/token`. Prism binds
+approval to the exact browser session and owned Slack connection, returns one
+copy-once Prism developer token, and stores only hashes of the device and human
+codes. Re-pairing the same user and client identifier immediately invalidates
+the previous token. Client identifiers are unverified labels, and the browser
+page says so. Prism stores no application session or task state.
+
 For the registered `shg-playtest` OIDC client, a successful authorization-code
 exchange also issues an eight-hour, user-bound Prism application credential.
 Prism creates or refreshes the reserved `shg_playtest_app` Token profile with a

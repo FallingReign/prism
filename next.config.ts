@@ -23,6 +23,7 @@ const nextConfig: NextConfig = {
       ignore: [
         /^\/oauth\/authorize(?:[/?]|$)/,
         /^\/delegations\/slack-message\/authorize(?:[/?]|$)/,
+        /^\/local-app\/authorize(?:[/?]|$)/,
         /^\/v1\/slack\/oauth\/start(?:[/?]|$)/,
         /^\/v1\/slack\/oauth\/callback(?:[/?]|$)/,
         // Setup requests can contain a one-time host capability or Slack app

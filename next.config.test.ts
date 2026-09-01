@@ -16,4 +16,14 @@ describe("Next development request logging", () => {
     expect(ignored.some((pattern) => pattern.test("/delegations/slack-message/help"))).toBe(false);
     expect(JSON.stringify(nextConfig)).not.toContain(approvalHandle);
   });
+
+  it("suppresses local-app human codes from development request logs", () => {
+    const logging = nextConfig.logging;
+    const incomingRequests = logging && typeof logging === "object" ? logging.incomingRequests : false;
+    const ignored = incomingRequests && typeof incomingRequests === "object"
+      ? (incomingRequests.ignore ?? []) as RegExp[]
+      : [];
+    expect(ignored.some((pattern) => pattern.test("/local-app/authorize?user_code=HUMAN-CODE"))).toBe(true);
+    expect(ignored.some((pattern) => pattern.test("/local-app/help"))).toBe(false);
+  });
 });

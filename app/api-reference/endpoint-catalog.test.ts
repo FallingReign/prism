@@ -14,6 +14,8 @@ describe("Prism API endpoint catalog", () => {
     expect(flatEndpointKeys()).toEqual(
       expect.arrayContaining([
         "GET /v1/prism/health none local-tool",
+        "POST /v1/prism/local-app/authorizations none local-tool",
+        "POST /v1/prism/local-app/authorizations/token deviceCode local-tool",
         "GET /v1/prism/status prismDeveloperToken local-tool",
         "GET /v1/prism/capabilities prismDeveloperToken local-tool",
         "GET /v1/slack/api/{method} prismDeveloperToken local-tool",
