@@ -252,7 +252,7 @@ curl -i \
   "$PRISM_BASE_URL/v1/prism/capabilities"
 ```
 
-Use `/v1/prism/status` and `/v1/prism/capabilities` before exposing or attempting Local tool calls where practical. They distinguish active, invalid, expired, revoked, and **Reauth required** states without returning Slack credentials.
+Use `/v1/prism/status` and `/v1/prism/capabilities` before exposing or attempting Local tool calls where practical. They distinguish active, invalid, expired, revoked, and **Reauth required** states without returning Slack credentials. For a client-bound token, status also returns the canonical Slack user ID under `subject.slackUserId`; this is identity metadata only and does not select or authorize a workspace.
 
 ## Slack-compatible endpoint calls
 

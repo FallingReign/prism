@@ -396,6 +396,7 @@ export function createPostgresLocalAppAuthorizationStore(database: Database): Lo
           clientId: authorization.client_id,
           subject: {
             prismUserId: authorization.approved_prism_user_id,
+            slackUserId: issued.slackUserId,
             installationScope: issued.installationScope,
             slackTeamId: issued.slackTeamId,
             slackEnterpriseId: issued.slackEnterpriseId,

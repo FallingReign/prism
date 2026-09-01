@@ -31,6 +31,9 @@ exchange and is never persisted raw. Re-pairing the same Prism user and client
 identifier revokes the previous token immediately. Organization installs return
 their active workspace grants so the local application can require an explicit
 workspace choice; Prism does not infer a target workspace from login identity.
+The exchange and client-bound status response assert the canonical Slack user
+ID from the exact bound connection. This is safe identity metadata, not a
+credential or workspace selector.
 All application-specific session, task, binding, and approval state remains in
 the local application, not Prism.
 

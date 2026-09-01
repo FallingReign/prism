@@ -63,6 +63,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       clientId: result.clientId,
       subject: {
         prismUserId: result.subject.prismUserId,
+        slackUserId: result.subject.slackUserId,
         installationScope: result.subject.installationScope,
         slackTeamId: result.subject.slackTeamId,
         slackEnterpriseId: result.subject.slackEnterpriseId,

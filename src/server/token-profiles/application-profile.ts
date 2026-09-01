@@ -12,6 +12,7 @@ export type ApplicationProfileResult = {
   created: boolean;
   rebound: boolean;
   installationScope: "workspace" | "organization";
+  slackUserId: string;
   slackTeamId: string | null;
   slackEnterpriseId: string | null;
 };
@@ -38,10 +39,11 @@ export async function issueApplicationProfileToken(
   const eligible = await database.query<{
     id: string;
     installation_scope: "workspace" | "organization";
+    authed_user_id: string;
     team_id: string | null;
     enterprise_id: string | null;
   }>(
-    `select c.id, c.installation_scope, c.team_id, c.enterprise_id
+    `select c.id, c.installation_scope, c.authed_user_id, c.team_id, c.enterprise_id
      from slack_connections c
      where c.id = $1 and c.prism_user_id = $2 and c.status = 'healthy'
        and exists (
@@ -169,6 +171,7 @@ export async function issueApplicationProfileToken(
     created,
     rebound,
     installationScope: connection.installation_scope ?? "workspace",
+    slackUserId: connection.authed_user_id,
     slackTeamId: connection.team_id ?? null,
     slackEnterpriseId: connection.enterprise_id ?? null
   };

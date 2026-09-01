@@ -35,6 +35,7 @@ describe("Local-tool Prism token status", () => {
   it("asserts canonical subject, client, and fixed capabilities only for a client-bound token", async () => {
     const app = record({
       prismUserId: "prism-user-1",
+      slackUserId: "U123",
       clientId: "shg-playtest",
       capabilityMap: {
         ...activePolicy.capabilityMap,
@@ -56,7 +57,7 @@ describe("Local-tool Prism token status", () => {
 
     expect(result.body).toMatchObject({
       application: { clientId: "shg-playtest" },
-      subject: { prismUserId: "prism-user-1" },
+      subject: { prismUserId: "prism-user-1", slackUserId: "U123" },
       capabilityMap: {
         actions: { writeMessages: true, read: false, search: false, reactions: false },
         executionIdentity: "user"
@@ -73,6 +74,17 @@ describe("Local-tool Prism token status", () => {
     expect(generic.body).not.toHaveProperty("application");
     expect(generic.body).not.toHaveProperty("subject");
     expect(generic.body).not.toHaveProperty("capabilityMap");
+
+    const missingOwner = await getPrismTokenStatus({
+      store: store(record({ prismUserId: "prism-user-1", slackUserId: null, clientId: "shg-playtest" })),
+      bearerToken: "prism_dev_missingownercanarymissingownercanary",
+      developerTokenConfig: { pepper: "pepper-secret-canary", pepperId: "local-pepper" },
+      requestId: "req_missing_owner",
+      now
+    });
+    expect(missingOwner.body).not.toHaveProperty("application");
+    expect(missingOwner.body).not.toHaveProperty("subject");
+    expect(missingOwner.body).not.toHaveProperty("capabilityMap");
   });
 
   it("reports healthy active status without exposing bearer token or verifier material", async () => {
