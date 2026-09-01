@@ -18,8 +18,9 @@ export function rejectCrossOriginBrowserMutation(request: NextRequest): NextResp
   // If Origin is unavailable, only a positive same-origin Fetch Metadata
   // signal is accepted. Metadata-free requests cannot mutate an ambient
   // Prism browser session.
-  if (origin === null) return fetchSite === "same-origin" ? null : rejected();
-  if (origin === "null") return rejected();
+  if (origin === null || origin === "null") {
+    return fetchSite === "same-origin" ? null : rejected();
+  }
 
   const expectedOrigin = configuredPrismOrigin();
   return origin === expectedOrigin ? null : rejected();
