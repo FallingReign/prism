@@ -22,6 +22,7 @@ describe("local-app long-lived profile metadata", () => {
       created: true,
       rebound: false,
       installationScope: "workspace",
+      slackUserId: "U123",
       slackTeamId: "T1",
       slackEnterpriseId: null
     });
@@ -64,7 +65,11 @@ describe("local-app long-lived profile metadata", () => {
         verifier: { tokenHash: "t".repeat(64), algorithm: "hmac-sha256", pepperId: "v1" }
       }),
       auditRequestId: "audit-1"
-    })).resolves.toMatchObject({ kind: "issued", tokenProfileId: "profile-1" });
+    })).resolves.toMatchObject({
+      kind: "issued",
+      tokenProfileId: "profile-1",
+      subject: { prismUserId: "user-1", slackUserId: "U123" }
+    });
 
     expect(mocks.issueApplicationProfileToken).toHaveBeenCalledWith(database, expect.objectContaining({
       profileName: "Local application: example-local-app",

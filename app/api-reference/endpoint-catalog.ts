@@ -53,7 +53,7 @@ export const apiEndpointGroups = [
         summary: "Poll and exchange an approved local-app pairing request.",
         details: [
           "The high-entropy device code is the polling bearer; follow Retry-After and the returned interval.",
-          "An approved exchange returns one copy-once Prism developer token and the explicitly granted Slack workspace choices."
+          "An approved exchange returns one copy-once Prism developer token, the canonical Slack user ID, and the explicitly granted Slack workspace choices. The user ID is identity metadata, not a credential or workspace selector."
         ]
       },
       {
@@ -62,7 +62,11 @@ export const apiEndpointGroups = [
         authModel: "prismDeveloperToken",
         surface: "local-tool",
         summary: "Status for the Token profile behind a Prism developer token.",
-        details: ["Returns the local-tool connection state, Token profile policy, and reauth-required status.", "Includes X-Prism-Request-ID where practical."],
+        details: [
+          "Returns the local-tool connection state, Token profile policy, and reauth-required status.",
+          "Client-bound tokens also return the canonical Slack user ID as non-credential identity metadata; it does not select a workspace.",
+          "Includes X-Prism-Request-ID where practical."
+        ],
         example: "curl -H \"Authorization: Bearer prism_dev_...\" \"$PRISM_BASE_URL/v1/prism/status\""
       },
       {

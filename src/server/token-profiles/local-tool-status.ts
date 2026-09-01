@@ -56,7 +56,7 @@ export type PrismStatusBody = {
     unavailableReason: "slack_reauth_required" | "missing_user_identity" | "missing_bot_identity" | "missing_execution_identity" | null;
   };
   application?: { clientId: string };
-  subject?: { prismUserId: string };
+  subject?: { prismUserId: string; slackUserId: string };
   capabilityMap?: CapabilityMap;
 };
 
@@ -96,10 +96,13 @@ export async function getPrismTokenStatus({
       token: activeTokenStatus(resolution.resolved),
       slack: slackStatus(resolution.resolved),
       executionIdentity: executionIdentityStatus(resolution.resolved),
-      ...(resolution.resolved.clientId && resolution.resolved.prismUserId
+      ...(resolution.resolved.clientId && resolution.resolved.prismUserId && resolution.resolved.slackUserId
         ? {
             application: { clientId: resolution.resolved.clientId },
-            subject: { prismUserId: resolution.resolved.prismUserId },
+            subject: {
+              prismUserId: resolution.resolved.prismUserId,
+              slackUserId: resolution.resolved.slackUserId
+            },
             capabilityMap: resolution.resolved.capabilityMap
           }
         : {})

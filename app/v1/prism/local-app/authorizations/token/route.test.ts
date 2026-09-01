@@ -63,6 +63,7 @@ describe("POST /v1/prism/local-app/authorizations/token", () => {
       clientId: "example-local-app",
       subject: {
         prismUserId: "user-1",
+        slackUserId: "U123",
         installationScope: "organization",
         slackTeamId: null,
         slackEnterpriseId: "E1",
@@ -74,7 +75,7 @@ describe("POST /v1/prism/local-app/authorizations/token", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       developerToken: "prism_dev_copy_once_test_value",
-      subject: { workspaces: [{ teamId: "T1" }] }
+      subject: { slackUserId: "U123", workspaces: [{ teamId: "T1" }] }
     });
   });
 

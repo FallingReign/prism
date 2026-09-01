@@ -97,7 +97,9 @@ approval to the exact browser session and owned Slack connection, returns one
 copy-once Prism developer token, and stores only hashes of the device and human
 codes. Re-pairing the same user and client identifier immediately invalidates
 the previous token. Client identifiers are unverified labels, and the browser
-page says so. Prism stores no application session or task state.
+page says so. The exchange and client-bound status response include the
+canonical Slack user ID as safe identity metadata; it is not a credential and
+does not choose a workspace. Prism stores no application session or task state.
 
 For the registered `shg-playtest` OIDC client, a successful authorization-code
 exchange also issues an eight-hour, user-bound Prism application credential.

@@ -81,6 +81,7 @@ describe("GET /v1/prism/status", () => {
       rows: [{
         ...activeRow(),
         prism_user_id: "prism-user-1",
+        slack_user_id: "U123",
         client_id: "shg-playtest",
         capability_map: {
           ...capabilityMap,
@@ -100,7 +101,7 @@ describe("GET /v1/prism/status", () => {
     }));
     expect(await response.json()).toMatchObject({
       application: { clientId: "shg-playtest" },
-      subject: { prismUserId: "prism-user-1" },
+      subject: { prismUserId: "prism-user-1", slackUserId: "U123" },
       capabilityMap: { actions: { writeMessages: true, read: false }, executionIdentity: "user" }
     });
   });

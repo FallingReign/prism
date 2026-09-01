@@ -86,6 +86,7 @@ export type LocalAppAuthorizationStore = {
         clientId: string;
         subject: {
           prismUserId: string;
+          slackUserId: string;
           installationScope: "workspace" | "organization";
           slackTeamId: string | null;
           slackEnterpriseId: string | null;
