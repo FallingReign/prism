@@ -6,7 +6,7 @@ import { hashSecret } from "../slack/oauth-flow";
 import { issueApplicationProfileToken } from "../token-profiles/application-profile";
 import { createPostgresGlobalTokenProfilePolicyStore } from "../token-profiles/global-policy-store";
 import { validateRequestedTokenProfilePolicy } from "../token-profiles/global-policy";
-import { buildTokenProfilePolicy } from "../token-profiles/presets";
+import { buildTokenProfilePolicy, type TokenProfilePolicyInput } from "../token-profiles/presets";
 import type { LocalAppAuthorizationStore } from "./types";
 
 const RATE_WINDOW_MS = 60_000;
@@ -307,14 +307,17 @@ export function createPostgresLocalAppAuthorizationStore(database: Database): Lo
           return { kind: "invalid_grant" };
         }
 
-        const policy = buildTokenProfilePolicy(
-          { preset: "messages_only", executionIdentity: "user" },
-          input.now
-        );
         const globalPolicy = await createPostgresGlobalTokenProfilePolicyStore(tx)
           .readGlobalTokenProfilePolicy();
+        const maximumDays = globalPolicy.policy.expiry.maximumDays.nonDestructive;
+        const tokenPolicyInput = {
+          preset: "messages_only",
+          executionIdentity: "user",
+          ...(maximumDays === null ? {} : { expiryDays: maximumDays })
+        } satisfies TokenProfilePolicyInput;
+        const policy = buildTokenProfilePolicy(tokenPolicyInput, input.now);
         const policyDecision = validateRequestedTokenProfilePolicy({
-          input: { preset: "messages_only", executionIdentity: "user" },
+          input: tokenPolicyInput,
           capabilityMap: policy.capabilityMap,
           expiresAt: policy.expiresAt,
           policyEffectiveAt: input.now,
