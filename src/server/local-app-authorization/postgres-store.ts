@@ -42,8 +42,8 @@ export function createPostgresLocalAppAuthorizationStore(database: Database): Lo
           `delete from prism_local_app_authorizations
            where id in (
              select id from prism_local_app_authorizations
-             where (terminal_at is not null and terminal_at < $1 - interval '1 day')
-                or expires_at < $1 - interval '1 day'
+             where (terminal_at is not null and terminal_at < $1::timestamptz - interval '1 day')
+                or expires_at < $1::timestamptz - interval '1 day'
              order by coalesce(terminal_at, expires_at)
              limit $2
            )`,
@@ -229,9 +229,9 @@ export function createPostgresLocalAppAuthorizationStore(database: Database): Lo
            set status = $2,
                approved_prism_user_id = case when $2 = 'approved' then $3 else null end,
                approved_slack_connection_id = case when $2 = 'approved' then $4 else null end,
-               decided_at = $5,
-               terminal_at = case when $2 = 'denied' then $5 else null end,
-               updated_at = $5
+               decided_at = $5::timestamptz,
+               terminal_at = case when $2 = 'denied' then $5::timestamptz else null end,
+               updated_at = $5::timestamptz
            where id = $1 and status = 'pending'`,
           [input.requestId, approved ? "approved" : "denied", identity.prism_user_id, identity.slack_connection_id, input.now]
         );
@@ -412,7 +412,7 @@ async function cleanupRateLimits(database: Database, now: Date): Promise<void> {
     `delete from prism_local_app_authorization_rate_limits target
      using (
        select bucket_key from prism_local_app_authorization_rate_limits
-       where window_reset_at < $1 - interval '1 day'
+       where window_reset_at < $1::timestamptz - interval '1 day'
        order by window_reset_at
        limit $2
      ) stale
@@ -431,8 +431,8 @@ async function consumeRateLimit(
   const resetAt = new Date(now.getTime() + RATE_WINDOW_MS);
   const result = await database.query<{ request_count: number }>(
     `insert into prism_local_app_authorization_rate_limits
-       (bucket_key, window_started_at, window_reset_at, request_count, updated_at)
-     values ($1, $2, $3, 1, $2)
+       (bucket_key, window_started_at, window_reset_at, request_count, created_at, updated_at)
+     values ($1, $2, $3, 1, $2, $2)
      on conflict (bucket_key) do update set
        window_started_at = case
          when prism_local_app_authorization_rate_limits.window_reset_at <= $2 then $2
