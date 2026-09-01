@@ -53,6 +53,8 @@ describe("/local-app/authorize browser flow", () => {
       requestId: authorizationId, userCode: "ABCD-2345", sessionToken: "session-secret"
     }));
     expect(await response.text()).toContain("ABCD-2345");
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(response.headers.get("content-security-policy")).toContain("form-action 'self'");
     const cookie = response.headers.get("set-cookie") ?? "";
     expect(cookie).toContain(`${cookieName}=`);
     expect(cookie).toContain("Path=/local-app");
@@ -119,6 +121,48 @@ describe("/local-app/authorize browser flow", () => {
     }));
     expect(response.status).toBe(status);
     expect(response.headers.get("X-Prism-Request-ID")).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it("accepts Firefox no-referrer form posts with exact same-origin Fetch Metadata", async () => {
+    mocks.decide.mockResolvedValue("approved");
+    const { POST } = await import("./route");
+    const response = await POST(new NextRequest("https://prism.example/local-app/authorize", {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        origin: "null",
+        "sec-fetch-site": "same-origin",
+        cookie: "prism_session=session-secret"
+      },
+      body: `request=${authorizationId}&decision=approve`
+    }));
+
+    expect(response.status).toBe(200);
+    expect(mocks.decide).toHaveBeenCalledOnce();
+    expect(mocks.decide).toHaveBeenCalledWith(expect.objectContaining({
+      requestId: authorizationId,
+      sessionToken: "session-secret",
+      decision: "approve",
+      auditRequestId: expect.stringMatching(/^[0-9a-f-]{36}$/)
+    }));
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("X-Prism-Request-ID")).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it("rejects a null Origin when same-origin Fetch Metadata is absent", async () => {
+    const { POST } = await import("./route");
+    const response = await POST(new NextRequest("https://prism.example/local-app/authorize", {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        origin: "null",
+        cookie: "prism_session=session-secret"
+      },
+      body: `request=${authorizationId}&decision=approve`
+    }));
+
+    expect(response.status).toBe(403);
+    expect(mocks.decide).not.toHaveBeenCalled();
   });
 });
 

@@ -9,22 +9,33 @@ describe("rejectCrossOriginBrowserMutation", () => {
     expect(rejectCrossOriginBrowserMutation(request({ origin: "http://localhost:3732" }))).toBeNull();
     expect(rejectCrossOriginBrowserMutation(request({ origin: "http://localhost:3733" }))?.status).toBe(403);
     expect(rejectCrossOriginBrowserMutation(request({ origin: "http://localhost:3732/" }))?.status).toBe(403);
+    expect(rejectCrossOriginBrowserMutation(request({
+      origin: "http://localhost:3733",
+      "sec-fetch-site": "same-origin"
+    }))?.status).toBe(403);
   });
 
-  it("fails closed for null Origin and same-site or cross-site Fetch Metadata", () => {
+  it("accepts an unavailable Origin only with exact same-origin Fetch Metadata", () => {
+    expect(rejectCrossOriginBrowserMutation(request({
+      origin: "null",
+      "sec-fetch-site": "same-origin"
+    }))).toBeNull();
+    expect(rejectCrossOriginBrowserMutation(request({ "sec-fetch-site": "same-origin" }))).toBeNull();
+  });
+
+  it("fails closed for null Origin without exact same-origin Fetch Metadata", () => {
     vi.stubEnv("PRISM_PUBLIC_BASE_URL", "http://localhost:3732");
     for (const headers of [
       { origin: "null" },
+      { origin: "null", "sec-fetch-site": "none" },
+      { origin: "null", "sec-fetch-site": "same-site" },
+      { origin: "null", "sec-fetch-site": "cross-site" },
       { origin: "http://localhost:3732", "sec-fetch-site": "same-site" },
       { origin: "http://localhost:3732", "sec-fetch-site": "cross-site" },
       { origin: "http://localhost:3732", "sec-fetch-site": "none" }
     ]) {
       expect(rejectCrossOriginBrowserMutation(request(headers))?.status).toBe(403);
     }
-  });
-
-  it("accepts explicit same-origin Fetch Metadata without Origin", () => {
-    expect(rejectCrossOriginBrowserMutation(request({ "sec-fetch-site": "same-origin" }))).toBeNull();
   });
 
   it("fails closed when both browser signals are absent", () => {
