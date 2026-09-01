@@ -37,14 +37,14 @@ credential or workspace selector.
 All application-specific session, task, binding, and approval state remains in
 the local application, not Prism.
 
-## Delegated Playtest delivery boundary
+## Delegated Slack-message authorization boundary
 
-Playtest delegated delivery is disabled by default and uses one immutable,
-user-approved Slack message grant. A Playtest OIDC identity, browser cookie,
-scheduler secret, Prism developer token, or caller-selected subject is not
-Slack delivery authority. Prism binds approval to its current user, that
+Delegated Slack delivery is disabled by default and uses one immutable,
+user-approved Slack message grant. A registered-client identity, browser
+cookie, scheduler secret, Prism developer token, or caller-selected subject is
+not Slack delivery authority. Prism binds approval to its current user, that
 user's owned healthy Slack connection, one `chat.postMessage` payload/channel,
-one job revision, one delivery window, and one registered Playtest DPoP key.
+one request revision, one delivery window, and one registered client DPoP key.
 There is no user-to-bot, connection, workspace, or shared-token fallback.
 
 Prism stores only hashes of authorization codes, grants, approval locators, and
@@ -60,19 +60,21 @@ message text, blocks, envelope values, raw grants/codes, proof bodies, PKCE
 verifiers, or authorization headers.
 
 `PRISM_DELEGATED_SLACK_DELIVERY_CLIENT_JWKS` contains only registered public
-ES256 keys. Keep every corresponding private key in Playtest deployment secret
-storage and retain an old public key only until its last approved grant can no
-longer be used or inspected. The dedicated delegation grant pepper and id must
-differ from their Prism developer-token counterparts; rotate with a stable id and
-retain the prior pepper only for grants inside their bounded lifetime.
+ES256 keys. Keep every corresponding private key in the requesting
+application's deployment secret storage and retain an old public key only until
+its last approved grant can no longer be used or inspected. The dedicated
+delegation grant pepper and id must differ from their Prism developer-token
+counterparts; rotate with a stable id and retain the prior pepper only for
+grants inside their bounded lifetime.
 
 All production delegation origins and callbacks require exact HTTPS URLs.
 The separate insecure-HTTP switch is non-production-only and restricted to
 localhost, loopback, or private IPv4 hosts. Registered-client and DPoP proofs
 are ES256-only, short-lived, exact-method/exact-URL bound, and atomically replay
 protected in Postgres. A copied opaque grant remains insufficient without the
-bound private key, although compromise of both the Playtest key and grant is a
-residual host-compromise risk limited by the one-message contract and expiry.
+bound private key, although compromise of both the registered client key and
+grant is a residual host-compromise risk limited by the one-message contract
+and expiry.
 
 ## Prism developer token risk
 

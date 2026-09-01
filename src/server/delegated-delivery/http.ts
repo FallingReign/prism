@@ -30,7 +30,9 @@ export function delegatedHtmlResponse(html: string, status = 200, requestId?: st
   response.headers.set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
   response.headers.set("X-Content-Type-Options", "nosniff");
   response.headers.set("X-Frame-Options", "DENY");
-  return secureDelegatedResponse(response, requestId);
+  const secured = secureDelegatedResponse(response, requestId);
+  secured.headers.set("Referrer-Policy", "strict-origin");
+  return secured;
 }
 
 export function secureDelegatedResponse(response: NextResponse, requestId?: string): NextResponse {

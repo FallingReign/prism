@@ -7,11 +7,12 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { generateKeyPairSync } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
   inspectBootstrapConfig,
-  parsePlaytestDelegationRegistrationCode,
+  parseDelegatedDeliveryRegistrationCode,
   parseEnv,
   runSetupWizard,
   updateManagedEnvValues,
@@ -177,7 +178,7 @@ describe("Prism setup wizard", () => {
     expect(updated).toContain("POSTGRES_PORT=5432\n");
   });
 
-  it("accepts the public Playtest registration and generates a distinct grant pepper", async () => {
+  it("accepts a public delegated-client registration and generates a distinct grant pepper", async () => {
     const directory = temporaryDirectory();
     const envPath = join(directory, ".env.local");
     const examplePath = join(directory, ".env.example");
@@ -194,7 +195,7 @@ describe("Prism setup wizard", () => {
     const env = parseEnv(readFileSync(envPath, "utf8"));
     expect(env.PRISM_DELEGATED_SLACK_DELIVERY_ENABLED).toBe("1");
     expect(env.PRISM_DELEGATED_SLACK_DELIVERY_CALLBACK_URI).toBe(
-      "http://localhost:3847/api/announcements/delegation/callback",
+      "http://localhost:3847/integrations/prism/callback",
     );
     expect(
       JSON.parse(env.PRISM_DELEGATED_SLACK_DELIVERY_CLIENT_JWKS).keys[0],
@@ -212,9 +213,44 @@ describe("Prism setup wizard", () => {
     const code = Buffer.from(JSON.stringify(registration), "utf8").toString(
       "base64url",
     );
-    expect(() => parsePlaytestDelegationRegistrationCode(code)).toThrow(
+    expect(() => parseDelegatedDeliveryRegistrationCode(code)).toThrow(
       "invalid registration",
     );
+  });
+
+  it("accepts overlapping public keys and 128-character key identifiers", () => {
+    const registration = decodeRegistrationCode(registrationCode());
+    registration.jwks.keys[0].kid = "a".repeat(128);
+    registration.jwks.keys.push(publicRegistrationKey("next-key"));
+
+    const parsed = parseDelegatedDeliveryRegistrationCode(
+      encodeRegistrationCode(registration),
+    );
+
+    expect(parsed.jwks.keys).toHaveLength(2);
+    expect(parsed.jwks.keys[0].kid).toHaveLength(128);
+  });
+
+  it.each([
+    ["duplicate key identifiers", (registration) => {
+      registration.jwks.keys.push({ ...registration.jwks.keys[0] });
+    }],
+    ["unrecognized key properties", (registration) => {
+      registration.jwks.keys[0].unexpected = "value";
+    }],
+    ["an invalid P-256 point", (registration) => {
+      registration.jwks.keys[0].x = Buffer.alloc(32).toString("base64url");
+      registration.jwks.keys[0].y = Buffer.alloc(32).toString("base64url");
+    }],
+  ])("rejects registration codes with %s", (_name, mutate) => {
+    const registration = decodeRegistrationCode(registrationCode());
+    mutate(registration);
+
+    expect(() =>
+      parseDelegatedDeliveryRegistrationCode(
+        encodeRegistrationCode(registration),
+      ),
+    ).toThrow("invalid registration");
   });
 
   it("atomically replaces the env file and cleans temporary files on failure", () => {
@@ -299,27 +335,35 @@ function configuredEnv(overrides = {}) {
 }
 
 function registrationCode() {
-  return Buffer.from(
-    JSON.stringify({
-      version: 1,
-      client_id: "shg-playtest-delegation",
-      callback_uri:
-        "http://localhost:3847/api/announcements/delegation/callback",
-      jwks: {
-        keys: [
-          {
-            kty: "EC",
-            crv: "P-256",
-            alg: "ES256",
-            kid: "playtest-es256-v1",
-            x: "x".repeat(43),
-            y: "y".repeat(43),
-            use: "sig",
-            key_ops: ["verify"],
-          },
-        ],
-      },
-    }),
-    "utf8",
-  ).toString("base64url");
+  return encodeRegistrationCode({
+    version: 1,
+    client_id: "example-application",
+    callback_uri: "http://localhost:3847/integrations/prism/callback",
+    jwks: {
+      keys: [publicRegistrationKey("example-client-es256-v1")],
+    },
+  });
+}
+
+function publicRegistrationKey(kid) {
+  const { publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
+  const jwk = publicKey.export({ format: "jwk" });
+  return {
+    kty: "EC",
+    crv: "P-256",
+    alg: "ES256",
+    kid,
+    x: jwk.x,
+    y: jwk.y,
+    use: "sig",
+    key_ops: ["verify"],
+  };
+}
+
+function encodeRegistrationCode(registration) {
+  return Buffer.from(JSON.stringify(registration), "utf8").toString("base64url");
+}
+
+function decodeRegistrationCode(code) {
+  return JSON.parse(Buffer.from(code, "base64url").toString("utf8"));
 }
