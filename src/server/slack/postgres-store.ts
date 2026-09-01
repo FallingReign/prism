@@ -40,15 +40,16 @@ export function createPostgresOAuthFlowStore(
       await database.query(
         `insert into slack_oauth_states
            (state_hash, redirect_uri, oidc_authorization_request_id,
-            delegated_delivery_request_id, expires_at,
+            delegated_delivery_request_id, local_app_authorization_id, expires_at,
             slack_app_configuration_version_id, setup_session_id,
             environment_configuration_fingerprint)
-         values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [
           input.stateHash,
           input.redirectUri,
           input.oidcAuthorizationRequestId ?? null,
           input.delegatedDeliveryRequestId ?? null,
+          input.localAppAuthorizationId ?? null,
           input.expiresAt,
           configurationVersionId,
           setupSessionId,
@@ -61,6 +62,7 @@ export function createPostgresOAuthFlowStore(
         redirect_uri: string;
         oidc_authorization_request_id: string | null;
         delegated_delivery_request_id: string | null;
+        local_app_authorization_id: string | null;
         slack_app_configuration_version_id: string | null;
         setup_session_id: string | null;
         environment_configuration_fingerprint: string | null;
@@ -69,7 +71,7 @@ export function createPostgresOAuthFlowStore(
          set used_at = $2
          where state_hash = $1 and used_at is null and expires_at > $2
          returning redirect_uri, oidc_authorization_request_id,
-                   delegated_delivery_request_id,
+                   delegated_delivery_request_id, local_app_authorization_id,
                    slack_app_configuration_version_id, setup_session_id,
                    environment_configuration_fingerprint`,
         [stateHash, now]
@@ -95,7 +97,8 @@ export function createPostgresOAuthFlowStore(
         redirectUri: row.redirect_uri,
         configurationBinding,
         oidcAuthorizationRequestId: row.oidc_authorization_request_id ?? null,
-        delegatedDeliveryRequestId: row.delegated_delivery_request_id ?? null
+        delegatedDeliveryRequestId: row.delegated_delivery_request_id ?? null,
+        localAppAuthorizationId: row.local_app_authorization_id ?? null
       };
     },
     async upsertPrismUser(input) {

@@ -95,6 +95,39 @@ describe("Prism website activity audit panel", () => {
     expect(html).not.toMatch(/prism_dev_|tokenHash|xox[bp]-|refresh-secret|client_secret|access_token/i);
   });
 
+  it("labels generic local-app pairing lifecycle events distinctly", () => {
+    const base = {
+      occurredAt: "2026-09-01T00:00:00.000Z",
+      tokenProfileId: null,
+      tokenProfileName: null,
+      slackMethod: null,
+      actionCategory: "local_app_authorization",
+      surface: null,
+      objectType: "local_app_client",
+      objectId: "example-local-app",
+      executionMode: null,
+      errorClass: null,
+      httpStatus: 200,
+      upstreamCalled: false,
+      adminActorPrismUserId: null,
+      adminActorSlackUserId: null,
+      adminActorSlackDisplayName: null,
+      adminReason: null
+    } as const;
+    const html = renderToStaticMarkup(
+      <ActivityAuditPanel activity={[
+        { ...base, id: "approved", activityType: "local_app_authorization_approved", status: "approved", requestId: "req-approved" },
+        { ...base, id: "denied", activityType: "local_app_authorization_denied", status: "denied", requestId: "req-denied" },
+        { ...base, id: "issued", activityType: "local_app_token_issued", status: "issued", requestId: "req-issued" }
+      ]} />
+    );
+
+    expect(html).toContain("Local app pairing approved");
+    expect(html).toContain("Local app pairing denied");
+    expect(html).toContain("Local app token issued");
+    expect(html).not.toContain(">Slack method<");
+  });
+
   it("labels admin Token profile actions with actor and reason metadata", () => {
     const html = renderToStaticMarkup(
       <ActivityAuditPanel

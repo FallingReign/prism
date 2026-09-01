@@ -14,6 +14,8 @@ describe("/api-reference", () => {
       "Local tool endpoints",
       "Website/session management endpoints",
       "/v1/prism/health",
+      "/v1/prism/local-app/authorizations",
+      "/v1/prism/local-app/authorizations/token",
       "/v1/prism/status",
       "/v1/prism/capabilities",
       "/v1/slack/api/{method}",

@@ -87,11 +87,14 @@ function activityLabel(activityType: ActivityAuditSummary["activityType"]): stri
   if (activityType === "admin_token_profile_revoked") return "Admin revoked Token profile";
   if (activityType === "admin_token_profile_deleted") return "Admin deleted Token profile";
   if (activityType === "admin_slack_connection_removed") return "Admin removed Slack connection";
+  if (activityType === "local_app_authorization_approved") return "Local app pairing approved";
+  if (activityType === "local_app_authorization_denied") return "Local app pairing denied";
+  if (activityType === "local_app_token_issued") return "Local app token issued";
   return "Slack method";
 }
 
 function activityStatusTone(status: ActivityAuditSummary["status"]): "success" | "warning" | "neutral" | "info" {
-  if (["forwarded", "created", "listed", "revoked", "rotated", "updated", "deleted"].includes(status)) return "success";
+  if (["forwarded", "created", "listed", "revoked", "rotated", "updated", "deleted", "approved", "issued"].includes(status)) return "success";
   if (["denied", "unsupported", "upstream_error", "auth_failed", "parse_error", "rate_limited", "identity_unavailable"].includes(status)) {
     return "warning";
   }

@@ -50,10 +50,48 @@ describe("Postgres Playtest first-party token store", () => {
     expect(calls.filter(({ sql }) => sql.includes("pg_advisory_xact_lock"))).toHaveLength(2);
     expect(calls.filter(({ sql }) => sql.includes("insert into token_profiles"))).toHaveLength(1);
     expect(calls.filter(({ sql }) => sql.includes("insert into prism_developer_tokens"))).toHaveLength(2);
-    const overlap = calls.filter(({ sql }) => sql.includes("rotation_overlap_expires_at"));
+    const overlap = calls.filter(({ sql }) => sql.includes("least(coalesce(expires_at"));
     expect(overlap).toHaveLength(2);
     expect(overlap.every(({ sql }) => sql.includes("least(coalesce(expires_at"))).toBe(true);
     expect(JSON.stringify(calls)).not.toContain("prism_dev_");
+  });
+
+  it("demotes an expired current token before promoting its replacement", async () => {
+    let expiredCurrentDemoted = false;
+    const query = vi.fn(async (sql: string) => {
+      const normalized = sql.toLowerCase().replace(/\s+/g, " ").trim();
+      if (normalized.includes("from slack_connections c") && normalized.includes("for update")) {
+        return rows([{ id: "connection-1", installation_scope: "workspace", team_id: "T1", enterprise_id: null }]);
+      }
+      if (normalized.includes("select id, name, slack_connection_id from token_profiles")) {
+        return rows([{ id: "profile-playtest", name: "shg_playtest_app", slack_connection_id: "connection-1" }]);
+      }
+      if (normalized.startsWith("update prism_developer_tokens")
+        && normalized.includes("expires_at is not null and expires_at <= $2")) {
+        expiredCurrentDemoted = true;
+        return rows([]);
+      }
+      if (normalized.includes("insert into prism_developer_tokens")) {
+        if (!expiredCurrentDemoted) throw new Error("current-token unique constraint");
+        return rows([]);
+      }
+      if (normalized.includes("insert into prism_activity_audit")) return rows([auditRow("token_profile_rotated")]);
+      return rows([]);
+    });
+    const database = {
+      query,
+      transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(database))
+    } as any;
+
+    await expect(createPostgresTokenProfileStore(database).issuePlaytestAppToken({
+      prismUserId: "user-1",
+      slackConnectionId: "connection-1",
+      verifier: { tokenHash: "a".repeat(64), algorithm: "hmac-sha256", pepperId: "v1" },
+      expiresAt: new Date("2026-09-02T08:00:00.000Z"),
+      now: new Date("2026-09-02T00:00:00.000Z"),
+      requestId: "request-expired-current"
+    })).resolves.toEqual({ profileId: "profile-playtest" });
+    expect(expiredCurrentDemoted).toBe(true);
   });
 
   it("fails closed before profile or token creation without an owned healthy user credential", async () => {

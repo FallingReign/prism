@@ -162,7 +162,7 @@ function EndpointCard({ endpoint }: { endpoint: ApiEndpoint }) {
       <div className="flex flex-wrap items-start gap-2">
         <StatusBadge tone={endpoint.method === "GET" ? "info" : endpoint.method === "POST" ? "primary" : "danger"}>{endpoint.method}</StatusBadge>
         <code className="break-all rounded bg-muted px-2 py-1 font-mono text-xs text-foreground sm:text-sm">{endpoint.path}</code>
-        <StatusBadge tone={endpoint.authModel === "prismDeveloperToken" ? "primary" : endpoint.authModel === "websiteSession" ? "info" : "neutral"}>
+        <StatusBadge tone={endpoint.authModel === "prismDeveloperToken" || endpoint.authModel === "deviceCode" ? "primary" : endpoint.authModel === "websiteSession" ? "info" : "neutral"}>
           {authModelLabel(endpoint.authModel)}
         </StatusBadge>
       </div>

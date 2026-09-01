@@ -7,6 +7,8 @@ import { createConfiguredCredentialCipher } from "../../../../../src/server/cred
 import { database } from "../../../../../src/server/db";
 import { createPostgresDelegatedDeliveryStore } from "../../../../../src/server/delegated-delivery/postgres-store";
 import { createDelegationOAuthResume, denyDelegationAfterOAuth } from "../../../../../src/server/delegated-delivery/service";
+import { createPostgresLocalAppAuthorizationStore } from "../../../../../src/server/local-app-authorization/postgres-store";
+import { denyLocalAppAuthorizationAfterOAuth } from "../../../../../src/server/local-app-authorization/service";
 import { createFetchSlackOAuthClient } from "../../../../../src/server/slack/oauth-client";
 import { createConfiguredSlackAppConfigurationResolver } from "../../../../../src/server/slack/app-configuration-factory";
 import { completeSlackOAuthCallback, slackOAuthStateCookieName } from "../../../../../src/server/slack/oauth-flow";
@@ -75,6 +77,19 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         if (decision.kind === "redirect") continuationUrl = decision.location;
       }
     }
+    if (result.localAppAuthorizationId && result.kind !== "linked") {
+      await denyLocalAppAuthorizationAfterOAuth({
+        requestId: result.localAppAuthorizationId,
+        store: createPostgresLocalAppAuthorizationStore(database)
+      });
+    }
+    if (!continuationUrl && result.localAppAuthorizationId) {
+      continuationUrl = localAppResumeUrl(
+        deployment.publicBaseUrl,
+        result.localAppAuthorizationId,
+        result.kind === "linked" ? null : "access_denied"
+      );
+    }
     const response = NextResponse.redirect(continuationUrl ?? result.redirectUrl, { status: 302 });
     if (result.kind !== "invalid_state") response.cookies.delete(slackOAuthStateCookieName);
     if (result.sessionCookie) {
@@ -140,6 +155,18 @@ function oidcResumeUrl(
 ): string | null {
   if (!requestId || !/^[A-Za-z0-9_-]{43}$/.test(requestId)) return null;
   const url = new URL("/oauth/authorize", publicBaseUrl);
+  url.searchParams.set("request", requestId);
+  if (error) url.searchParams.set("error", error);
+  return url.toString();
+}
+
+function localAppResumeUrl(
+  publicBaseUrl: string,
+  requestId: string | null | undefined,
+  error: "access_denied" | null
+): string | null {
+  if (!requestId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestId)) return null;
+  const url = new URL("/local-app/authorize", publicBaseUrl);
   url.searchParams.set("request", requestId);
   if (error) url.searchParams.set("error", error);
   return url.toString();

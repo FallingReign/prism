@@ -155,6 +155,23 @@ describe("GET /v1/slack/oauth/start", () => {
       expect.arrayContaining([requestId])
     );
   });
+
+  it("stores one opaque generic local-app continuation", async () => {
+    mockDb.query.mockResolvedValue({ rows: [], rowCount: 1 });
+    const { GET } = await import("./route");
+    const requestId = "00000000-0000-4000-8000-000000000123";
+
+    const response = await GET(new NextRequest(
+      `http://localhost:3732/v1/slack/oauth/start?local_app_request=${requestId}`
+    ));
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toContain("https://slack.com/oauth/v2/authorize");
+    expect(mockDb.query).toHaveBeenCalledWith(
+      expect.stringContaining("local_app_authorization_id"),
+      expect.arrayContaining([requestId])
+    );
+  });
 });
 
 function clearDelegatedDeliveryEnv(): void {

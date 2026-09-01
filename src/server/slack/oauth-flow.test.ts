@@ -64,7 +64,8 @@ function createMemoryStore(): OAuthFlowStore & { rows: Record<string, unknown[]>
         redirectUri: state.redirectUri,
         configurationBinding: state.configurationBinding,
         oidcAuthorizationRequestId: state.oidcAuthorizationRequestId ?? null,
-        delegatedDeliveryRequestId: state.delegatedDeliveryRequestId ?? null
+        delegatedDeliveryRequestId: state.delegatedDeliveryRequestId ?? null,
+        localAppAuthorizationId: state.localAppAuthorizationId ?? null
       };
     },
     async upsertPrismUser(input) {
@@ -469,6 +470,41 @@ describe("Slack OAuth flow", () => {
       oidcAuthorizationRequestId: null,
       delegatedDeliveryRequestId
     });
+    expect(store.rows.users).toHaveLength(0);
+  });
+
+  it("preserves one generic local-app continuation through Slack cancellation", async () => {
+    const store = createMemoryStore();
+    const config = {
+      clientId: "client-id-123",
+      clientSecret: "client-secret-must-not-appear",
+      redirectUri: "http://localhost:3732/v1/slack/oauth/callback",
+      publicBaseUrl: "http://localhost:3732",
+      botScopes: [],
+      userScopes: ["chat:write"]
+    };
+    const localAppAuthorizationId = "00000000-0000-4000-8000-000000000123";
+    const start = await createTestSlackOAuthStart({
+      store, config, localAppAuthorizationId, now,
+      randomBytes: () => Buffer.alloc(32, 15)
+    });
+
+    const result = await completeTestSlackOAuthCallback({
+      store,
+      cipher: createLocalAesGcmCredentialCipher({ key: encryptionKey, keyId: "local-test" }),
+      config,
+      code: null,
+      state: start.state,
+      cookieState: start.state,
+      oauthError: "access_denied",
+      now,
+      slackOAuthClient: {
+        async exchangeCode() { throw new Error("must not exchange"); },
+        async refreshToken() { throw new Error("not used"); }
+      }
+    });
+
+    expect(result).toMatchObject({ kind: "slack_error", localAppAuthorizationId });
     expect(store.rows.users).toHaveLength(0);
   });
 

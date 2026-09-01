@@ -10,6 +10,30 @@ Slack credential envelopes are encrypted before persistence. Local development u
 
 Do not commit, print, or paste Slack credentials, Prism developer tokens, token hashes, peppers, or Authorization headers into docs, issues, screenshots, prompts, or logs.
 
+## Generic local-app pairing
+
+Local-app device authorization is an untrusted public-client flow. The client
+identifier and display name do not authenticate an application. The high-entropy
+device code is the only polling bearer, the short human code is only a browser
+correlator, and Prism persists hashes of both. Browser approval is bound to the
+exact HTTP-only Prism session and its exact owned, healthy Slack connection.
+The fixed MVP policy is user execution with message-only access.
+
+Public start, browser-code lookup, and device-code polling paths use shared
+Postgres rate limits, including for unknown codes. Forwarded source addresses
+are ignored by default; `PRISM_LOCAL_APP_TRUST_PROXY_HEADERS=1` is safe only
+behind an ingress that overwrites those headers and blocks direct origin access.
+The human code is kept in a short-lived, request-specific HTTP-only cookie
+scoped to the local-app browser path while Slack OAuth is in progress.
+
+The copy-once Prism developer token is created only during an approved atomic
+exchange and is never persisted raw. Re-pairing the same Prism user and client
+identifier revokes the previous token immediately. Organization installs return
+their active workspace grants so the local application can require an explicit
+workspace choice; Prism does not infer a target workspace from login identity.
+All application-specific session, task, binding, and approval state remains in
+the local application, not Prism.
+
 ## Delegated Playtest delivery boundary
 
 Playtest delegated delivery is disabled by default and uses one immutable,

@@ -37,6 +37,7 @@ export type OAuthFlowStore = {
     configurationBinding: SlackAppConfigurationBinding;
     oidcAuthorizationRequestId?: string | null;
     delegatedDeliveryRequestId?: string | null;
+    localAppAuthorizationId?: string | null;
     expiresAt: Date;
   }): Promise<void>;
   consumeOAuthState(input: {
@@ -47,6 +48,7 @@ export type OAuthFlowStore = {
     configurationBinding: SlackAppConfigurationBinding;
     oidcAuthorizationRequestId: string | null;
     delegatedDeliveryRequestId?: string | null;
+    localAppAuthorizationId?: string | null;
   } | null>;
   upsertPrismUser(input: {
     identityScope: "workspace" | "organization";
@@ -117,6 +119,7 @@ export async function createSlackOAuthStart({
   configurationBinding,
   oidcAuthorizationRequestId = null,
   delegatedDeliveryRequestId = null,
+  localAppAuthorizationId = null,
   now = new Date(),
   randomBytes = nodeRandomBytes
 }: {
@@ -125,10 +128,11 @@ export async function createSlackOAuthStart({
   configurationBinding: SlackAppConfigurationBinding;
   oidcAuthorizationRequestId?: string | null;
   delegatedDeliveryRequestId?: string | null;
+  localAppAuthorizationId?: string | null;
   now?: Date;
   randomBytes?: (size: number) => Buffer;
 }): Promise<{ state: string; stateHash: string; redirectUrl: string; cookie: CookieSpec }> {
-  if (oidcAuthorizationRequestId && delegatedDeliveryRequestId) {
+  if ([oidcAuthorizationRequestId, delegatedDeliveryRequestId, localAppAuthorizationId].filter(Boolean).length > 1) {
     throw new Error("slack-oauth-continuation-conflict");
   }
   const state = randomBytes(32).toString("base64url");
@@ -140,6 +144,7 @@ export async function createSlackOAuthStart({
     configurationBinding,
     oidcAuthorizationRequestId,
     ...(delegatedDeliveryRequestId ? { delegatedDeliveryRequestId } : {}),
+    ...(localAppAuthorizationId ? { localAppAuthorizationId } : {}),
     expiresAt
   });
 
@@ -191,6 +196,7 @@ export async function completeSlackOAuthCallback({
       sessionCookie: CookieSpec;
       oidcAuthorizationRequestId: string | null;
       delegatedDeliveryRequestId?: string | null;
+      localAppAuthorizationId?: string | null;
       setupConfigurationActivated: boolean;
       installationScope: "workspace" | "organization";
       organizationGrantSync: "not_applicable" | "complete" | "unavailable";
@@ -201,6 +207,7 @@ export async function completeSlackOAuthCallback({
       redirectUrl: string;
       oidcAuthorizationRequestId?: string | null;
       delegatedDeliveryRequestId?: string | null;
+      localAppAuthorizationId?: string | null;
       sessionCookie?: undefined;
       failureReason?: OAuthFailureReason;
     }
@@ -226,7 +233,8 @@ export async function completeSlackOAuthCallback({
       redirectUrl: statusRedirect(deployment, "error", setupBinding, undefined, "authorization_denied"),
       failureReason: "authorization_denied",
       oidcAuthorizationRequestId: storedState.oidcAuthorizationRequestId,
-      ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {})
+      ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {}),
+      ...(storedState.localAppAuthorizationId ? { localAppAuthorizationId: storedState.localAppAuthorizationId } : {})
     };
   }
 
@@ -239,7 +247,8 @@ export async function completeSlackOAuthCallback({
       redirectUrl: statusRedirect(deployment, "error", setupBinding, undefined, "runtime_unavailable"),
       failureReason: "runtime_unavailable",
       oidcAuthorizationRequestId: storedState.oidcAuthorizationRequestId,
-      ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {})
+      ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {}),
+      ...(storedState.localAppAuthorizationId ? { localAppAuthorizationId: storedState.localAppAuthorizationId } : {})
     };
   }
   if (
@@ -249,7 +258,8 @@ export async function completeSlackOAuthCallback({
   ) {
     return {
       kind: "invalid_state",
-      redirectUrl: statusRedirect(deployment, "error", setupBinding)
+      redirectUrl: statusRedirect(deployment, "error", setupBinding),
+      ...(storedState.localAppAuthorizationId ? { localAppAuthorizationId: storedState.localAppAuthorizationId } : {})
     };
   }
 
@@ -263,7 +273,8 @@ export async function completeSlackOAuthCallback({
       redirectUrl: statusRedirect(deployment, "error", setupBinding, undefined, "provider_rejected"),
       failureReason: "provider_rejected",
       oidcAuthorizationRequestId: storedState.oidcAuthorizationRequestId,
-      ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {})
+      ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {}),
+      ...(storedState.localAppAuthorizationId ? { localAppAuthorizationId: storedState.localAppAuthorizationId } : {})
     };
   }
 
@@ -280,7 +291,8 @@ export async function completeSlackOAuthCallback({
       redirectUrl: statusRedirect(deployment, "error", setupBinding, undefined, "invalid_provider_response"),
       failureReason: "invalid_provider_response",
       oidcAuthorizationRequestId: storedState.oidcAuthorizationRequestId,
-      ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {})
+      ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {}),
+      ...(storedState.localAppAuthorizationId ? { localAppAuthorizationId: storedState.localAppAuthorizationId } : {})
     };
   }
 
@@ -374,7 +386,8 @@ export async function completeSlackOAuthCallback({
       redirectUrl: statusRedirect(deployment, "error", setupBinding, undefined, "persistence_failed"),
       failureReason: "persistence_failed",
       oidcAuthorizationRequestId: storedState.oidcAuthorizationRequestId,
-      ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {})
+      ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {}),
+      ...(storedState.localAppAuthorizationId ? { localAppAuthorizationId: storedState.localAppAuthorizationId } : {})
     };
   }
 
@@ -392,7 +405,8 @@ export async function completeSlackOAuthCallback({
       ? "not_applicable"
       : organizationWorkspaceDiscovery?.kind === "ok" ? "complete" : "unavailable",
     organizationGrantCount: organizationWorkspaceDiscovery?.kind === "ok" ? organizationWorkspaceDiscovery.teams.length : 0,
-    ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {})
+    ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {}),
+    ...(storedState.localAppAuthorizationId ? { localAppAuthorizationId: storedState.localAppAuthorizationId } : {})
   };
 }
 

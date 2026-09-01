@@ -139,6 +139,33 @@ describe("GET /v1/slack/oauth/callback", () => {
     expect(response.headers.get("set-cookie")).toContain("prism_session=");
   });
 
+  it("terminally denies a local-app request when Slack OAuth is cancelled", async () => {
+    const localAppAuthorizationId = "00000000-0000-4000-8000-000000000123";
+    mockDb.query.mockImplementation(async (sql: string) => {
+      if (sql.includes("update slack_oauth_states")) {
+        return {
+          rows: [oauthStateRow({ local_app_authorization_id: localAppAuthorizationId })],
+          rowCount: 1
+        };
+      }
+      return { rows: [], rowCount: 1 };
+    });
+    const { GET } = await import("./route");
+    const request = new NextRequest(`http://localhost:3732/v1/slack/oauth/callback?error=access_denied&state=${callbackState}`, {
+      headers: { cookie: `prism_slack_oauth_state=${callbackState}` }
+    });
+
+    const response = await GET(request);
+
+    expect(response.headers.get("location")).toBe(
+      `http://localhost:3732/local-app/authorize?request=${localAppAuthorizationId}&error=access_denied`
+    );
+    expect(mockDb.query).toHaveBeenCalledWith(
+      expect.stringContaining("set status = 'denied'"),
+      [localAppAuthorizationId, expect.any(Date)]
+    );
+  });
+
   it("ignores stale mock scope overrides and resumes consent with the reviewed scope defaults", async () => {
     enableDelegatedDelivery();
     const delegatedRequestId = "ddr_12345678-1234-4123-8123-123456789012";
@@ -195,6 +222,7 @@ function oauthStateRow(overrides: Record<string, unknown> = {}) {
     redirect_uri: "http://localhost:3732/v1/slack/oauth/callback",
     oidc_authorization_request_id: null,
     delegated_delivery_request_id: null,
+    local_app_authorization_id: null,
     slack_app_configuration_version_id: null,
     setup_session_id: null,
     environment_configuration_fingerprint: environmentFingerprint(
