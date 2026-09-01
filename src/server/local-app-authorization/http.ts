@@ -20,7 +20,9 @@ export function localAppHtmlResponse(html: string, status = 200, requestId?: str
     "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'"
   );
   response.headers.set("X-Content-Type-Options", "nosniff");
-  return secureLocalAppResponse(response, requestId);
+  const secured = secureLocalAppResponse(response, requestId);
+  secured.headers.set("Referrer-Policy", "strict-origin");
+  return secured;
 }
 
 export function secureLocalAppResponse(response: NextResponse, requestId?: string): NextResponse {
