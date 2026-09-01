@@ -53,7 +53,7 @@ describe("/local-app/authorize browser flow", () => {
       requestId: authorizationId, userCode: "ABCD-2345", sessionToken: "session-secret"
     }));
     expect(await response.text()).toContain("ABCD-2345");
-    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(response.headers.get("referrer-policy")).toBe("strict-origin");
     expect(response.headers.get("content-security-policy")).toContain("form-action 'self'");
     const cookie = response.headers.get("set-cookie") ?? "";
     expect(cookie).toContain(`${cookieName}=`);
@@ -93,6 +93,7 @@ describe("/local-app/authorize browser flow", () => {
       headers: {
         "content-type": "application/x-www-form-urlencoded",
         origin: "https://attacker.example",
+        "sec-fetch-site": "same-origin",
         cookie: "prism_session=session-secret"
       },
       body: `request=${authorizationId}&decision=approve&extra=1`
@@ -147,6 +148,24 @@ describe("/local-app/authorize browser flow", () => {
     }));
     expect(response.headers.get("cache-control")).toBe("no-store");
     expect(response.headers.get("X-Prism-Request-ID")).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  it("accepts the exact configured Origin without Fetch Metadata", async () => {
+    vi.stubEnv("PRISM_PUBLIC_BASE_URL", "https://prism.example");
+    mocks.decide.mockResolvedValue("approved");
+    const { POST } = await import("./route");
+    const response = await POST(new NextRequest("https://prism.example/local-app/authorize", {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        origin: "https://prism.example",
+        cookie: "prism_session=session-secret"
+      },
+      body: `request=${authorizationId}&decision=approve`
+    }));
+
+    expect(response.status).toBe(200);
+    expect(mocks.decide).toHaveBeenCalledOnce();
   });
 
   it("rejects a null Origin when same-origin Fetch Metadata is absent", async () => {
