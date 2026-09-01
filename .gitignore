@@ -14,6 +14,7 @@ test-results/
 .artifacts/
 __pycache__/
 *.pyc
+tsconfig.tsbuildinfo
 
 config/prism-admin-allowlist.local.json
 .agents/skills/prism-slack/config.json
