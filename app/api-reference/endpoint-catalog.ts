@@ -41,7 +41,7 @@ export const apiEndpointGroups = [
         surface: "local-tool",
         summary: "Start browser-approved pairing for a generic local application.",
         details: [
-          "Accepts one unverified client identifier and the fixed messages-only, user-execution policy.",
+          "Accepts one unverified client identifier, the fixed messages-only user policy, and an optional Block Kit action permission.",
           "Returns a high-entropy polling code, short human code, approval URL, expiry, and polling interval. Prism persists hashes only."
         ]
       },
@@ -112,6 +112,44 @@ export const apiEndpointGroups = [
           { label: "Slack Web API reference", href: "https://docs.slack.dev/apis/web-api/" },
           { label: "Slack chat.postMessage documentation", href: "https://docs.slack.dev/reference/methods/chat.postMessage/" }
         ]
+      },
+      {
+        method: "POST",
+        path: "/v1/prism/slack/inbound-routes",
+        authModel: "prismDeveloperToken",
+        surface: "local-tool",
+        summary: "Register one short-lived Block Kit action Route.",
+        details: [
+          "Requires the Token profile's Block Kit action permission and exact workspace, channel, and Slack user binding.",
+          "Returns an opaque Route ID and Route key for a static-select action."
+        ]
+      },
+      {
+        method: "DELETE",
+        path: "/v1/prism/slack/inbound-routes/{routeId}",
+        authModel: "prismDeveloperToken",
+        surface: "local-tool",
+        summary: "Close a Block Kit action Route.",
+        details: ["Only the Token profile that created the Route may close it."]
+      },
+      {
+        method: "GET",
+        path: "/v1/prism/slack/inbox",
+        authModel: "prismDeveloperToken",
+        surface: "local-tool",
+        summary: "Lease normalised Block Kit action Deliveries.",
+        details: [
+          "Supports a bounded wait and returns only Deliveries owned by the current Token profile.",
+          "Raw Slack envelopes, message text, option labels, response URLs, triggers, and credentials are excluded."
+        ]
+      },
+      {
+        method: "POST",
+        path: "/v1/prism/slack/inbox/{deliveryId}/ack",
+        authModel: "prismDeveloperToken",
+        surface: "local-tool",
+        summary: "Acknowledge an applied Prism Inbox Delivery.",
+        details: ["Requires the active lease ID and clears the stored action fields after acknowledgement."]
       }
     ]
   },

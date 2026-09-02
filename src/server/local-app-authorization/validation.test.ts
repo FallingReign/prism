@@ -12,7 +12,9 @@ describe("generic local-app authorization validation", () => {
   };
 
   it("accepts only the exact bounded fixed-policy begin body", () => {
-    expect(parseBeginInput(begin)).toEqual(begin);
+    expect(parseBeginInput(begin)).toEqual({ ...begin, inbound: { blockActions: false } });
+    expect(parseBeginInput({ ...begin, inbound: { blockActions: true } })).toEqual({ ...begin, inbound: { blockActions: true } });
+    expect(parseBeginInput({ ...begin, inbound: { blockActions: true, events: true } })).toBeNull();
     expect(parseBeginInput({ ...begin, executionIdentity: "bot" })).toBeNull();
     expect(parseBeginInput({ ...begin, requestedPreset: "full_slack_bridge" })).toBeNull();
     expect(parseBeginInput({ ...begin, extra: true })).toBeNull();

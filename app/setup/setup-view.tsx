@@ -21,6 +21,9 @@ export type SetupPendingConfiguration = {
   secretStored: true;
   botScopes: string[];
   userScopes: string[];
+  socketModeEnabled: boolean;
+  socketApiAppId: string | null;
+  socketAppTokenConfigured: boolean;
   version: string;
 };
 
@@ -107,6 +110,11 @@ function SlackConfigurationForm({ callbackUri, initialState }: { callbackUri: st
   const { proof: setupProof, failed: setupProofFailed } = useSetupProof();
   const botOptions = useMemo(() => initialState.scopes.filter((scope) => scope.tokenKind === "bot"), [initialState.scopes]);
   const userOptions = useMemo(() => initialState.scopes.filter((scope) => scope.tokenKind === "user"), [initialState.scopes]);
+  const reviewedBotScopes = useMemo(() => new Set(botOptions.map((scope) => scope.id)), [botOptions]);
+  const reviewedUserScopes = useMemo(() => new Set(userOptions.map((scope) => scope.id)), [userOptions]);
+  const [additionalBotScopes, setAdditionalBotScopes] = useState(() => [...botScopes].filter((scope) => !reviewedBotScopes.has(scope)).join(", "));
+  const [additionalUserScopes, setAdditionalUserScopes] = useState(() => [...userScopes].filter((scope) => !reviewedUserScopes.has(scope)).join(", "));
+  const [socketModeEnabled, setSocketModeEnabled] = useState(pending?.socketModeEnabled ?? false);
 
   const selectAll = () => {
     setBotScopes(new Set(botOptions.map((scope) => scope.id)));
@@ -115,6 +123,8 @@ function SlackConfigurationForm({ callbackUri, initialState }: { callbackUri: st
   const resetDefault = () => {
     setBotScopes(new Set(botOptions.map((scope) => scope.id)));
     setUserScopes(new Set(userOptions.map((scope) => scope.id)));
+    setAdditionalBotScopes("");
+    setAdditionalUserScopes("");
   };
 
   return (
@@ -142,6 +152,29 @@ function SlackConfigurationForm({ callbackUri, initialState }: { callbackUri: st
             <Notice title="Selection is not Slack approval" tone="warning">When scope settings are omitted, Prism defaults to every scope in this reviewed list. Selecting them does not add them to the Slack app or bypass workspace approval. User <code>chat:write</code> remains required for Playtest announcements.</Notice>
             <ScopeGroup legend="User scopes" options={userOptions} selected={userScopes} onChange={setUserScopes} />
             <ScopeGroup legend="Bot scopes" options={botOptions} selected={botScopes} onChange={setBotScopes} />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-2"><Label htmlFor="additional-user-scopes">Additional user scopes</Label><Input id="additional-user-scopes" name="additionalUserScopes" value={additionalUserScopes} onChange={(event) => setAdditionalUserScopes(event.currentTarget.value)} maxLength={4096} placeholder="users:read.email" /><p className="text-xs leading-5 text-muted-foreground">Optional comma-separated Slack scopes not listed above.</p></div>
+              <div className="grid gap-2"><Label htmlFor="additional-bot-scopes">Additional bot scopes</Label><Input id="additional-bot-scopes" name="additionalBotScopes" value={additionalBotScopes} onChange={(event) => setAdditionalBotScopes(event.currentTarget.value)} maxLength={4096} placeholder="admin.conversations:write" /><p className="text-xs leading-5 text-muted-foreground">Optional comma-separated Slack scopes not listed above.</p></div>
+            </div>
+          </section>
+          <section className="grid gap-4 rounded-xl bg-muted/35 p-4" aria-labelledby="socket-mode-title">
+            <Notice title="Prepare the Slack app first" tone="info">After inventorying existing callbacks, enable <strong>Socket Mode</strong> and <strong>Interactivity &amp; Shortcuts</strong> in Slack app management. Keep Event Subscriptions disabled for this setup.</Notice>
+            <label className="flex items-start gap-3">
+              <input className="mt-1 size-4" type="checkbox" name="socketModeEnabled" value="1" checked={socketModeEnabled} onChange={(event) => setSocketModeEnabled(event.currentTarget.checked)} />
+              <span><strong id="socket-mode-title" className="text-sm font-semibold text-foreground">Enable Slack controls</strong><span className="mt-1 block text-xs leading-5 text-muted-foreground">Uses Slack Socket Mode for dropdowns and buttons. Prism Web API HTTP endpoints remain available.</span></span>
+            </label>
+            {socketModeEnabled ? (
+              <>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="grid gap-2"><Label htmlFor="socket-api-app-id">Slack App ID</Label><Input id="socket-api-app-id" name="socketApiAppId" defaultValue={pending?.socketApiAppId ?? ""} required maxLength={32} placeholder="A0123456789" autoComplete="off" spellCheck={false} /></div>
+                <div className="grid gap-2"><Label htmlFor="socket-app-token">Slack app-level token</Label><Input id="socket-app-token" name="socketAppToken" type="password" required maxLength={512} placeholder="xapp-…" autoComplete="new-password" spellCheck={false} /><p className="text-xs leading-5 text-muted-foreground">Create this in Slack with <code>connections:write</code>. Prism encrypts it and never shows it again.</p></div>
+              </div>
+              <label className="flex items-start gap-3 rounded-xl border border-[color:var(--prism-warning)]/60 bg-[color:var(--prism-warning-soft)] p-3 text-sm">
+                <input className="mt-1 size-4" type="checkbox" name="socketCallbacksReviewed" value="1" required />
+                <span><strong>Confirm Slack callback impact</strong><span className="mt-1 block text-xs leading-5">Slack will stop sending Events API, Interactivity, and slash-command HTTP callbacks for this same Slack app. Confirm every current callback consumer has been inventoried and moved, or uses another Slack app.</span></span>
+              </label>
+              </>
+            ) : null}
           </section>
           <div className="flex flex-wrap justify-end gap-2"><Button type="submit" disabled={!setupProof}>{setupProof ? pending ? "Replace pending configuration" : "Save Slack configuration" : "Preparing secure form..."}</Button></div>
         </form>

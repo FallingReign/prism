@@ -31,6 +31,7 @@ type AuthorizationRow = {
   last_polled_at: Date | null;
   approved_prism_user_id: string | null;
   approved_slack_connection_id: string | null;
+  inbound_block_actions: boolean;
   expires_at: Date;
 };
 
@@ -73,12 +74,12 @@ export function createPostgresLocalAppAuthorizationStore(database: Database): Lo
         await tx.query(
           `insert into prism_local_app_authorizations
              (id, device_code_hash, user_code_hash, client_id, display_name,
-              intended_use, source_key, poll_interval_seconds, expires_at,
-              created_at, updated_at)
-           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10)`,
+               intended_use, inbound_block_actions, source_key, poll_interval_seconds, expires_at,
+               created_at, updated_at)
+           values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11)`,
           [
             input.requestId, input.deviceCodeHash, input.userCodeHash, input.clientId,
-            input.displayName, input.intendedUse, input.sourceKey,
+            input.displayName, input.intendedUse, input.inboundBlockActions, input.sourceKey,
             input.pollIntervalSeconds, input.expiresAt, input.now
           ]
         );
@@ -102,10 +103,11 @@ export function createPostgresLocalAppAuthorizationStore(database: Database): Lo
         client_id: string;
         display_name: string;
         intended_use: string;
+        inbound_block_actions: boolean;
         expires_at: Date;
         status: AuthorizationRow["status"];
       }>(
-        `select id, client_id, display_name, intended_use, expires_at, status
+        `select id, client_id, display_name, intended_use, inbound_block_actions, expires_at, status
          from prism_local_app_authorizations
          where $1::text is not null
            and user_code_hash = $1
@@ -165,6 +167,7 @@ export function createPostgresLocalAppAuthorizationStore(database: Database): Lo
           intendedUse: request.intended_use,
           expiresAt: request.expires_at,
           rePairing: identity.re_pairing,
+          inbound: { blockActions: request.inbound_block_actions },
           identity: {
             prismUserId: identity.prism_user_id,
             slackConnectionId: identity.slack_connection_id,
@@ -183,7 +186,7 @@ export function createPostgresLocalAppAuthorizationStore(database: Database): Lo
     async decide(input) {
       return database.transaction(async (tx) => {
         const request = await tx.query<AuthorizationRow>(
-          `select id, client_id, display_name, intended_use, status,
+          `select id, client_id, display_name, intended_use, inbound_block_actions, status,
                   poll_interval_seconds, last_polled_at,
                   approved_prism_user_id, approved_slack_connection_id, expires_at
            from prism_local_app_authorizations
@@ -271,7 +274,7 @@ export function createPostgresLocalAppAuthorizationStore(database: Database): Lo
     async exchange(input) {
       return database.transaction(async (tx) => {
         const request = await tx.query<AuthorizationRow>(
-          `select id, client_id, display_name, intended_use, status,
+          `select id, client_id, display_name, intended_use, inbound_block_actions, status,
                   poll_interval_seconds, last_polled_at,
                   approved_prism_user_id, approved_slack_connection_id, expires_at
            from prism_local_app_authorizations
@@ -313,6 +316,7 @@ export function createPostgresLocalAppAuthorizationStore(database: Database): Lo
         const tokenPolicyInput = {
           preset: "messages_only",
           executionIdentity: "user",
+          inbound: { blockActions: authorization.inbound_block_actions },
           ...(maximumDays === null ? {} : { expiryDays: maximumDays })
         } satisfies TokenProfilePolicyInput;
         const policy = buildTokenProfilePolicy(tokenPolicyInput, input.now);
@@ -354,7 +358,9 @@ export function createPostgresLocalAppAuthorizationStore(database: Database): Lo
           slackConnectionId: authorization.approved_slack_connection_id,
           clientId: authorization.client_id,
           profileName: `Local application: ${authorization.client_id}`.slice(0, 120),
-          intendedUse: "Read and send Slack messages for a paired local application.",
+          intendedUse: authorization.inbound_block_actions
+            ? "Read and send Slack messages and receive clicks from controls posted by a paired local application."
+            : "Read and send Slack messages for a paired local application.",
           preset: "messages_only",
           capabilityMap: policy.capabilityMap,
           expiresAt: policy.expiresAt,

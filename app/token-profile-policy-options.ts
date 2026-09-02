@@ -1,4 +1,4 @@
-export type TokenProfilePolicyPreset = "read_only" | "messages_only" | "full_slack_bridge" | "custom";
+export type TokenProfilePolicyPreset = "read_only" | "messages_only" | "full_slack_bridge" | "full_web_api" | "custom";
 export type TokenProfileExecutionIdentity = "automatic" | "user" | "bot" | "selectable";
 export type TokenProfileExperimentTtl = "24h" | "7d";
 
@@ -75,6 +75,9 @@ export function capabilityTemplateForPreset(preset: Exclude<TokenProfilePolicyPr
   }
   if (preset === "messages_only") {
     return { read: true, search: false, writeMessages: true, reactions: true, filesMetadata: false, destructive: false };
+  }
+  if (preset === "full_web_api") {
+    return { read: true, search: true, writeMessages: true, reactions: true, filesMetadata: true, destructive: true };
   }
   return { read: true, search: true, writeMessages: true, reactions: true, filesMetadata: true, destructive: false };
 }

@@ -48,6 +48,31 @@ describe("effective Slack app configuration resolver", () => {
     expect(store.getActiveConfiguration).not.toHaveBeenCalled();
   });
 
+  it("reports redacted Socket Mode state for an environment-backed configuration", async () => {
+    const resolver = createSlackAppConfigurationResolver({
+      env: {
+        ...realEnvironment(),
+        SLACK_SOCKET_MODE_ENABLED: "1",
+        SLACK_API_APP_ID: "A1234567890",
+        SLACK_APP_TOKEN: "xapp-1-A1234567890-app-token-canary"
+      },
+      store: fakeStore(),
+      cipher,
+      fingerprintKey: rootKey
+    });
+
+    const status = await resolver.getStatus();
+    expect(status).toMatchObject({
+      kind: "environment_locked",
+      summary: {
+        socketModeEnabled: true,
+        socketApiAppId: "A1234567890",
+        socketAppTokenConfigured: true
+      }
+    });
+    expect(JSON.stringify(status)).not.toContain("app-token-canary");
+  });
+
   it("fails a partial environment credential pair before consulting Postgres", async () => {
     const store = fakeStore();
     expect(() =>
@@ -391,6 +416,9 @@ async function storedConfiguration(overrides: { status: "active" | "pending" }) 
     clientSecretEnvelope: await cipher.encrypt("database-secret", slackAppConfigurationSecretAad(id)),
     botScopes: ["channels:read" as const],
     userScopes: ["chat:write" as const],
+    socketModeEnabled: false,
+    socketApiAppId: null,
+    socketAppTokenEnvelope: null,
     createdVia: "bootstrap" as const,
     createdByPrismUserId: null,
     setupSessionId: "setup-session",

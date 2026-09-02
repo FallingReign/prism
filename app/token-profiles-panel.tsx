@@ -277,6 +277,13 @@ export function TokenProfilesPanel({
                         availability={presetAvailability("full_slack_bridge", policyOptions)}
                       />
                       <PresetChoice
+                        id="create-preset-full-web-api"
+                        value="full_web_api"
+                        label="Full Web API"
+                        description="Pass any valid Slack Web API method. Slack app scopes and workspace approval still apply."
+                        availability={presetAvailability("full_web_api", policyOptions)}
+                      />
+                      <PresetChoice
                         id="create-preset-custom"
                         value="custom"
                         label="Custom"

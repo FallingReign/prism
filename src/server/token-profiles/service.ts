@@ -461,7 +461,7 @@ function validateInput(input: CreateTokenProfileInput): { kind: "valid"; input: 
     return { kind: "validation_error", message: "This Token profile name is reserved for the Playtest application." };
   }
   if (!intendedUse || intendedUse.length > 180) return { kind: "validation_error", message: "Intended use must be 1-180 characters." };
-  if (!["read_only", "messages_only", "full_slack_bridge", "custom"].includes(input.preset)) {
+  if (!["read_only", "messages_only", "full_slack_bridge", "full_web_api", "custom"].includes(input.preset)) {
     return { kind: "validation_error", message: "Choose a supported Token profile preset." };
   }
   if (!["user", "bot", "automatic", "selectable"].includes(input.executionIdentity)) {
@@ -532,6 +532,18 @@ function classifyPolicyChange(
     if (!current.surfaces[key] && next.surfaces[key]) broadened = true;
   }
 
+  const currentWebApiMode = current.webApi?.mode ?? "curated";
+  const nextWebApiMode = next.webApi?.mode ?? "curated";
+  if (currentWebApiMode === "all_methods" && nextWebApiMode === "curated") narrowed = true;
+  if (currentWebApiMode === "curated" && nextWebApiMode === "all_methods") broadened = true;
+
+  for (const key of ["blockActions", "events", "slashCommands"] as const) {
+    const currentAllowed = current.inbound?.[key] ?? false;
+    const nextAllowed = next.inbound?.[key] ?? false;
+    if (currentAllowed && !nextAllowed) narrowed = true;
+    if (!currentAllowed && nextAllowed) broadened = true;
+  }
+
   const identityChange = classifyExecutionIdentityChange(current.executionIdentity, next.executionIdentity);
   if (identityChange === "narrowing") narrowed = true;
   if (identityChange === "broadening") broadened = true;
@@ -553,6 +565,11 @@ function sameCapabilityPolicy(current: CapabilityMap, next: CapabilityMap): bool
     current.experiment.ttl === next.experiment.ttl &&
     sameBooleanMap(current.actions, next.actions) &&
     sameBooleanMap(current.surfaces, next.surfaces) &&
+    (current.webApi?.mode ?? "curated") === (next.webApi?.mode ?? "curated") &&
+    sameBooleanMap(
+      current.inbound ?? { blockActions: false, events: false, slashCommands: false },
+      next.inbound ?? { blockActions: false, events: false, slashCommands: false }
+    ) &&
     current.mutation.destructiveOptIn === next.mutation.destructiveOptIn &&
     current.mutation.broadeningRequiresRotation === next.mutation.broadeningRequiresRotation &&
     current.mutation.narrowingAppliesImmediately === next.mutation.narrowingAppliesImmediately

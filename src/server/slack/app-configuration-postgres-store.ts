@@ -23,6 +23,9 @@ export type CreatePendingSlackAppConfigurationInput = {
   clientSecret: unknown;
   botScopes?: readonly string[] | null;
   userScopes?: readonly string[] | null;
+  socketModeEnabled?: unknown;
+  socketApiAppId?: unknown;
+  socketAppToken?: unknown;
   createdVia: "bootstrap";
   createdByPrismUserId: null;
   now?: Date;
@@ -73,6 +76,10 @@ export class SlackAppConfigurationStoreError extends Error {
 
 export function slackAppConfigurationSecretAad(versionId: string): string {
   return `prism-slack-app-configuration:${versionId}:client-secret`;
+}
+
+export function slackSocketAppTokenAad(versionId: string): string {
+  return `prism-slack-app-configuration:${versionId}:socket-app-token`;
 }
 
 export function createPostgresSlackAppConfigurationStore(
@@ -139,13 +146,18 @@ export function createPostgresSlackAppConfigurationStore(
             validated.clientSecret,
             slackAppConfigurationSecretAad(versionId)
           );
+          const socketAppTokenEnvelope = validated.socketAppToken
+            ? await cipher.encrypt(validated.socketAppToken, slackSocketAppTokenAad(versionId))
+            : null;
           const inserted = await tx.query<SlackAppConfigurationRow>(
             `insert into prism_slack_app_configuration_versions
                (id, status, client_id, client_secret_envelope, bot_scopes, user_scopes,
+                socket_mode_enabled, socket_api_app_id, socket_app_token_envelope,
                 created_via, created_by_prism_user_id, setup_session_id, created_at)
-             values ($1, 'pending', $2, $3::jsonb, $4, $5, $6, $7, $8, $9)
+             values ($1, 'pending', $2, $3::jsonb, $4, $5, $6, $7, $8::jsonb, $9, $10, $11, $12)
              returning id, version, status, client_id, client_secret_envelope,
-                       bot_scopes, user_scopes, created_via, created_by_prism_user_id,
+                       bot_scopes, user_scopes, socket_mode_enabled, socket_api_app_id,
+                       socket_app_token_envelope, created_via, created_by_prism_user_id,
                        setup_session_id, created_at, activated_at, superseded_at`,
             [
               versionId,
@@ -153,6 +165,9 @@ export function createPostgresSlackAppConfigurationStore(
               JSON.stringify(clientSecretEnvelope),
               validated.botScopes,
               validated.userScopes,
+              validated.socketModeEnabled,
+              validated.socketApiAppId,
+              socketAppTokenEnvelope ? JSON.stringify(socketAppTokenEnvelope) : null,
               input.createdVia,
               input.createdByPrismUserId,
               input.setupSessionId,
@@ -187,7 +202,8 @@ export function createPostgresSlackAppConfigurationStore(
       try {
         const result = await database.query<SlackAppConfigurationRow>(
           `select id, version, status, client_id, client_secret_envelope,
-                  bot_scopes, user_scopes, created_via, created_by_prism_user_id,
+                  bot_scopes, user_scopes, socket_mode_enabled, socket_api_app_id,
+                  socket_app_token_envelope, created_via, created_by_prism_user_id,
                   setup_session_id, created_at, activated_at, superseded_at
            from prism_slack_app_configuration_versions v
            where v.status = 'active'
@@ -205,7 +221,8 @@ export function createPostgresSlackAppConfigurationStore(
       try {
         const result = await database.query<SlackAppConfigurationRow>(
           `select v.id, v.version, v.status, v.client_id, v.client_secret_envelope,
-                  v.bot_scopes, v.user_scopes, v.created_via, v.created_by_prism_user_id,
+                  v.bot_scopes, v.user_scopes, v.socket_mode_enabled, v.socket_api_app_id,
+                  v.socket_app_token_envelope, v.created_via, v.created_by_prism_user_id,
                   v.setup_session_id, v.created_at, v.activated_at, v.superseded_at
            from prism_slack_app_configuration_versions v
            join prism_setup_sessions s on s.id = v.setup_session_id
@@ -231,7 +248,8 @@ export function createPostgresSlackAppConfigurationStore(
         const result = setupSessionId
           ? await database.query<SlackAppConfigurationRow>(
               `select v.id, v.version, v.status, v.client_id, v.client_secret_envelope,
-                      v.bot_scopes, v.user_scopes, v.created_via, v.created_by_prism_user_id,
+                      v.bot_scopes, v.user_scopes, v.socket_mode_enabled, v.socket_api_app_id,
+                      v.socket_app_token_envelope, v.created_via, v.created_by_prism_user_id,
                       v.setup_session_id, v.created_at, v.activated_at, v.superseded_at
                from prism_slack_app_configuration_versions v
                join prism_setup_sessions s on s.id = v.setup_session_id
@@ -247,7 +265,8 @@ export function createPostgresSlackAppConfigurationStore(
             )
           : await database.query<SlackAppConfigurationRow>(
               `select v.id, v.version, v.status, v.client_id, v.client_secret_envelope,
-                      v.bot_scopes, v.user_scopes, v.created_via, v.created_by_prism_user_id,
+                      v.bot_scopes, v.user_scopes, v.socket_mode_enabled, v.socket_api_app_id,
+                      v.socket_app_token_envelope, v.created_via, v.created_by_prism_user_id,
                       v.setup_session_id, v.created_at, v.activated_at, v.superseded_at
                from prism_slack_app_configuration_versions v
                where v.id = $1 and v.status = 'active'
@@ -271,7 +290,8 @@ export function createPostgresSlackAppConfigurationStore(
       try {
         const locked = await database.query<SlackAppConfigurationRow>(
           `select v.id, v.version, v.status, v.client_id, v.client_secret_envelope,
-                  v.bot_scopes, v.user_scopes, v.created_via, v.created_by_prism_user_id,
+                  v.bot_scopes, v.user_scopes, v.socket_mode_enabled, v.socket_api_app_id,
+                  v.socket_app_token_envelope, v.created_via, v.created_by_prism_user_id,
                   v.setup_session_id, v.created_at, v.activated_at, v.superseded_at
            from prism_slack_app_configuration_versions v
            join prism_setup_sessions s on s.id = v.setup_session_id
@@ -300,7 +320,8 @@ export function createPostgresSlackAppConfigurationStore(
            set status = 'active', activated_at = $2, superseded_at = null
            where id = $1 and status = 'pending'
            returning id, version, status, client_id, client_secret_envelope,
-                     bot_scopes, user_scopes, created_via, created_by_prism_user_id,
+                     bot_scopes, user_scopes, socket_mode_enabled, socket_api_app_id,
+                     socket_app_token_envelope, created_via, created_by_prism_user_id,
                      setup_session_id, created_at, activated_at, superseded_at`,
           [versionId, now]
         );
@@ -332,6 +353,9 @@ type SlackAppConfigurationRow = {
   client_secret_envelope: unknown;
   bot_scopes: unknown;
   user_scopes: unknown;
+  socket_mode_enabled: boolean;
+  socket_api_app_id: string | null;
+  socket_app_token_envelope: unknown;
   created_via: SlackAppConfigurationCreatedVia;
   created_by_prism_user_id: string | null;
   setup_session_id: string | null;
@@ -352,7 +376,14 @@ function parseStoredConfiguration(
     !(row.created_at instanceof Date) ||
     !isCredentialEnvelope(row.client_secret_envelope) ||
     !Array.isArray(row.bot_scopes) ||
-    !Array.isArray(row.user_scopes)
+    !Array.isArray(row.user_scopes) ||
+    typeof row.socket_mode_enabled !== "boolean" ||
+    (row.socket_mode_enabled &&
+      (!row.socket_api_app_id ||
+        !/^A[A-Z0-9]{8,31}$/.test(row.socket_api_app_id) ||
+        !isCredentialEnvelope(row.socket_app_token_envelope))) ||
+    (!row.socket_mode_enabled &&
+      (row.socket_api_app_id !== null || row.socket_app_token_envelope !== null))
   ) {
     throw new SlackAppConfigurationStoreError("invalid-stored-configuration");
   }
@@ -373,6 +404,11 @@ function parseStoredConfiguration(
     clientSecretEnvelope: row.client_secret_envelope,
     botScopes: scopes.botScopes,
     userScopes: scopes.userScopes,
+    socketModeEnabled: row.socket_mode_enabled,
+    socketApiAppId: row.socket_api_app_id,
+    socketAppTokenEnvelope: row.socket_mode_enabled
+      ? (row.socket_app_token_envelope as CredentialEnvelope)
+      : null,
     createdVia: row.created_via,
     createdByPrismUserId: row.created_by_prism_user_id,
     setupSessionId: row.setup_session_id,

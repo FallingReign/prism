@@ -17,6 +17,7 @@ const presetOptions: Array<{ value: GlobalTokenProfilePolicy["presets"]["allowed
   { value: "read_only", label: "Read-only" },
   { value: "messages_only", label: "Messages only" },
   { value: "full_slack_bridge", label: "Full Slack bridge" },
+  { value: "full_web_api", label: "Full Web API" },
   { value: "custom", label: "Custom" }
 ];
 const identityOptions: Array<{ value: GlobalTokenProfilePolicy["executionIdentities"]["allowed"][number]; label: string }> = [

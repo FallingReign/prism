@@ -136,8 +136,22 @@ Operational controls:
 - rotate or revoke Token profiles after abnormal usage
 - keep Slack admin approval records outside source control
 
-## Explicit v1 deferrals
+## Full Web API and Prism Inbox
 
-Prism v1 excludes inbound events, Socket Mode fanout, slash commands, interactivity, app mentions, file transfer, canvases, lists, payload logging, content moderation, Supabase platform services, and Slack administration.
+Prism is not an unmanaged Slack proxy. A **Full Web API** Token profile must be
+explicitly allowed by global policy and deliberately issued. Existing Token
+profiles remain curated. Prism validates the Slack method name, keeps Slack
+credentials server-side, requires an explicit workspace where needed, applies
+rate limits and Metadata-only audit, and leaves OAuth scope and workspace/org
+policy enforcement to Slack.
 
-Prism is not an unmanaged Slack proxy. The **Method registry** and **Capability map** decide what a **Slack-compatible endpoint** may do before forwarding. Slack administration still owns workspace/org policy and the maximum approved app capability.
+Socket Mode stores only normalised Block Kit actions for a short-lived,
+identity-bound **Route**. One Slack envelope produces at most one **Delivery**
+per Route. Raw envelopes, message text, option labels, response URLs, trigger
+IDs, app-level tokens, Slack credentials, and Prism developer tokens are never
+stored in the Prism Inbox. A Delivery is visible only to the Token profile that
+created its Route and is cleared after acknowledgement or expiry.
+
+General inbound events and event fanout, slash commands, app mentions, file transfer,
+canvases, lists, payload logging, content moderation, Supabase platform services,
+and Slack administration remain deferred.

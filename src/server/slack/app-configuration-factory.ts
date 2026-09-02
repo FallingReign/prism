@@ -17,7 +17,6 @@ import {
   type RedactedSlackAppConfiguration,
   type SlackAppConfigurationBinding,
   type SlackAppConfigurationRevision,
-  type SlackScopeId,
   type StoredSlackAppConfigurationVersion
 } from "./app-configuration";
 import {
@@ -42,8 +41,11 @@ export type EffectiveSlackAppConfigurationSummary = {
   status: "environment" | "development_mock" | "pending" | "active" | "superseded";
   clientId: string;
   secretConfigured: true;
-  botScopes: SlackScopeId[];
-  userScopes: SlackScopeId[];
+  botScopes: string[];
+  userScopes: string[];
+  socketModeEnabled: boolean;
+  socketApiAppId: string | null;
+  socketAppTokenConfigured: boolean;
   callbackUri: string;
 };
 
@@ -179,6 +181,9 @@ export function createSlackAppConfigurationResolver({
     setupRequired: boolean
   ): ResolvedSlackAppConfiguration {
     const fingerprint = environmentFingerprint(oauthConfig, fingerprintKey);
+    const socketModeEnabled = source === "environment" && env.SLACK_SOCKET_MODE_ENABLED?.trim() === "1";
+    const socketApiAppId = socketModeEnabled ? env.SLACK_API_APP_ID?.trim() ?? null : null;
+    const socketAppTokenConfigured = socketModeEnabled && /^xapp-[A-Za-z0-9-]{16,}$/.test(env.SLACK_APP_TOKEN?.trim() ?? "");
     return {
       source,
       environmentLocked: source === "environment",
@@ -195,8 +200,11 @@ export function createSlackAppConfigurationResolver({
         status: source === "environment" ? "environment" : "development_mock",
         clientId: oauthConfig.clientId,
         secretConfigured: true,
-        botScopes: [...oauthConfig.botScopes] as SlackScopeId[],
-        userScopes: [...oauthConfig.userScopes] as SlackScopeId[],
+        botScopes: [...oauthConfig.botScopes],
+        userScopes: [...oauthConfig.userScopes],
+        socketModeEnabled,
+        socketApiAppId,
+        socketAppTokenConfigured,
         callbackUri: oauthConfig.redirectUri
       }
     };
@@ -349,6 +357,9 @@ function databaseSummary(
     secretConfigured: true,
     botScopes: [...configuration.botScopes],
     userScopes: [...configuration.userScopes],
+    socketModeEnabled: configuration.socketModeEnabled,
+    socketApiAppId: configuration.socketApiAppId,
+    socketAppTokenConfigured: configuration.socketAppTokenConfigured,
     callbackUri
   };
 }

@@ -1,6 +1,6 @@
 import "server-only";
 
-import { classifySlackMethod, type MethodCategory, type MethodClassification } from "../slack/method-registry";
+import { classifySlackMethod, isValidSlackWebApiMethod, type MethodCategory, type MethodClassification } from "../slack/method-registry";
 import type { DeveloperTokenConfig } from "./developer-token";
 import {
   executionIdentityStatus,
@@ -86,21 +86,34 @@ export async function evaluateSlackMethodPolicy({
   if (resolution.kind === "result") return authFailure(method, requestId, resolution.result.httpStatus, resolution.result.body.token.status);
 
   const resolved = resolution.resolved;
+  const fullWebApi = resolved.capabilityMap.webApi?.mode === "all_methods";
+  if (fullWebApi && !isValidSlackWebApiMethod(method)) return invalidMethod(method, requestId, resolved);
   const classification = classifySlackMethod(method);
-  if (!classification.supported) return unsupported(method, requestId, classification, resolved);
+  if (!classification.supported && !fullWebApi) return unsupported(method, requestId, classification, resolved);
 
-  const workspaceDenial = await checkWorkspace(method, requestId, classification, resolved, requestContext, store);
+  const effectiveClassification: Extract<MethodClassification, { supported: true }> = fullWebApi
+    ? {
+        method,
+        category: "web_api.full",
+        supported: true,
+        status: "supported",
+        requiredCapabilities: [],
+        requiresSurface: false
+      }
+    : (classification as Extract<MethodClassification, { supported: true }>);
+
+  const workspaceDenial = await checkWorkspace(method, requestId, effectiveClassification, resolved, requestContext, store, fullWebApi);
   if (workspaceDenial) return workspaceDenial;
 
-  const surfaceDenial = checkSurface(method, requestId, classification, resolved, requestContext);
+  const surfaceDenial = checkSurface(method, requestId, effectiveClassification, resolved, requestContext);
   if (surfaceDenial) return surfaceDenial;
 
-  const missingCapability = classification.requiredCapabilities.find((capability) => !resolved.capabilityMap.actions[capability]);
-  if (missingCapability) return capabilityDenied(method, requestId, classification, resolved, missingCapability);
+  const missingCapability = effectiveClassification.requiredCapabilities.find((capability) => !resolved.capabilityMap.actions[capability]);
+  if (missingCapability) return capabilityDenied(method, requestId, effectiveClassification, resolved, missingCapability);
 
   const executionIdentity = executionIdentityStatus(resolved);
   if (!executionIdentity.available) {
-    return deniedBody(method, requestId, classification.category, "execution_identity_unavailable", "not_allowed", resolved, {
+    return deniedBody(method, requestId, effectiveClassification.category, "execution_identity_unavailable", "not_allowed", resolved, {
       unavailableReason: executionIdentity.unavailableReason ?? "missing_execution_identity"
     });
   }
@@ -108,7 +121,7 @@ export async function evaluateSlackMethodPolicy({
   return {
     kind: "allowed",
     method,
-    category: classification.category,
+    category: effectiveClassification.category,
     tokenProfileId: resolved.tokenProfileId,
     slackConnectionId: resolved.slackConnectionId,
     auditContext: auditContext(resolved),
@@ -124,7 +137,8 @@ async function checkWorkspace(
   classification: Extract<MethodClassification, { supported: true }>,
   resolved: ResolvedDeveloperToken,
   requestContext: SlackMethodPolicyContext,
-  store: SlackMethodPolicyStore
+  store: SlackMethodPolicyStore,
+  requireExplicitWorkspace = false
 ): Promise<SlackMethodPolicyDecision | null> {
   const workspaceId = requestContext.workspaceId?.trim();
   if (!workspaceId) {
@@ -132,7 +146,7 @@ async function checkWorkspace(
     // legacy callers may omit the header. An organization installation is not
     // bound to a default team: require an explicit header so a caller cannot
     // bypass the grant lookup by placing team_id only in the Slack payload.
-    if (resolved.slackTeamId) return null;
+    if (resolved.slackTeamId && !requireExplicitWorkspace) return null;
     return deniedBody(method, requestId, classification.category, "workspace_required", "not_allowed", resolved);
   }
 
@@ -154,6 +168,24 @@ async function checkWorkspace(
     return deniedBody(method, requestId, classification.category, "workspace_denied", "not_allowed", resolved);
   }
   return null;
+}
+
+function invalidMethod(method: string, requestId: string, resolved: ResolvedDeveloperToken): SlackMethodPolicyDecision {
+  return {
+    kind: "unsupported",
+    httpStatus: 200,
+    auditContext: auditContext(resolved),
+    body: {
+      ok: false,
+      error: "method_not_supported",
+      prism: {
+        requestId,
+        errorClass: "invalid_method",
+        method,
+        category: "web_api.full"
+      }
+    }
+  };
 }
 
 function checkSurface(

@@ -77,7 +77,8 @@ export type TokenProfilePolicyCandidate = {
   policyEffectiveAt: Date;
 };
 
-const PRESETS: TokenProfilePreset[] = ["read_only", "messages_only", "full_slack_bridge", "custom"];
+const PRESETS: TokenProfilePreset[] = ["read_only", "messages_only", "full_slack_bridge", "full_web_api", "custom"];
+const DEFAULT_ALLOWED_PRESETS: TokenProfilePreset[] = ["read_only", "messages_only", "full_slack_bridge", "custom"];
 const EXECUTION_IDENTITIES: ExecutionIdentity[] = ["automatic", "user", "bot", "selectable"];
 const EXPERIMENT_TTLS: ExperimentTtl[] = ["24h", "7d"];
 const ROTATION_OVERLAPS: TokenRotationOverlap[] = ["none", "15m", "1h", "24h"];
@@ -101,7 +102,7 @@ export function buildCurrentGlobalTokenProfilePolicy(overrides: PolicyOverrides 
   const policy: GlobalTokenProfilePolicy = {
     version: 1,
     presets: {
-      allowed: [...PRESETS],
+      allowed: [...DEFAULT_ALLOWED_PRESETS],
       default: "read_only"
     },
     executionIdentities: {

@@ -29,22 +29,22 @@ describe("Slack app configuration", () => {
     expect(JSON.stringify(selected)).not.toContain("*");
   });
 
-  it("canonicalizes and deduplicates by the server-owned catalogue order", () => {
+  it("canonicalizes reviewed and additional scopes without a wildcard", () => {
     expect(
       canonicalizeSlackScopeSelection({
-        botScopes: ["users:read", "channels:read", "users:read"],
-        userScopes: ["chat:write", "channels:history", "chat:write"]
+        botScopes: ["users:read", "admin.conversations:write", "channels:read", "users:read"],
+        userScopes: ["chat:write", "channels:history", "users:read.email", "chat:write"]
       })
     ).toEqual({
-      botScopes: ["channels:read", "users:read"],
-      userScopes: ["channels:history", "chat:write"]
+      botScopes: ["channels:read", "users:read", "admin.conversations:write"],
+      userScopes: ["channels:history", "chat:write", "users:read.email"]
     });
   });
 
-  it("rejects unknown scopes and never echoes submitted canaries", () => {
+  it("rejects malformed scopes and never echoes submitted canaries", () => {
     for (const selection of [
-      { botScopes: ["admin.secret-canary"], userScopes: ["chat:write"] },
-      { botScopes: [], userScopes: ["chat:write", "unknown-secret-canary"] },
+      { botScopes: ["admin.secret-canary/escape"], userScopes: ["chat:write"] },
+      { botScopes: [], userScopes: ["chat:write", "UPPERCASE:read"] },
       { botScopes: ["chat:write"], userScopes: [] }
     ]) {
       try {
@@ -67,7 +67,10 @@ describe("Slack app configuration", () => {
       clientId: "123.456",
       clientSecret: secret,
       botScopes: ALL_PRISM_SUPPORTED_SLACK_SCOPES.botScopes,
-      userScopes: ALL_PRISM_SUPPORTED_SLACK_SCOPES.userScopes
+      userScopes: ALL_PRISM_SUPPORTED_SLACK_SCOPES.userScopes,
+      socketModeEnabled: false,
+      socketApiAppId: null,
+      socketAppToken: null
     });
 
     const redacted = redactSlackAppConfiguration({
@@ -77,6 +80,9 @@ describe("Slack app configuration", () => {
       clientId: configuration.clientId,
       botScopes: configuration.botScopes,
       userScopes: configuration.userScopes,
+      socketModeEnabled: false,
+      socketApiAppId: null,
+      socketAppTokenConfigured: false,
       createdVia: "bootstrap",
       createdByPrismUserId: null,
       setupSessionId: "setup-session-id",
@@ -88,6 +94,28 @@ describe("Slack app configuration", () => {
     expect(redacted.secretConfigured).toBe(true);
     expect(JSON.stringify(redacted)).not.toContain(secret);
     expect(JSON.stringify(redacted)).not.toContain("envelope");
+  });
+
+  it("validates Socket Mode configuration without exposing the app-level token", () => {
+    const configuration = validateSlackAppConfigurationInput({
+      clientId: "123.456",
+      clientSecret: "client-secret",
+      socketModeEnabled: true,
+      socketApiAppId: "A1234567890",
+      socketAppToken: "xapp-1-A1234567890-app-token-canary"
+    });
+    expect(configuration).toMatchObject({
+      socketModeEnabled: true,
+      socketApiAppId: "A1234567890",
+      socketAppToken: "xapp-1-A1234567890-app-token-canary"
+    });
+    expect(() => validateSlackAppConfigurationInput({
+      clientId: "123.456",
+      clientSecret: "client-secret",
+      socketModeEnabled: true,
+      socketApiAppId: "bad",
+      socketAppToken: "xapp-secret-canary"
+    })).toThrow("invalid-socket-configuration");
   });
 
   it("rejects unsafe production fixtures and invalid secrets generically", () => {

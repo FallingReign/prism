@@ -169,6 +169,57 @@ describe("/v1/slack/api/[method] policy tracer", () => {
     });
   });
 
+  it("forwards a valid unlisted method only for a Full Web API profile", async () => {
+    const { GET } = await import("./route");
+    const fullWebApi = {
+      ...capabilityMap({ writeMessages: true, reactions: true, filesMetadata: true, destructive: true }),
+      version: 2,
+      preset: "full_web_api",
+      webApi: { mode: "all_methods" },
+      inbound: { blockActions: false, events: false, slashCommands: false }
+    };
+    defaultTokenRows = [row(fullWebApi)];
+
+    const response = await GET(
+      new NextRequest("http://localhost:3732/v1/slack/api/auth.test", {
+        headers: {
+          authorization: "Bearer prism_dev_readpolicycanaryreadpolicycanary",
+          "x-prism-workspace-id": "T123"
+        }
+      }),
+      { params: Promise.resolve({ method: "auth.test" }) }
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-prism-upstream-called")).toBe("true");
+    expect(await response.json()).toMatchObject({ ok: true, team_id: "T123", user_id: "U-MOCK" });
+  });
+
+  it("rejects URL and path input for a Full Web API profile before upstream work", async () => {
+    const { GET } = await import("./route");
+    const fullWebApi = {
+      ...capabilityMap({ destructive: true }),
+      version: 2,
+      preset: "full_web_api",
+      webApi: { mode: "all_methods" },
+      inbound: { blockActions: false, events: false, slashCommands: false }
+    };
+    defaultTokenRows = [row(fullWebApi)];
+
+    const response = await GET(
+      new NextRequest("http://localhost:3732/v1/slack/api/auth%2Ftest", {
+        headers: {
+          authorization: "Bearer prism_dev_readpolicycanaryreadpolicycanary",
+          "x-prism-workspace-id": "T123"
+        }
+      }),
+      { params: Promise.resolve({ method: "auth/test" }) }
+    );
+
+    expect(response.headers.get("x-prism-upstream-called")).toBe("false");
+    expect(await response.json()).toMatchObject({ ok: false, error: "method_not_supported", prism: { errorClass: "invalid_method" } });
+  });
+
   it("honors selectable execution-mode headers after policy and denies invalid or non-selectable overrides before forwarding", async () => {
     const { GET } = await import("./route");
     queueTokenRows([row({ ...capabilityMap({ writeMessages: true }), executionIdentity: "selectable" })]);

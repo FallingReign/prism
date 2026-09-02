@@ -5,7 +5,8 @@ import type { Database, QueryResult } from "../db";
 import {
   SlackAppConfigurationStoreError,
   createPostgresSlackAppConfigurationStore,
-  slackAppConfigurationSecretAad
+  slackAppConfigurationSecretAad,
+  slackSocketAppTokenAad
 } from "./app-configuration-postgres-store";
 
 const testKey = Buffer.alloc(32, 9).toString("base64");
@@ -13,12 +14,14 @@ const testKey = Buffer.alloc(32, 9).toString("base64");
 describe("Postgres Slack app configuration store", () => {
   it("creates an encrypted immutable pending candidate and metadata-only audit atomically", async () => {
     const secret = "client-secret-canary-never-in-sql";
+    const appToken = "xapp-1-A1234567890-app-token-canary";
     const cipher = createLocalAesGcmCredentialCipher({ key: testKey, keyId: "test-key" });
     const queries: Array<{ sql: string; params: unknown[] }> = [];
     const tx = fakeDatabase(async (sql: string, params: unknown[] = []) => {
       queries.push({ sql, params });
       const serialized = JSON.stringify(params);
       expect(serialized).not.toContain(secret);
+      expect(serialized).not.toContain(appToken);
       if (sql.includes("from prism_setup_sessions")) {
         return result([{ id: "setup-session" }]);
       }
@@ -36,7 +39,10 @@ describe("Postgres Slack app configuration store", () => {
             version: "1",
             client_secret_envelope: JSON.parse(String(params[2])),
             bot_scopes: params[3],
-            user_scopes: params[4]
+            user_scopes: params[4],
+            socket_mode_enabled: params[5],
+            socket_api_app_id: params[6],
+            socket_app_token_envelope: JSON.parse(String(params[7]))
           })
         ]);
       }
@@ -56,6 +62,9 @@ describe("Postgres Slack app configuration store", () => {
       expectedPendingVersionId: null,
       clientId: "client-id",
       clientSecret: secret,
+      socketModeEnabled: true,
+      socketApiAppId: "A1234567890",
+      socketAppToken: appToken,
       createdVia: "bootstrap",
       createdByPrismUserId: null,
       now: new Date("2026-08-23T00:00:00.000Z"),
@@ -66,6 +75,9 @@ describe("Postgres Slack app configuration store", () => {
       id: "configuration-id",
       status: "pending",
       secretConfigured: true,
+      socketModeEnabled: true,
+      socketApiAppId: "A1234567890",
+      socketAppTokenConfigured: true,
       botScopes: expect.arrayContaining(["channels:read", "chat:write", "users:read"]),
       userScopes: expect.arrayContaining(["channels:read", "chat:write", "search:read"])
     });
@@ -76,6 +88,8 @@ describe("Postgres Slack app configuration store", () => {
     await expect(cipher.decrypt(envelope, slackAppConfigurationSecretAad("another-id"))).rejects.toThrow(
       "credential-decryption-failed"
     );
+    const socketEnvelope = JSON.parse(String(queries.find(({ sql }) => sql.includes("insert into prism_slack_app_configuration_versions"))!.params[7]));
+    await expect(cipher.decrypt(socketEnvelope, slackSocketAppTokenAad("configuration-id"))).resolves.toBe(appToken);
   });
 
   it("requires the optimistic pending version and never overwrites a competing edit", async () => {
@@ -208,6 +222,9 @@ function row(overrides: Record<string, unknown> = {}) {
     },
     bot_scopes: [],
     user_scopes: ["chat:write"],
+    socket_mode_enabled: false,
+    socket_api_app_id: null,
+    socket_app_token_envelope: null,
     created_via: "bootstrap",
     created_by_prism_user_id: null,
     setup_session_id: "setup-session",

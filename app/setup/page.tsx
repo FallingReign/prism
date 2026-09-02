@@ -46,7 +46,16 @@ export default async function SetupPage({ searchParams }: { searchParams?: Promi
     scopes: scopeOptions(),
     selectedBotScopes: defaults.botScopes,
     selectedUserScopes: defaults.userScopes,
-    pending: pending ? { clientId: pending.summary.clientId, secretStored: true, botScopes: pending.summary.botScopes, userScopes: pending.summary.userScopes, version: pending.summary.version ?? "unknown" } : null,
+    pending: pending ? {
+      clientId: pending.summary.clientId,
+      secretStored: true,
+      botScopes: pending.summary.botScopes,
+      userScopes: pending.summary.userScopes,
+      socketModeEnabled: pending.summary.socketModeEnabled,
+      socketApiAppId: pending.summary.socketApiAppId,
+      socketAppTokenConfigured: pending.summary.socketAppTokenConfigured,
+      version: pending.summary.version ?? "unknown"
+    } : null,
     ...(() => {
       const allowed = new Set(["verification_unavailable", "invalid_configuration", "configuration_conflict", "session_expired", "environment_locked", "configuration_unavailable", "secure_form_expired"] as const);
       const error = pendingUnavailable ? "verification_unavailable" : typeof query.error === "string" && allowed.has(query.error as never) ? query.error : undefined;

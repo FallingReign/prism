@@ -39,6 +39,7 @@ const presetOptions = [
   { value: "read_only", label: "Read-only" },
   { value: "messages_only", label: "Messages only" },
   { value: "full_slack_bridge", label: "Full Slack bridge" },
+  { value: "full_web_api", label: "Full Web API" },
   { value: "custom", label: "Custom" }
 ];
 const capabilityOptions: Array<{ key: keyof TokenProfileCapabilitySelection; label: string; description?: string }> = [
@@ -606,6 +607,7 @@ function presetLabel(preset: TokenProfileSummary["preset"]): string {
   if (preset === "read_only") return "Read-only";
   if (preset === "messages_only") return "Messages only";
   if (preset === "full_slack_bridge") return "Full Slack bridge";
+  if (preset === "full_web_api") return "Full Web API";
   return "Custom";
 }
 

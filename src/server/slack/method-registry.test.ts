@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { buildMethodAvailability, classifySlackMethod } from "./method-registry";
+import { buildTokenProfilePolicy } from "../token-profiles/presets";
 
 describe("Slack Method registry discovery", () => {
   it("projects supported, denied, and deferred method availability from a Capability map", () => {
@@ -65,5 +66,18 @@ describe("Slack Method registry discovery", () => {
     expect(classifySlackMethod("admin.users.list")).toMatchObject({ category: "admin", supported: false, status: "unsupported" });
     expect(classifySlackMethod("team.info")).toMatchObject({ category: "admin", supported: false, status: "unsupported" });
     expect(classifySlackMethod("unknown.futureMethod")).toMatchObject({ category: "future", supported: false, status: "unsupported" });
+  });
+
+  it("reports every known method as allowed for Full Web API discovery", () => {
+    const profile = buildTokenProfilePolicy(
+      { preset: "full_web_api", executionIdentity: "user" },
+      new Date("2026-01-01T00:00:00.000Z")
+    );
+    const discovery = buildMethodAvailability(profile.capabilityMap);
+
+    expect(discovery.categories["web_api.full"]).toEqual({ allowed: true, methods: ["*"] });
+    expect(discovery.methods["chat.postMessage"]).toMatchObject({ category: "web_api.full", status: "allowed", supported: true });
+    expect(discovery.methods["views.open"]).toMatchObject({ category: "web_api.full", status: "allowed", supported: true });
+    expect(discovery.unsupported.surfaces).toEqual([]);
   });
 });

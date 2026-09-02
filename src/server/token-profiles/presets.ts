@@ -1,6 +1,6 @@
 import "server-only";
 
-export type TokenProfilePreset = "read_only" | "messages_only" | "full_slack_bridge" | "custom";
+export type TokenProfilePreset = "read_only" | "messages_only" | "full_slack_bridge" | "full_web_api" | "custom";
 export type ExecutionIdentity = "user" | "bot" | "automatic" | "selectable";
 export type ExperimentTtl = "24h" | "7d";
 
@@ -10,6 +10,11 @@ export type TokenProfilePolicyInput = {
   destructive?: boolean;
   experiment?: ExperimentTtl;
   expiryDays?: number;
+  inbound?: {
+    blockActions?: boolean;
+    events?: boolean;
+    slashCommands?: boolean;
+  };
   custom?: {
     read?: boolean;
     search?: boolean;
@@ -21,8 +26,14 @@ export type TokenProfilePolicyInput = {
 };
 
 export type CapabilityMap = {
-  version: 1;
+  version: 1 | 2;
   preset: TokenProfilePreset;
+  webApi?: { mode: "curated" | "all_methods" };
+  inbound?: {
+    blockActions: boolean;
+    events: boolean;
+    slashCommands: boolean;
+  };
   workspaces: { mode: "linked_slack_connection" };
   surfaces: {
     publicChannels: boolean;
@@ -71,8 +82,14 @@ export function buildTokenProfilePolicy(input: TokenProfilePolicyInput, now = ne
   const experiment = input.experiment ?? null;
   return {
     capabilityMap: {
-      version: 1,
+      version: 2,
       preset: input.preset,
+      webApi: { mode: input.preset === "full_web_api" ? "all_methods" : "curated" },
+      inbound: {
+        blockActions: input.inbound?.blockActions === true,
+        events: input.inbound?.events === true,
+        slashCommands: input.inbound?.slashCommands === true
+      },
       workspaces: { mode: "linked_slack_connection" },
       surfaces: {
         publicChannels: true,
@@ -122,6 +139,16 @@ function actionsFor(input: TokenProfilePolicyInput): CapabilityMap["actions"] {
       reactions: true,
       filesMetadata: true,
       destructive: input.destructive === true
+    };
+  }
+  if (input.preset === "full_web_api") {
+    return {
+      read: true,
+      search: true,
+      writeMessages: true,
+      reactions: true,
+      filesMetadata: true,
+      destructive: true
     };
   }
 

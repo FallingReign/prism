@@ -304,12 +304,15 @@ describe("server setup config", () => {
       SLACK_CLIENT_SECRET: "secret-canary",
       SLACK_BOT_SCOPES: "chat:write"
     })).toThrow("setup-required:SLACK_OAUTH_SCOPES");
-    expect(() => getSlackOAuthEnvironmentBundle({
+    expect(getSlackOAuthEnvironmentBundle({
       ...deployment,
       SLACK_CLIENT_ID: "client-id",
       SLACK_CLIENT_SECRET: "secret-canary",
-      SLACK_USER_SCOPES: "chat:write,admin.secret-canary"
-    })).toThrow("setup-required:SLACK_OAUTH_SCOPES");
+      SLACK_USER_SCOPES: "chat:write,admin.conversations:write"
+    })).toMatchObject({
+      botScopes: [],
+      userScopes: ["chat:write", "admin.conversations:write"]
+    });
   });
 
   it("treats only the reserved local mock as absent in production without echoing credentials", () => {

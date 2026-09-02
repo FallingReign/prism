@@ -15,7 +15,15 @@ import { isFormUrlEncodedContentType, readBoundedText, setupSessionCookieName, s
 const MAX_BODY_BYTES = 16 * 1024;
 
 type SetupContext = { id: string; pendingConfigurationVersionId: string | null };
-type RedactedPending = { clientId: string; version: string; botScopes: string[]; userScopes: string[] };
+type RedactedPending = {
+  clientId: string;
+  version: string;
+  botScopes: string[];
+  userScopes: string[];
+  socketModeEnabled: boolean;
+  socketApiAppId: string | null;
+  socketAppTokenConfigured: boolean;
+};
 
 export type SlackConfigurationRouteDependencies = SetupBrowserMutationProof & {
   resolveSession(token: string): Promise<SetupContext | null>;
@@ -26,6 +34,9 @@ export type SlackConfigurationRouteDependencies = SetupBrowserMutationProof & {
     clientSecret: unknown;
     botScopes: unknown;
     userScopes: unknown;
+    socketModeEnabled: unknown;
+    socketApiAppId: unknown;
+    socketAppToken: unknown;
     requestId: string;
   }): Promise<RedactedPending>;
 };
@@ -50,8 +61,9 @@ export async function handleSlackConfigurationPut(request: NextRequest, dependen
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return json({ error: "invalid_configuration" }, 400);
     body = parsed as Record<string, unknown>;
-    const allowedKeys = new Set(["clientId", "clientSecret", "botScopes", "userScopes"]);
+    const allowedKeys = new Set(["clientId", "clientSecret", "botScopes", "userScopes", "socketModeEnabled", "socketApiAppId", "socketAppToken", "socketCallbacksReviewed"]);
     if (Object.keys(body).some((key) => !allowedKeys.has(key))) return json({ error: "invalid_configuration" }, 400);
+    if (body.socketModeEnabled === true && body.socketCallbacksReviewed !== true) return json({ error: "invalid_configuration" }, 400);
   } catch {
     return json({ error: "invalid_configuration" }, 400);
   }
@@ -64,9 +76,21 @@ export async function handleSlackConfigurationPut(request: NextRequest, dependen
       clientSecret: body.clientSecret,
       botScopes: body.botScopes,
       userScopes: body.userScopes,
+      socketModeEnabled: body.socketModeEnabled,
+      socketApiAppId: body.socketApiAppId,
+      socketAppToken: body.socketAppToken,
       requestId: randomUUID()
     });
-    return json({ configuration: { clientId: pending.clientId, version: pending.version, secretStored: true, botScopes: pending.botScopes, userScopes: pending.userScopes } }, 200);
+    return json({ configuration: {
+      clientId: pending.clientId,
+      version: pending.version,
+      secretStored: true,
+      botScopes: pending.botScopes,
+      userScopes: pending.userScopes,
+      socketModeEnabled: pending.socketModeEnabled,
+      socketApiAppId: pending.socketApiAppId,
+      socketAppTokenConfigured: pending.socketAppTokenConfigured
+    } }, 200);
   } catch (error) {
     const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : "";
     if (code === "invalid_input" || code.startsWith("invalid-") || code === "required-user-scope-missing") return json({ error: "invalid_configuration" }, 400);
@@ -88,14 +112,22 @@ export async function handleSlackConfigurationPost(request: NextRequest, depende
   if (raw === null) return finish(NextResponse.json({ error: "request_too_large" }, { status: 413 }));
   const form = new URLSearchParams(raw);
   const keys = [...form.keys()];
-  const allowed = new Set(["setupProof", "clientId", "clientSecret", "botScope", "userScope"]);
+  const allowed = new Set(["setupProof", "clientId", "clientSecret", "botScope", "userScope", "additionalBotScopes", "additionalUserScopes", "socketModeEnabled", "socketApiAppId", "socketAppToken", "socketCallbacksReviewed"]);
   if (keys.some((key) => !allowed.has(key)) || form.getAll("setupProof").length !== 1 || form.getAll("clientId").length !== 1 || form.getAll("clientSecret").length !== 1) return finish(configurationRedirect(setupOrigin, "invalid_configuration"));
   const proof = form.get("setupProof") ?? "";
   const clientId = form.get("clientId") ?? "";
   const clientSecret = form.get("clientSecret") ?? "";
-  const botScopes = form.getAll("botScope");
-  const userScopes = form.getAll("userScope");
-  if (proof.length < 64 || proof.length > 512 || clientId.length < 1 || clientId.length > 255 || clientSecret.length < 1 || clientSecret.length > 4096 || botScopes.length > 64 || userScopes.length > 64 || new Set(botScopes).size !== botScopes.length || new Set(userScopes).size !== userScopes.length || [...botScopes, ...userScopes].some((scope) => scope.length < 1 || scope.length > 128)) return finish(configurationRedirect(setupOrigin, "invalid_configuration"));
+  const additionalBotScopes = form.get("additionalBotScopes") ?? "";
+  const additionalUserScopes = form.get("additionalUserScopes") ?? "";
+  const socketModeEnabled = form.get("socketModeEnabled") === "1";
+  const socketApiAppId = form.get("socketApiAppId") ?? "";
+  const socketAppToken = form.get("socketAppToken") ?? "";
+  const socketCallbacksReviewed = form.get("socketCallbacksReviewed") === "1";
+  if (form.getAll("socketModeEnabled").length > 1 || form.getAll("socketApiAppId").length > 1 || form.getAll("socketAppToken").length > 1 || form.getAll("socketCallbacksReviewed").length > 1 || (socketModeEnabled && !socketCallbacksReviewed)) return finish(configurationRedirect(setupOrigin, "invalid_configuration"));
+  if (form.getAll("additionalBotScopes").length > 1 || form.getAll("additionalUserScopes").length > 1 || additionalBotScopes.length > 4096 || additionalUserScopes.length > 4096) return finish(configurationRedirect(setupOrigin, "invalid_configuration"));
+  const botScopes = [...form.getAll("botScope"), ...parseAdditionalScopes(additionalBotScopes)];
+  const userScopes = [...form.getAll("userScope"), ...parseAdditionalScopes(additionalUserScopes)];
+  if (proof.length < 64 || proof.length > 512 || clientId.length < 1 || clientId.length > 255 || clientSecret.length < 1 || clientSecret.length > 4096 || socketApiAppId.length > 32 || socketAppToken.length > 512 || botScopes.length > 64 || userScopes.length > 64 || [...botScopes, ...userScopes].some((scope) => scope.length < 1 || scope.length > 128)) return finish(configurationRedirect(setupOrigin, "invalid_configuration"));
   const csrf = rejectUnprovenSetupBrowserMutation(request, dependencies, proof);
   if (csrf) return finish(hasSafeSetupNavigationMetadata(request, setupOrigin) ? configurationRedirect(setupOrigin, "secure_form_expired") : csrf);
 
@@ -112,12 +144,19 @@ export async function handleSlackConfigurationPost(request: NextRequest, depende
       clientSecret,
       botScopes,
       userScopes,
+      socketModeEnabled,
+      socketApiAppId,
+      socketAppToken,
       requestId: randomUUID()
     });
     return finish(NextResponse.redirect(new URL("/setup", setupOrigin), 303));
   } catch (error) {
     return finish(configurationRedirect(setupOrigin, configurationErrorCode(error)));
   }
+}
+
+function parseAdditionalScopes(value: string): string[] {
+  return value.split(/[\s,]+/).filter(Boolean);
 }
 
 function json(body: unknown, status: number): NextResponse {
