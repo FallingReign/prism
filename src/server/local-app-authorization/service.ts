@@ -36,6 +36,7 @@ export async function beginLocalAppAuthorization(input: {
     clientId: input.request.clientId,
     displayName: input.request.displayName,
     intendedUse: input.request.intendedUse,
+    inboundBlockActions: input.request.inbound?.blockActions === true,
     sourceKey: sourceKey(input.sourceIdentifier),
     pollIntervalSeconds: LOCAL_APP_POLL_INTERVAL_SECONDS,
     expiresAt,

@@ -32,6 +32,19 @@ describe("Global Token profile policy", () => {
     });
   });
 
+  it("keeps Full Web API disabled until an administrator explicitly allows it", () => {
+    const requested = buildTokenProfilePolicy({ preset: "full_web_api", executionIdentity: "user" }, now);
+    const disabled = buildCurrentGlobalTokenProfilePolicy();
+    const enabled = buildCurrentGlobalTokenProfilePolicy({
+      presets: { allowed: [...disabled.presets.allowed, "full_web_api"], default: disabled.presets.default }
+    });
+
+    expect(classifyGlobalTokenProfilePolicyStatus({ preset: "full_web_api", capabilityMap: requested.capabilityMap, expiresAt: requested.expiresAt, policyEffectiveAt: now }, disabled))
+      .toMatchObject({ kind: "outside", reasons: [{ code: "preset_disallowed" }] });
+    expect(classifyGlobalTokenProfilePolicyStatus({ preset: "full_web_api", capabilityMap: requested.capabilityMap, expiresAt: requested.expiresAt, policyEffectiveAt: now }, enabled))
+      .toEqual({ kind: "inside", reasons: [] });
+  });
+
   it("applies safe defaults only when optional create/update fields are omitted", () => {
     const policy = buildCurrentGlobalTokenProfilePolicy({
       presets: { allowed: ["read_only", "messages_only"], default: "messages_only" },

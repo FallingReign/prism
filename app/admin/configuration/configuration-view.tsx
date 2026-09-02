@@ -6,6 +6,9 @@ export type AdminConfigurationSummary = {
   secretConfigured: true;
   botScopes: string[];
   userScopes: string[];
+  socketModeEnabled: boolean;
+  socketApiAppId: string | null;
+  socketAppTokenConfigured: boolean;
   activatedAt: string | null;
   activatedBy: string | null;
 };
@@ -31,6 +34,10 @@ export function AdminConfigurationView({ configuration, callbackUri }: { configu
           <SummaryMetric label="Source" value={environment ? "Environment" : "Prism database"} detail={environment ? "The host owns this complete configuration bundle." : "Prism stores an encrypted, verified configuration version."} tone="primary" />
           <SummaryMetric label="Version" value={environment ? "Deployment managed" : `Version ${configuration.version ?? "unknown"}`} detail="OAuth remains bound to one immutable configuration revision." tone="info" />
           <SummaryMetric label="Client secret" value="Stored securely" detail="The secret value is never returned to this page." tone="success" />
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <SummaryMetric label="Slack controls" value={configuration.socketModeEnabled ? "Socket Mode enabled" : "Socket Mode disabled"} detail={configuration.socketModeEnabled ? `App ${configuration.socketApiAppId ?? "ID unavailable"}; app-level token ${configuration.socketAppTokenConfigured ? "stored securely" : "missing"}.` : "Dropdowns and buttons are unavailable; Prism HTTP APIs still work."} tone={configuration.socketModeEnabled ? "success" : "neutral"} />
+          <SummaryMetric label="Slack callbacks" value={configuration.socketModeEnabled ? "Delivered by Socket Mode" : "Delivered by HTTP"} detail="Prism Web API HTTP endpoints are available in both modes." tone="info" />
         </div>
         {environment ? <Notice title="Read-only configuration" tone="info">Environment-managed Slack credentials cannot be replaced or revealed from the browser.</Notice> : null}
         <section className="grid gap-2 rounded-xl bg-muted/35 p-4">

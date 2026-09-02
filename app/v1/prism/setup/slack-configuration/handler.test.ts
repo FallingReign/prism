@@ -14,7 +14,7 @@ describe("PUT /v1/prism/setup/slack-configuration", () => {
 
   it("saves through the server-resolved setup session and returns only redacted fields", async () => {
     const secret = "client-secret-canary";
-    const createPendingConfiguration = vi.fn().mockResolvedValue({ clientId: "123.456", version: "7", botScopes: ["users:read"], userScopes: ["chat:write"] });
+    const createPendingConfiguration = vi.fn().mockResolvedValue({ clientId: "123.456", version: "7", botScopes: ["users:read"], userScopes: ["chat:write"], socketModeEnabled: false, socketApiAppId: null, socketAppTokenConfigured: false });
     const response = await handleSlackConfigurationPut(configurationRequest({ clientId: "123.456", clientSecret: secret, botScopes: ["users:read"], userScopes: ["chat:write"] }), {
       resolveSession: vi.fn().mockResolvedValue({ id: "setup-session-1", pendingConfigurationVersionId: "server-selected-pending" }),
       createPendingConfiguration
@@ -23,7 +23,7 @@ describe("PUT /v1/prism/setup/slack-configuration", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(body).toEqual({ configuration: { clientId: "123.456", version: "7", secretStored: true, botScopes: ["users:read"], userScopes: ["chat:write"] } });
+    expect(body).toEqual({ configuration: { clientId: "123.456", version: "7", secretStored: true, botScopes: ["users:read"], userScopes: ["chat:write"], socketModeEnabled: false, socketApiAppId: null, socketAppTokenConfigured: false } });
     expect(JSON.stringify(body)).not.toContain(secret);
     expect(JSON.stringify(body)).not.toContain("server-selected-pending");
     expect(createPendingConfiguration).toHaveBeenCalledWith(expect.objectContaining({ setupSessionId: "setup-session-1", expectedPendingVersionId: "server-selected-pending", clientSecret: secret, requestId: expect.any(String) }));
@@ -109,6 +109,63 @@ describe("PUT /v1/prism/setup/slack-configuration", () => {
     expect(response.headers.get("location")).not.toContain(secret);
     expect(response.headers.get("set-cookie")).toMatch(/prism_setup_browser_transaction=;/i);
     expect(createPendingConfiguration).toHaveBeenCalledWith(expect.objectContaining({ clientId: "123.456", clientSecret: secret, botScopes: ["users:read"], userScopes: ["chat:write"] }));
+  });
+
+  it("passes additional Slack scopes through the native setup form", async () => {
+    const createPendingConfiguration = vi.fn().mockResolvedValue({ clientId: "123.456", version: "8", botScopes: ["users:read", "admin.conversations:write"], userScopes: ["chat:write", "users:read.email"] });
+    const request = nativeConfigurationRequest({ origin: "http://localhost:3732", fetchSite: "same-origin" });
+    const body = new URLSearchParams(await request.text());
+    body.set("additionalBotScopes", "admin.conversations:write");
+    body.set("additionalUserScopes", "users:read.email");
+    const response = await handleSlackConfigurationPost(new NextRequest(request.url, { method: "POST", headers: request.headers, body: body.toString() }), nativeDependencies(createPendingConfiguration));
+
+    expect(response.status).toBe(303);
+    expect(createPendingConfiguration).toHaveBeenCalledWith(expect.objectContaining({
+      botScopes: ["users:read", "admin.conversations:write"],
+      userScopes: ["chat:write", "users:read.email"]
+    }));
+  });
+
+  it("requires explicit callback review before enabling Socket Mode", async () => {
+    const createPendingConfiguration = vi.fn().mockResolvedValue({
+      clientId: "123.456",
+      version: "8",
+      botScopes: ["users:read"],
+      userScopes: ["chat:write"],
+      socketModeEnabled: true,
+      socketApiAppId: "A1234567890",
+      socketAppTokenConfigured: true
+    });
+    const makeRequest = (reviewed: boolean) => {
+      const form = new URLSearchParams({
+        setupProof: SETUP_PROOF,
+        clientId: "123.456",
+        clientSecret: "secret",
+        botScope: "users:read",
+        userScope: "chat:write",
+        socketModeEnabled: "1",
+        socketApiAppId: "A1234567890",
+        socketAppToken: "xapp-1-A1234567890-app-token-canary",
+        ...(reviewed ? { socketCallbacksReviewed: "1" } : {})
+      });
+      return new NextRequest("http://0.0.0.0:3732/v1/prism/setup/slack-configuration", {
+        method: "POST",
+        headers: nativeHeaders({ origin: "http://localhost:3732", "sec-fetch-site": "same-origin", cookie: "prism_setup_session=setup-session-token" }),
+        body: form.toString()
+      });
+    };
+
+    const rejected = await handleSlackConfigurationPost(makeRequest(false), nativeDependencies(createPendingConfiguration));
+    expect(rejected.headers.get("location")).toBe("http://localhost:3732/setup?error=invalid_configuration");
+    expect(createPendingConfiguration).not.toHaveBeenCalled();
+
+    const accepted = await handleSlackConfigurationPost(makeRequest(true), nativeDependencies(createPendingConfiguration));
+    expect(accepted.status).toBe(303);
+    expect(createPendingConfiguration).toHaveBeenCalledWith(expect.objectContaining({
+      socketModeEnabled: true,
+      socketApiAppId: "A1234567890",
+      socketAppToken: "xapp-1-A1234567890-app-token-canary"
+    }));
   });
 
   it.each([

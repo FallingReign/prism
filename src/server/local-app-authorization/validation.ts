@@ -7,23 +7,32 @@ const BEGIN_KEYS = [
   "requestedPreset",
   "executionIdentity"
 ] as const;
+const BEGIN_KEYS_WITH_INBOUND = [...BEGIN_KEYS, "inbound"] as const;
 const TOKEN_KEYS = ["clientId", "deviceCode"] as const;
 const RESERVED_CLIENT_IDS = new Set(["shg-playtest", "shg-playtest-delegation"]);
 
 export function parseBeginInput(value: unknown): BeginLocalAppAuthorizationInput | null {
-  if (!hasExactKeys(value, BEGIN_KEYS)) return null;
+  if (!hasExactKeys(value, BEGIN_KEYS) && !hasExactKeys(value, BEGIN_KEYS_WITH_INBOUND)) return null;
   if (!validClientId(value.clientId) || RESERVED_CLIENT_IDS.has(value.clientId)) return null;
   const displayName = boundedText(value.displayName, 1, 80);
   const intendedUse = boundedText(value.intendedUse, 1, 240);
   if (!displayName || !intendedUse) return null;
   if (value.requestedPreset !== "messages_only" || value.executionIdentity !== "user") return null;
+  const inbound = "inbound" in value ? parseInbound(value.inbound) : { blockActions: false };
+  if (!inbound) return null;
   return {
     clientId: value.clientId,
     displayName,
     intendedUse,
     requestedPreset: "messages_only",
-    executionIdentity: "user"
+    executionIdentity: "user",
+    inbound
   };
+}
+
+function parseInbound(value: unknown): { blockActions: boolean } | null {
+  if (!hasExactKeys(value, ["blockActions"] as const) || typeof value.blockActions !== "boolean") return null;
+  return { blockActions: value.blockActions };
 }
 
 export function parseTokenInput(value: unknown): { clientId: string; deviceCode: string } | null {

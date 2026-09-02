@@ -19,6 +19,8 @@ describe("/api-reference", () => {
       "/v1/prism/status",
       "/v1/prism/capabilities",
       "/v1/slack/api/{method}",
+      "/v1/prism/slack/inbound-routes",
+      "/v1/prism/slack/inbox",
       "/v1/prism/token-profiles",
       "/v1/prism/activity",
       "/v1/slack/oauth/start",
@@ -43,7 +45,8 @@ describe("/api-reference", () => {
       "Slack rate limit responses",
       "metadata only",
       "Admin operations live in the Prism admin console",
-      "Events, slash commands, Block Kit interactivity, file transfer, canvases, and lists are deferred"
+      "Prism Inbox stores only normalised actions from registered Block Kit controls",
+      "General events, slash commands, file transfer, canvases, and lists remain deferred"
     ]) {
       expect(html).toContain(expected);
     }

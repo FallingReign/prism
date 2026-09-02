@@ -6,7 +6,7 @@ import { capabilityTemplateForPreset, executionIdentitySelectOptions, presetAvai
 
 describe("Token profile policy UI options", () => {
   it("keeps visible preset templates aligned with server policy actions", () => {
-    for (const preset of ["read_only", "messages_only", "full_slack_bridge"] as const) {
+    for (const preset of ["read_only", "messages_only", "full_slack_bridge", "full_web_api"] as const) {
       expect(capabilityTemplateForPreset(preset)).toEqual(
         buildTokenProfilePolicy({ preset, executionIdentity: "automatic", destructive: false }).capabilityMap.actions
       );

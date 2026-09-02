@@ -47,10 +47,10 @@ server requires an HTTPS public URL; use host `npm start` for localhost HTTP.
 
 The local development server uses port `3732` to avoid common default-port conflicts and binds to `0.0.0.0` so the pilot host VM can receive Slack OAuth redirects.
 
-The health endpoint returns only fixed service/database status values, for example:
+The health endpoint returns fixed web, database, and Socket Mode status values, for example:
 
 ```json
-{ "service": "ok", "database": "ok" }
+{ "service": "ok", "database": "ok", "socket": { "status": "disabled" } }
 ```
 
 If Postgres is unavailable, the same path returns HTTP 503 with:
@@ -88,6 +88,14 @@ app values through Prism's web setup or the same ignored `.env.local` bootstrap 
 complete reserved development-mock bundle from `.env.local`, Prism treats it as absent so active database configuration
 or `/setup` can win; the bundle is never promoted into a real Slack request. A mock flag paired with a non-reserved real
 client and partial real credential pairs remain invalid.
+
+Prism can also run a separate Socket Mode worker for Block Kit actions. It is
+disabled by default, so the web API and existing HTTP callers keep working
+without an app-level token. Before enabling it, inventory the same Slack app's
+Event Subscriptions and Interactivity callback URLs: Slack sends those payloads
+through Socket Mode instead of the app's HTTP callbacks while Socket Mode is
+enabled. Prism's own HTTP API remains available. See
+[`docs/setup.md`](docs/setup.md#socket-mode-and-prism-inbox).
 
 Generic local applications can pair without asking a non-technical user to
 create or paste a Token profile. The app starts a short-lived request at

@@ -51,6 +51,8 @@ describe("Prism setup view", () => {
     expect(html).toContain('method="post"');
     expect(html).toContain('name="userScope"');
     expect(html).toContain('name="botScope"');
+    expect(html).toContain('name="additionalUserScopes"');
+    expect(html).toContain('name="additionalBotScopes"');
     expect(html).not.toContain('value="*"');
   });
 
@@ -58,7 +60,7 @@ describe("Prism setup view", () => {
     const html = renderToStaticMarkup(
       <SetupView
         callbackUri="http://localhost:3732/v1/slack/oauth/callback"
-        state={{ kind: "configure", scopes, selectedBotScopes: [], selectedUserScopes: ["chat:write"], pending: { clientId: "123.456", secretStored: true, botScopes: [], userScopes: ["chat:write"], version: "2" } }}
+        state={{ kind: "configure", scopes, selectedBotScopes: [], selectedUserScopes: ["chat:write"], pending: { clientId: "123.456", secretStored: true, botScopes: [], userScopes: ["chat:write"], socketModeEnabled: false, socketApiAppId: null, socketAppTokenConfigured: false, version: "2" } }}
       />
     );
 

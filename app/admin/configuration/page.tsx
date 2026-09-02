@@ -21,7 +21,7 @@ export default async function AdminConfigurationPage() {
   const deployment = getSlackOAuthDeploymentConfig();
   const status = await createConfiguredSlackAppConfigurationResolver().getStatus();
   if (status.kind === "setup_required") return <AdminAccessDenied />;
-  if (status.kind === "environment_locked") return <AdminConfigurationView callbackUri={deployment.redirectUri} configuration={{ source: "environment", secretConfigured: true, botScopes: status.summary.botScopes, userScopes: status.summary.userScopes, activatedAt: null, activatedBy: null }} />;
+  if (status.kind === "environment_locked") return <AdminConfigurationView callbackUri={deployment.redirectUri} configuration={{ source: "environment", secretConfigured: true, botScopes: status.summary.botScopes, userScopes: status.summary.userScopes, socketModeEnabled: status.summary.socketModeEnabled, socketApiAppId: status.summary.socketApiAppId, socketAppTokenConfigured: status.summary.socketAppTokenConfigured, activatedAt: null, activatedBy: null }} />;
   const activation = status.summary.id
     ? await readActivationMetadata(status.summary.id)
     : null;
@@ -31,6 +31,9 @@ export default async function AdminConfigurationPage() {
     secretConfigured: true,
     botScopes: status.summary.botScopes,
     userScopes: status.summary.userScopes,
+    socketModeEnabled: status.summary.socketModeEnabled,
+    socketApiAppId: status.summary.socketApiAppId,
+    socketAppTokenConfigured: status.summary.socketAppTokenConfigured,
     activatedAt: activation?.activatedAt ?? null,
     activatedBy: activation?.activatedBy ?? null
   };

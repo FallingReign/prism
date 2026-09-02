@@ -5,7 +5,7 @@ export type TokenProfileSummary = {
   id: string;
   name: string;
   intendedUse: string;
-  preset: "read_only" | "messages_only" | "full_slack_bridge" | "custom";
+  preset: "read_only" | "messages_only" | "full_slack_bridge" | "full_web_api" | "custom";
   executionIdentity: "user" | "bot" | "automatic" | "selectable";
   expiresAt: string | null;
   status?: "active" | "revoked";

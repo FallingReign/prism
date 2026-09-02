@@ -54,7 +54,10 @@ Slack has no all-scopes wildcard. When no scope selection is supplied, Prism
 defaults to every scope in its reviewed, typed catalogue and passes those
 scope IDs explicitly. The setup page exposes the same checklist and warns that
 selecting scopes in Prism does not configure or approve them in Slack. The
-existing Slack app must already have the requested permissions.
+existing Slack app must already have the requested permissions. Additional
+valid Slack scopes may be entered explicitly when a Slack method falls outside
+the reviewed catalogue; Slack still decides whether the app and workspace may
+use each scope.
 
 A complete real `SLACK_CLIENT_ID` plus `SLACK_CLIENT_SECRET` environment bundle
 remains supported for secret-manager deployments and takes precedence over the
@@ -290,9 +293,48 @@ curl -i \
 
 Surface-gated methods require `X-Prism-Surface`, such as `public_channel`, `private_channel`, `dm`, or `mpim`. Optional `X-Prism-Workspace-ID` narrows workspace policy checks. Optional `X-Prism-Execution-Mode` may select `user` or `bot` when the Token profile's **Execution identity** is selectable.
 
+A **Full Web API** Token profile accepts any syntactically valid Slack Web API
+method name at the same route. This does not create a Slack wildcard permission:
+the stored Slack credential, its approved OAuth scopes, the selected workspace,
+and Slack's own policy still apply. Existing Token profiles remain on their
+current Method registry until deliberately replaced or broadened.
+
 Prism strips local `token` payload fields before forwarding. Local tools should still avoid sending Prism developer tokens or Slack credentials in request bodies.
 
-Normal forwarding calls Slack's real Web API with server-held Slack credentials selected from the resolved Execution identity. On Enterprise Grid installs, pass `X-Prism-Workspace-ID` with the target Slack workspace ID; Prism forwards it to Slack as `team_id` when the payload does not already include `team_id`. For local-only mock QA, set `PRISM_SLACK_WEB_API_MOCK=1`; production ignores mock mode.
+Normal forwarding calls Slack's real Web API with server-held Slack credentials selected from the resolved Execution identity. Full Web API calls must pass `X-Prism-Workspace-ID` with the target Slack workspace ID. Prism forces Slack's `team_id` to that exact workspace and rejects a conflicting payload before calling Slack. For local-only mock QA, set `PRISM_SLACK_WEB_API_MOCK=1`; production ignores mock mode.
+
+## Socket Mode and Prism Inbox
+
+Socket Mode is optional and runs in a separate worker. Prism's website and HTTP
+API continue to work when the worker is disabled or unavailable. Enabling Socket
+Mode on a Slack app changes how Slack delivers that app's Event Subscriptions
+and Interactivity payloads: they move from Slack's HTTP callbacks to Socket Mode.
+Inventory those callbacks before changing the Slack app.
+
+1. Inventory the Slack app's existing Events API, Interactivity, and
+   slash-command HTTP callback consumers.
+2. In Slack app management, enable **Socket Mode** and enable
+   **Interactivity & Shortcuts**. Keep Event Subscriptions disabled for this
+   slice so Prism does not create a second message source.
+3. Create an app-level token with `connections:write`.
+4. In Prism's guided Slack setup, choose **Enable Slack controls**, enter the
+   Slack App ID and app-level token, and confirm the callback inventory.
+5. Complete Slack verification. The waiting Socket worker loads the encrypted
+   configuration automatically.
+6. Check `/v1/prism/health` for `socket.status: "connected"`.
+
+Deployment-managed installations may instead set `SLACK_API_APP_ID`,
+`SLACK_APP_TOKEN`, and `SLACK_SOCKET_MODE_ENABLED=1`. This environment bootstrap
+overrides the database configuration and requires restarting the Socket worker.
+
+Local tools request a short-lived **Route** with
+`POST /v1/prism/slack/inbound-routes`, then poll
+`GET /v1/prism/slack/inbox`. A Block Kit action becomes one normalised
+**Delivery** visible only to the Token profile that created the Route. After
+applying it, the Local tool acknowledges it with
+`POST /v1/prism/slack/inbox/{deliveryId}/ack`. Raw Slack envelopes, message
+text, option labels, response URLs, triggers, and tokens are not stored in the
+Prism Inbox.
 
 ## Token profile lifecycle
 
@@ -317,7 +359,7 @@ Use rotation for normal secret hygiene and revocation for suspected token theft.
 | Revoked Prism developer token | Token or profile has been revoked. | Stop using the token and issue a replacement if appropriate. |
 | Reauth required | Slack authorization must be renewed; Token profiles remain present. | Ask the user to relink Slack in the Prism website. |
 | Policy denied | The Capability map does not allow the method, surface, workspace, or execution identity. | Check capabilities and adjust the Token profile if justified. |
-| Unsupported method | The Method registry excludes or defers the Slack method in v1. | Do not retry as if transient; wait for a future slice. |
+| Unsupported method | The Token profile uses the curated Method registry and the method is not included. | Use a reviewed method or deliberately create a Full Web API Token profile. |
 | Prism-side rate limit | Prism limited this Token profile and Slack method before upstream. | Back off using `Retry-After`; `X-Prism-Upstream-Called` is `false`. |
 | Upstream Slack rate limit | Slack returned its own rate limit after Prism forwarded. | Back off using Slack's `Retry-After`; `X-Prism-Upstream-Called` is `true`. |
 
@@ -327,6 +369,9 @@ All Prism responses include `Cache-Control: no-store` and `X-Prism-Request-ID` w
 
 The reference MCP adapter lives in [`../examples/prism-mcp-adapter`](../examples/prism-mcp-adapter/). Configure it with `PRISM_BASE_URL` and `PRISM_DEVELOPER_TOKEN`. It validates `/v1/prism/status` and `/v1/prism/capabilities`, exposes representative tools, and calls only Prism endpoints.
 
-## Deferred v1 surfaces
+## Deferred surfaces
 
-Prism v1 does not include inbound events, Socket Mode, slash commands, interactivity, app mentions, file transfer, canvases, lists, payload logging, content moderation, Supabase platform services, or Slack administration. These are explicit deferrals, not hidden features.
+Prism Inbox currently accepts registered Block Kit `static_select` actions.
+General inbound events and event fanout, slash commands, app mentions, file transfer,
+canvases, lists, payload logging, content moderation, Supabase platform services,
+and Slack administration remain deferred.

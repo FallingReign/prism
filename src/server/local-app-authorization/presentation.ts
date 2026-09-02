@@ -9,6 +9,9 @@ export function renderLocalAppConsentPage(preview: LocalAppAuthorizationPreview)
   const rePairing = preview.rePairing
     ? `<div class="warning"><strong>This app is already paired.</strong> Approving replaces its current token immediately. The existing pairing will stop working.</div>`
     : "";
+  const access = preview.inbound?.blockActions === true
+    ? "Read and send Slack messages as you, and receive your clicks from controls this app posts. No files, administration, or app management."
+    : "Read and send Slack messages as you. No files, administration, or app management.";
   return page("Connect a local app", `
     <p class="eyebrow">Prism local app pairing</p>
     <h1>Connect ${escapeHtml(preview.displayName)}?</h1>
@@ -21,7 +24,7 @@ export function renderLocalAppConsentPage(preview: LocalAppAuthorizationPreview)
       <div><dt>Acts as</dt><dd>${escapeHtml(slackUser)} (${escapeHtml(identity.slackUserId)})</dd></div>
       <div><dt>Slack workspace</dt><dd>${escapeHtml(workspace)}</dd></div>
       ${organization ? `<div><dt>Slack organization</dt><dd>${escapeHtml(organization)}</dd></div>` : ""}
-      <div><dt>Access</dt><dd>Read and send Slack messages as you. No files, administration, or app management.</dd></div>
+      <div><dt>Access</dt><dd>${escapeHtml(access)}</dd></div>
       <div><dt>Request expires</dt><dd>${escapeHtml(preview.expiresAt.toISOString())}</dd></div>
     </dl>
     <form method="post" action="/local-app/authorize">

@@ -5,6 +5,7 @@ import type { CapabilityMap } from "../token-profiles/presets";
 type CapabilityField = keyof CapabilityMap["actions"];
 
 export type MethodCategory =
+  | "web_api.full"
   | "conversations.read"
   | "users.read"
   | "search"
@@ -23,7 +24,7 @@ export type MethodCategory =
 
 export type MethodAvailability = {
   categories: Record<string, { allowed: boolean; methods: string[] }>;
-  methods: Record<string, { category: MethodCategory; status: "allowed" | "denied" | "unsupported"; requiredCapability: CapabilityField | "unsupported"; supported: boolean }>;
+  methods: Record<string, { category: MethodCategory; status: "allowed" | "denied" | "unsupported"; requiredCapability: CapabilityField | "unsupported" | "all_methods"; supported: boolean }>;
   unsupported: { surfaces: string[] };
 };
 
@@ -46,6 +47,13 @@ export type UnsupportedMethodClassification = {
 };
 
 export type MethodClassification = SupportedMethodClassification | UnsupportedMethodClassification;
+
+const SLACK_WEB_API_METHOD = /^[a-z][A-Za-z0-9]*(?:\.[a-z][A-Za-z0-9]*)+$/;
+const MAX_SLACK_WEB_API_METHOD_LENGTH = 200;
+
+export function isValidSlackWebApiMethod(method: string): boolean {
+  return method.length <= MAX_SLACK_WEB_API_METHOD_LENGTH && SLACK_WEB_API_METHOD.test(method);
+}
 
 const supportedRegistry: Array<Omit<SupportedMethodClassification, "method" | "supported" | "status"> & { methods: string[] }> = [
   {
@@ -116,6 +124,22 @@ export function classifySlackMethod(method: string): MethodClassification {
 export function buildMethodAvailability(capabilityMap: CapabilityMap): MethodAvailability {
   const categories: MethodAvailability["categories"] = {};
   const methods: MethodAvailability["methods"] = {};
+  const fullWebApi = capabilityMap.webApi?.mode === "all_methods";
+
+  if (fullWebApi) {
+    categories["web_api.full"] = { allowed: true, methods: ["*"] };
+    for (const entry of [...supportedRegistry, ...unsupportedRegistry]) {
+      for (const method of entry.methods) {
+        methods[method] = {
+          category: "web_api.full",
+          status: "allowed",
+          requiredCapability: "all_methods",
+          supported: true
+        };
+      }
+    }
+    return { categories, methods, unsupported: { surfaces: [] } };
+  }
 
   for (const entry of supportedRegistry) {
     const allowed = entry.requiredCapabilities.every((capability) => capabilityMap.actions[capability]);

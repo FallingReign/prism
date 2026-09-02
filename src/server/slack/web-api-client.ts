@@ -94,6 +94,7 @@ export class MockSlackWebApiClient implements SlackWebApiClient {
 
 function mockBody({ method, payload, executionMode }: SlackWebApiCall): unknown {
   if (payload.channel === "C-MOCK-ERROR") return { ok: false, error: "channel_not_found" };
+  if (method === "auth.test") return { ok: true, team_id: String(payload.team_id ?? "T-MOCK"), user_id: "U-MOCK" };
   if (method === "conversations.list") {
     return {
       ok: true,

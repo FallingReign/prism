@@ -6,6 +6,9 @@ export type BeginLocalAppAuthorizationInput = {
   intendedUse: string;
   requestedPreset: "messages_only";
   executionIdentity: "user";
+  inbound?: {
+    blockActions: boolean;
+  };
 };
 
 export type LocalAppAuthorizationPreview = {
@@ -16,6 +19,9 @@ export type LocalAppAuthorizationPreview = {
   intendedUse: string;
   expiresAt: Date;
   rePairing: boolean;
+  inbound?: {
+    blockActions: boolean;
+  };
   identity: {
     prismUserId: string;
     slackConnectionId: string;
@@ -37,6 +43,7 @@ export type LocalAppAuthorizationStore = {
     clientId: string;
     displayName: string;
     intendedUse: string;
+    inboundBlockActions: boolean;
     sourceKey: string;
     pollIntervalSeconds: number;
     expiresAt: Date;

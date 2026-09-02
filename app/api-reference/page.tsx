@@ -125,7 +125,7 @@ export default function ApiReferencePage() {
             Slack credentials stay in Prism credential custody. Prism activity is metadata only: method, policy outcome, object IDs,
             request IDs, timing, and rate-limit metadata without Slack payload content.
           </p>
-          <p>Events, slash commands, Block Kit interactivity, file transfer, canvases, and lists are deferred v1 surfaces.</p>
+          <p>Prism Inbox stores only normalised actions from registered Block Kit controls. General events, slash commands, file transfer, canvases, and lists remain deferred.</p>
         </Panel>
       </section>
 

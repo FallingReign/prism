@@ -37,5 +37,23 @@ services:
       timeout: 5s
       retries: 5
 
+  socket:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["npm", "run", "start:socket"]
+    env_file:
+      - .env.local
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      NODE_ENV: production
+    volumes:
+      - ./config:/app/config:ro
+    depends_on:
+      web:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   prism-postgres-data:

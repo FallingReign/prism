@@ -37,6 +37,89 @@ function store(row: ResolvedDeveloperToken | null, workspaceAllowed = true): Sla
 }
 
 describe("Slack method policy enforcement", () => {
+  it("allows valid unlisted Slack methods only for an explicit Full Web API profile", async () => {
+    const fullWebApi = buildTokenProfilePolicy({ preset: "full_web_api", executionIdentity: "user" }, now);
+    const standard = buildTokenProfilePolicy({ preset: "full_slack_bridge", executionIdentity: "user" }, now);
+
+    const allowed = await evaluateSlackMethodPolicy({
+      store: store(resolved(fullWebApi)),
+      bearerToken: "prism_dev_fullwebapicanaryfullwebapicanaryxx",
+      developerTokenConfig: { pepper: "pepper-secret-canary", pepperId: "local-pepper" },
+      method: "auth.test",
+      requestId: "req_full_web_api",
+      requestContext: { workspaceId: "T123" },
+      now
+    });
+    const unchangedStandard = await evaluateSlackMethodPolicy({
+      store: store(resolved(standard)),
+      bearerToken: "prism_dev_standardcanarystandardcanaryxxxx",
+      developerTokenConfig: { pepper: "pepper-secret-canary", pepperId: "local-pepper" },
+      method: "auth.test",
+      requestId: "req_standard",
+      requestContext: { workspaceId: "T123" },
+      now
+    });
+
+    expect(allowed).toMatchObject({ kind: "allowed", method: "auth.test", category: "web_api.full" });
+    expect(unchangedStandard).toMatchObject({ kind: "unsupported", body: { error: "method_not_supported" } });
+  });
+
+  it.each([
+    "auth/test",
+    "auth\\test",
+    "https://slack.com/api/auth.test",
+    "auth.test?token=x",
+    "auth%2Ftest",
+    "Auth.test",
+    "auth",
+    `auth.${"a".repeat(250)}`
+  ])("rejects invalid Full Web API method %s before upstream work", async (method) => {
+    const fullWebApi = buildTokenProfilePolicy({ preset: "full_web_api", executionIdentity: "user" }, now);
+    const decision = await evaluateSlackMethodPolicy({
+      store: store(resolved(fullWebApi)),
+      bearerToken: "prism_dev_invalidmethodcanaryinvalidmethodxx",
+      developerTokenConfig: { pepper: "pepper-secret-canary", pepperId: "local-pepper" },
+      method,
+      requestId: "req_invalid_method",
+      requestContext: { workspaceId: "T123" },
+      now
+    });
+
+    expect(decision).toMatchObject({ kind: "unsupported", body: { error: "method_not_supported", prism: { errorClass: "invalid_method" } } });
+  });
+
+  it("requires an explicit workspace for every Full Web API method", async () => {
+    const fullWebApi = buildTokenProfilePolicy({ preset: "full_web_api", executionIdentity: "user" }, now);
+    const decision = await evaluateSlackMethodPolicy({
+      store: store(resolved(fullWebApi)),
+      bearerToken: "prism_dev_readpolicycanaryreadpolicycanary",
+      developerTokenConfig: { pepper: "pepper-secret-canary", pepperId: "local-pepper" },
+      method: "auth.test",
+      requestId: "req_full_web_workspace",
+      now
+    });
+
+    expect(decision).toMatchObject({ kind: "denied", body: { prism: { errorClass: "workspace_required" } } });
+  });
+
+  it.each(["chat.postMessage", "views.open"])(
+    "treats known method %s as deterministic Full Web API rather than curated policy",
+    async (method) => {
+      const fullWebApi = buildTokenProfilePolicy({ preset: "full_web_api", executionIdentity: "user" }, now);
+      const decision = await evaluateSlackMethodPolicy({
+        store: store(resolved(fullWebApi)),
+        bearerToken: "prism_dev_fullwebapicanaryfullwebapicanaryxx",
+        developerTokenConfig: { pepper: "pepper-secret-canary", pepperId: "local-pepper" },
+        method,
+        requestId: "req_full_known",
+        requestContext: { workspaceId: "T123" },
+        now
+      });
+
+      expect(decision).toMatchObject({ kind: "allowed", category: "web_api.full" });
+    }
+  );
+
   it("allows Playtest chat.postMessage and denies unrelated reads, reactions, and destructive methods", async () => {
     const app = resolved(
       { capabilityMap: PLAYTEST_APP_CAPABILITY_MAP, expiresAt: null },

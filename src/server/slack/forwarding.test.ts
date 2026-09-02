@@ -79,6 +79,28 @@ describe("Slack forwarding service", () => {
     ]);
   });
 
+  it("rejects a Slack team_id that differs from the authorized Prism workspace", async () => {
+    const client: SlackWebApiClient = { callMethod: vi.fn() };
+    const rateLimiter = vi.fn(allowRateLimiter);
+
+    const response = await forwardSlackMethod({
+      request: new NextRequest("http://localhost:3732/v1/slack/api/conversations.list?team_id=T999", {
+        headers: { "x-prism-workspace-id": "T123" }
+      }),
+      method: "conversations.list",
+      identity,
+      requestId: "req_workspace_mismatch",
+      client,
+      rateLimiter
+    });
+
+    expect(client.callMethod).not.toHaveBeenCalled();
+    expect(rateLimiter).not.toHaveBeenCalled();
+    expect(response.status).toBe(403);
+    expect(response.headers.get("x-prism-upstream-called")).toBe("false");
+    expect(await response.json()).toEqual({ ok: false, error: "workspace_mismatch" });
+  });
+
   it("rejects malformed Slack JSON payloads before upstream calls", async () => {
     const client: SlackWebApiClient = { callMethod: vi.fn() };
     const rateLimiter = vi.fn(allowRateLimiter);
@@ -100,6 +122,28 @@ describe("Slack forwarding service", () => {
     expect(rateLimiter).not.toHaveBeenCalled();
     expect(response.headers.get("x-prism-upstream-called")).toBe("false");
     expect(await response.json()).toEqual({ ok: false, error: "invalid_json" });
+  });
+
+  it("rejects an oversized Slack payload before upstream calls", async () => {
+    const client: SlackWebApiClient = { callMethod: vi.fn() };
+    const rateLimiter = vi.fn(allowRateLimiter);
+    const response = await forwardSlackMethod({
+      request: new NextRequest("http://localhost:3732/v1/slack/api/chat.postMessage", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "x".repeat(1024 * 1024) })
+      }),
+      method: "chat.postMessage",
+      identity,
+      requestId: "req_large_body",
+      client,
+      rateLimiter
+    });
+
+    expect(client.callMethod).not.toHaveBeenCalled();
+    expect(rateLimiter).not.toHaveBeenCalled();
+    expect(response.status).toBe(413);
+    expect(await response.json()).toEqual({ ok: false, error: "request_too_large" });
   });
 
   it("runs the rate-limit seam before upstream calls", async () => {

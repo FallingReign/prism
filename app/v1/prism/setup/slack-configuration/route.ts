@@ -42,11 +42,22 @@ function createDependencies(): SlackConfigurationRouteDependencies {
         clientSecret: input.clientSecret,
         botScopes: input.botScopes as readonly string[] | null | undefined,
         userScopes: input.userScopes as readonly string[] | null | undefined,
+        socketModeEnabled: input.socketModeEnabled,
+        socketApiAppId: input.socketApiAppId,
+        socketAppToken: input.socketAppToken,
         createdVia: "bootstrap",
         createdByPrismUserId: null,
         audit: { endpoint: "/v1/prism/setup/slack-configuration", requestId: input.requestId }
       });
-      return { clientId: pending.clientId, version: pending.version, botScopes: pending.botScopes, userScopes: pending.userScopes };
+      return {
+        clientId: pending.clientId,
+        version: pending.version,
+        botScopes: pending.botScopes,
+        userScopes: pending.userScopes,
+        socketModeEnabled: pending.socketModeEnabled,
+        socketApiAppId: pending.socketApiAppId,
+        socketAppTokenConfigured: pending.socketAppTokenConfigured
+      };
     }
   };
 }

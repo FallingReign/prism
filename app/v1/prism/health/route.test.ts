@@ -15,7 +15,10 @@ describe("GET /v1/prism/health", () => {
   });
 
   it("returns 200 and sanitized health JSON when the database is reachable", async () => {
-    mockDb.query.mockResolvedValue(undefined);
+    const heartbeat = new Date();
+    mockDb.query
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ rows: [{ status: "connected", heartbeat_at: heartbeat, last_error_class: null }], rowCount: 1 });
     const { GET } = await import("./route");
 
     const response = await GET();
@@ -23,7 +26,7 @@ describe("GET /v1/prism/health", () => {
 
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toContain("application/json");
-    expect(body).toEqual({ service: "ok", database: "ok" });
+    expect(body).toEqual({ service: "ok", database: "ok", socket: { status: "connected", heartbeatAt: heartbeat.toISOString(), lastErrorClass: null } });
     expect(JSON.stringify(body)).not.toMatch(/secret|token|password|connection|string|stack/i);
   });
 
@@ -35,7 +38,7 @@ describe("GET /v1/prism/health", () => {
     const body = await response.json();
 
     expect(response.status).toBe(503);
-    expect(body).toEqual({ service: "ok", database: "unavailable" });
+    expect(body).toEqual({ service: "ok", database: "unavailable", socket: { status: "unavailable", heartbeatAt: null, lastErrorClass: null } });
     expect(JSON.stringify(body)).not.toMatch(/postgres|user|password|localhost|stack|secret|token/i);
   });
 });

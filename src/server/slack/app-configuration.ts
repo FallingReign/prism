@@ -36,8 +36,8 @@ export type SlackScopeCatalogEntry = (typeof SLACK_SCOPE_CATALOG)[number];
 export type SlackScopeId = SlackScopeCatalogEntry["id"];
 export type SlackScopeKind = SlackScopeCatalogEntry["tokenKind"];
 export type SlackScopeSelection = {
-  botScopes: SlackScopeId[];
-  userScopes: SlackScopeId[];
+  botScopes: string[];
+  userScopes: string[];
 };
 
 const BOT_SCOPE_IDS = scopeIds("bot");
@@ -59,8 +59,11 @@ export type SlackAppConfigurationCreatedVia = "bootstrap" | "configuration_admin
 export type ValidatedSlackAppConfigurationInput = {
   clientId: string;
   clientSecret: string;
-  botScopes: SlackScopeId[];
-  userScopes: SlackScopeId[];
+  botScopes: string[];
+  userScopes: string[];
+  socketModeEnabled: boolean;
+  socketApiAppId: string | null;
+  socketAppToken: string | null;
 };
 
 export type StoredSlackAppConfigurationVersion = {
@@ -69,8 +72,11 @@ export type StoredSlackAppConfigurationVersion = {
   status: SlackAppConfigurationStatus;
   clientId: string;
   clientSecretEnvelope: CredentialEnvelope;
-  botScopes: SlackScopeId[];
-  userScopes: SlackScopeId[];
+  botScopes: string[];
+  userScopes: string[];
+  socketModeEnabled: boolean;
+  socketApiAppId: string | null;
+  socketAppTokenEnvelope: CredentialEnvelope | null;
   createdVia: SlackAppConfigurationCreatedVia;
   createdByPrismUserId: string | null;
   setupSessionId: string | null;
@@ -81,9 +87,10 @@ export type StoredSlackAppConfigurationVersion = {
 
 export type RedactedSlackAppConfiguration = Omit<
   StoredSlackAppConfigurationVersion,
-  "clientSecretEnvelope"
+  "clientSecretEnvelope" | "socketAppTokenEnvelope"
 > & {
   secretConfigured: true;
+  socketAppTokenConfigured: boolean;
 };
 
 export type SlackAppConfigurationBinding =
@@ -100,6 +107,7 @@ export class SlackAppConfigurationValidationError extends Error {
     | "invalid-client-secret"
     | "invalid-bot-scopes"
     | "invalid-user-scopes"
+    | "invalid-socket-configuration"
     | "required-user-scope-missing";
 
   constructor(code: SlackAppConfigurationValidationError["code"]) {
@@ -143,6 +151,9 @@ export function validateSlackAppConfigurationInput(
     clientSecret: unknown;
     botScopes?: readonly string[] | null;
     userScopes?: readonly string[] | null;
+    socketModeEnabled?: unknown;
+    socketApiAppId?: unknown;
+    socketAppToken?: unknown;
   },
   options: { production?: boolean } = {}
 ): ValidatedSlackAppConfigurationInput {
@@ -168,20 +179,36 @@ export function validateSlackAppConfigurationInput(
     throw new SlackAppConfigurationValidationError("invalid-client-secret");
   }
 
+  const socketModeEnabled = input.socketModeEnabled === true;
+  const socketApiAppId = typeof input.socketApiAppId === "string" ? input.socketApiAppId.trim() : "";
+  const socketAppToken = typeof input.socketAppToken === "string" ? input.socketAppToken.trim() : "";
+  if (
+    socketModeEnabled &&
+    (!/^A[A-Z0-9]{8,31}$/.test(socketApiAppId) || !/^xapp-[A-Za-z0-9-]{16,}$/.test(socketAppToken))
+  ) {
+    throw new SlackAppConfigurationValidationError("invalid-socket-configuration");
+  }
+
   return {
     clientId,
     clientSecret,
     ...canonicalizeSlackScopeSelection({
       ...(input.botScopes !== undefined ? { botScopes: input.botScopes } : {}),
       ...(input.userScopes !== undefined ? { userScopes: input.userScopes } : {})
-    })
+    }),
+    socketModeEnabled,
+    socketApiAppId: socketModeEnabled ? socketApiAppId : null,
+    socketAppToken: socketModeEnabled ? socketAppToken : null
   };
 }
 
 export function redactSlackAppConfiguration(
   configuration:
     | StoredSlackAppConfigurationVersion
-    | (Omit<StoredSlackAppConfigurationVersion, "clientSecretEnvelope"> & { secretConfigured: true })
+    | (Omit<StoredSlackAppConfigurationVersion, "clientSecretEnvelope" | "socketAppTokenEnvelope"> & {
+        secretConfigured: true;
+        socketAppTokenConfigured: boolean;
+      })
 ): RedactedSlackAppConfiguration {
   const {
     id,
@@ -190,6 +217,8 @@ export function redactSlackAppConfiguration(
     clientId,
     botScopes,
     userScopes,
+    socketModeEnabled,
+    socketApiAppId,
     createdVia,
     createdByPrismUserId,
     setupSessionId,
@@ -210,7 +239,13 @@ export function redactSlackAppConfiguration(
     createdAt,
     activatedAt,
     supersededAt,
-    secretConfigured: true
+    secretConfigured: true,
+    socketModeEnabled,
+    socketApiAppId,
+    socketAppTokenConfigured:
+      "socketAppTokenEnvelope" in configuration
+        ? configuration.socketAppTokenEnvelope !== null
+        : configuration.socketAppTokenConfigured
   };
 }
 
@@ -234,15 +269,24 @@ function scopeIds(kind: SlackScopeKind): SlackScopeId[] {
   return SLACK_SCOPE_CATALOG.filter((entry) => entry.tokenKind === kind).map((entry) => entry.id);
 }
 
-function canonicalizeKind(kind: SlackScopeKind, selected: readonly string[]): SlackScopeId[] {
+function canonicalizeKind(kind: SlackScopeKind, selected: readonly string[]): string[] {
   if (!Array.isArray(selected)) {
     throw new SlackAppConfigurationValidationError(kind === "bot" ? "invalid-bot-scopes" : "invalid-user-scopes");
   }
   const allowed = kind === "bot" ? BOT_SCOPE_IDS : USER_SCOPE_IDS;
-  const allowedSet = new Set<string>(allowed);
-  if (selected.some((candidate) => typeof candidate !== "string" || !allowedSet.has(candidate))) {
+  if (
+    selected.length > 64 ||
+    selected.some(
+      (candidate) =>
+        typeof candidate !== "string" ||
+        candidate.length < 1 ||
+        candidate.length > 128 ||
+        !/^[a-z][a-z0-9]*(?:[.:-][a-z0-9]+)*$/.test(candidate)
+    )
+  ) {
     throw new SlackAppConfigurationValidationError(kind === "bot" ? "invalid-bot-scopes" : "invalid-user-scopes");
   }
   const selectedSet = new Set(selected);
-  return allowed.filter((scopeId) => selectedSet.has(scopeId));
+  const reviewed = allowed.filter((scopeId) => selectedSet.delete(scopeId));
+  return [...reviewed, ...[...selectedSet].sort()];
 }

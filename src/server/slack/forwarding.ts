@@ -16,6 +16,7 @@ import { slackApiResponse } from "./response-adapter";
 import { createDefaultSlackWebApiClient, type SlackForwardingPayload, type SlackPayloadEncoding, type SlackWebApiCall, type SlackWebApiClient } from "./web-api-client";
 
 type ResolvedExecutionIdentity = Extract<SlackExecutionIdentityDecision, { kind: "resolved" }>;
+const MAX_SLACK_PAYLOAD_BYTES = 1024 * 1024;
 const defaultSlackForwardingRateLimiter = createSlackForwardingRateLimiter({
   store: createPostgresSlackRateLimitStore(database),
   config: defaultSlackRateLimitConfig()
@@ -58,7 +59,22 @@ export async function forwardSlackMethod({
     });
     return slackApiResponse(payload.body, { requestId, policyDecision: "allowed", executionMode: identity.executionMode, upstreamCalled: false }, payload.httpStatus);
   }
-  const slackPayload = withWorkspaceTeamId(payload.value, request.headers.get("x-prism-workspace-id"));
+  const workspacePayload = constrainWorkspaceTeamId(payload.value, request.headers.get("x-prism-workspace-id"));
+  if (workspacePayload.kind === "error") {
+    await audit?.store.recordActivity({
+      ...audit.base,
+      status: "parse_error",
+      errorClass: workspacePayload.body.error,
+      httpStatus: workspacePayload.httpStatus,
+      upstreamCalled: false
+    });
+    return slackApiResponse(
+      workspacePayload.body,
+      { requestId, policyDecision: "allowed", executionMode: identity.executionMode, upstreamCalled: false },
+      workspacePayload.httpStatus
+    );
+  }
+  const slackPayload = workspacePayload.value;
 
   const rateLimit = await rateLimiter({ tokenProfileId: identity.tokenProfileId, method, executionMode: identity.executionMode, requestId });
   if (rateLimit.kind === "limited") {
@@ -164,12 +180,19 @@ async function parseSlackPayload(
 > {
   if (request.method !== "POST") return { kind: "payload", value: paramsToPayload(new URL(request.url).searchParams), encoding: "query" };
 
+  const declaredLength = Number(request.headers.get("content-length") ?? "0");
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_SLACK_PAYLOAD_BYTES) {
+    return { kind: "error", httpStatus: 413, body: { ok: false, error: "request_too_large" } };
+  }
+
   const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
   if (contentType.includes("multipart/form-data")) return { kind: "error", httpStatus: 200, body: { ok: false, error: "method_not_supported" } };
+  const raw = await readBoundedText(request, MAX_SLACK_PAYLOAD_BYTES);
+  if (raw === null) return { kind: "error", httpStatus: 413, body: { ok: false, error: "request_too_large" } };
   if (contentType.includes("application/json")) {
     let body: unknown;
     try {
-      body = await request.json();
+      body = JSON.parse(raw) as unknown;
     } catch {
       return { kind: "error", httpStatus: 200, body: { ok: false, error: "invalid_json" } };
     }
@@ -177,7 +200,30 @@ async function parseSlackPayload(
     return { kind: "payload", value: stripLocalToolToken(body), encoding: "json" };
   }
 
-  return { kind: "payload", value: paramsToPayload(new URLSearchParams(await request.text())), encoding: "form" };
+  return { kind: "payload", value: paramsToPayload(new URLSearchParams(raw)), encoding: "form" };
+}
+
+async function readBoundedText(request: NextRequest, maximumBytes: number): Promise<string | null> {
+  if (!request.body) return "";
+  const reader = request.body.getReader();
+  const decoder = new TextDecoder("utf-8", { fatal: true });
+  let bytes = 0;
+  let value = "";
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      bytes += chunk.value.byteLength;
+      if (bytes > maximumBytes) {
+        await reader.cancel();
+        return null;
+      }
+      value += decoder.decode(chunk.value, { stream: true });
+    }
+    return value + decoder.decode();
+  } catch {
+    return null;
+  }
 }
 
 async function createDefaultSlackForwardingCredentialProvider(): Promise<SlackForwardingCredentialProvider> {
@@ -203,10 +249,18 @@ function stripLocalToolToken(body: Record<string, unknown>): SlackForwardingPayl
   return payload;
 }
 
-function withWorkspaceTeamId(payload: SlackForwardingPayload, workspaceId: string | null): SlackForwardingPayload {
+function constrainWorkspaceTeamId(
+  payload: SlackForwardingPayload,
+  workspaceId: string | null
+):
+  | { kind: "payload"; value: SlackForwardingPayload }
+  | { kind: "error"; httpStatus: 403; body: { ok: false; error: "workspace_mismatch" } } {
   const normalized = workspaceId?.trim();
-  if (!normalized || "team_id" in payload) return payload;
-  return { ...payload, team_id: normalized };
+  if (!normalized) return { kind: "payload", value: payload };
+  if ("team_id" in payload && payload.team_id !== normalized) {
+    return { kind: "error", httpStatus: 403, body: { ok: false, error: "workspace_mismatch" } };
+  }
+  return { kind: "payload", value: { ...payload, team_id: normalized } };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
