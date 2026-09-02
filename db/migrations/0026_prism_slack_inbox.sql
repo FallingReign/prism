@@ -1,8 +1,8 @@
 CREATE TABLE IF NOT EXISTS prism_slack_inbound_routes (
   id uuid PRIMARY KEY,
   route_key_hash text NOT NULL UNIQUE,
-  token_profile_id uuid NOT NULL REFERENCES token_profiles(id) ON DELETE CASCADE,
-  slack_connection_id uuid NOT NULL REFERENCES slack_connections(id) ON DELETE CASCADE,
+  token_profile_id text NOT NULL REFERENCES token_profiles(id) ON DELETE CASCADE,
+  slack_connection_id text NOT NULL REFERENCES slack_connections(id) ON DELETE CASCADE,
   workspace_id text NOT NULL,
   channel_id text NOT NULL,
   slack_user_id text NOT NULL,
@@ -21,7 +21,7 @@ CREATE INDEX IF NOT EXISTS prism_slack_inbound_routes_owner_idx
 CREATE TABLE IF NOT EXISTS prism_slack_inbound_deliveries (
   id uuid PRIMARY KEY,
   route_id uuid NOT NULL REFERENCES prism_slack_inbound_routes(id) ON DELETE CASCADE,
-  token_profile_id uuid NOT NULL REFERENCES token_profiles(id) ON DELETE CASCADE,
+  token_profile_id text NOT NULL REFERENCES token_profiles(id) ON DELETE CASCADE,
   envelope_id text NOT NULL,
   payload_type text NOT NULL CHECK (payload_type IN ('block_actions')),
   api_app_id text NOT NULL,
