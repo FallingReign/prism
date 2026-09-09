@@ -191,10 +191,39 @@ describe("Slack OAuth client", () => {
     });
   });
 
+  it("accepts an organization install that also reports the authorizing workspace", async () => {
+    const client = createFetchSlackOAuthClient({
+      clientId: "client-id",
+      clientSecret: "client-secret-canary",
+      fetchImpl: vi.fn<typeof fetch>().mockResolvedValue({
+        json: async () => ({
+          ok: true,
+          app_id: "A123",
+          team: { id: "T123", name: "COD Dev" },
+          enterprise: { id: "E123", name: "Example Enterprise" },
+          is_enterprise_install: true,
+          authed_user: { id: "U123" },
+          access_token: "xoxb-bot-token-canary",
+          refresh_token: "bot-refresh-secret-canary",
+          token_type: "bot",
+          expires_in: 3600,
+          scope: "chat:write"
+        })
+      } as Response)
+    });
+
+    await expect(client.exchangeCode({ code: "code-123", redirectUri: "http://localhost/callback" })).resolves.toMatchObject({
+      ok: true,
+      installationScope: "organization",
+      isEnterpriseInstall: true,
+      team: { id: "T123", name: "COD Dev" },
+      enterprise: { id: "E123", name: "Example Enterprise" }
+    });
+  });
+
   it.each([
     ["missing enterprise flag", { team: null, enterprise: { id: "E123" } }],
-    ["missing enterprise id", { team: null, enterprise: null, is_enterprise_install: true }],
-    ["contradictory team", { team: { id: "T123" }, enterprise: { id: "E123" }, is_enterprise_install: true }]
+    ["missing enterprise id", { team: null, enterprise: null, is_enterprise_install: true }]
   ])("rejects a contradictory organization install: %s", async (_label, installation) => {
     const client = createFetchSlackOAuthClient({
       clientId: "client-id",

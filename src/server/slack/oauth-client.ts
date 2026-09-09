@@ -142,9 +142,9 @@ function normalizeSlackOAuthSuccess(body: Record<string, any>): SlackOAuthResult
   const isEnterpriseInstall = body.is_enterprise_install === true;
   const hasWorkspace = nonemptySlackIdentifier(teamId);
   const hasEnterprise = nonemptySlackIdentifier(enterpriseId);
-  const validInstallationShape = isEnterpriseInstall
-    ? !hasWorkspace && hasEnterprise
-    : hasWorkspace;
+  // Slack reports the authorizing workspace alongside org-wide installs, so an
+  // organization install is valid with or without a team.
+  const validInstallationShape = isEnterpriseInstall ? hasEnterprise : hasWorkspace;
   if (
     !nonemptySlackIdentifier(appId) ||
     !nonemptySlackIdentifier(authedUserId) ||
