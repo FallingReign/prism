@@ -34,19 +34,20 @@ export function createPostgresPlaytestDirectoryStore(database: Database): Playte
     async listWorkspaces(input) {
       const result = await database.query<{
         team_id: string; team_name: string | null; installation_scope: "workspace" | "organization";
-        enterprise_name: string | null; last_verified_at: Date;
+        enterprise_name: string | null; last_verified_at: Date; source: string;
       }>(
-        `select distinct on (g.team_id) g.team_id, g.team_name, c.installation_scope, c.enterprise_name, g.last_verified_at
+        `select distinct on (g.team_id) g.team_id, g.team_name, c.installation_scope, c.enterprise_name, g.last_verified_at, g.source
          from slack_connection_workspace_grants g
          join slack_connections c on c.id = g.slack_connection_id
          where c.prism_user_id = $1 and c.id = $2 and c.status = 'healthy' and g.status = 'active'
            and exists (select 1 from slack_credentials sc where sc.connection_id = c.id and sc.kind = 'user')
-         order by g.team_id, case when c.installation_scope = 'workspace' then 0 else 1 end, g.last_verified_at desc`,
+         order by g.team_id, case when c.installation_scope = 'workspace' then 0 else 1 end, case when g.source = 'oauth' then 0 else 1 end, g.last_verified_at desc`,
         [input.prismUserId, input.slackConnectionId]
       );
       return result.rows.map((row): DirectoryWorkspace => ({
         teamId: row.team_id, teamName: row.team_name, installationScope: row.installation_scope,
-        enterpriseName: row.enterprise_name, lastVerifiedAt: row.last_verified_at
+        enterpriseName: row.enterprise_name, lastVerifiedAt: row.last_verified_at,
+        isInstallWorkspace: row.source === "oauth"
       }));
     },
 

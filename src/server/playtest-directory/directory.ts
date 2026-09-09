@@ -25,6 +25,8 @@ export type DirectoryWorkspace = {
   installationScope: "workspace" | "organization";
   enterpriseName: string | null;
   lastVerifiedAt: Date;
+  /** True for the workspace the user actually authorized the install from. */
+  isInstallWorkspace: boolean;
 };
 
 export type DirectoryChannel = {

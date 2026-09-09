@@ -103,8 +103,8 @@ describe("Playtest Slack directory", () => {
     });
     const listWorkspaces = vi.fn(async (input: { prismUserId: string; slackConnectionId: string }) => {
       return input.slackConnectionId === "conn_token"
-        ? [{ teamId: "T111", teamName: "Token workspace", installationScope: "workspace" as const, enterpriseName: null, lastVerifiedAt: now }]
-        : [{ teamId: "T999", teamName: "Other connection", installationScope: "workspace" as const, enterpriseName: null, lastVerifiedAt: now }];
+        ? [{ teamId: "T111", teamName: "Token workspace", installationScope: "workspace" as const, enterpriseName: null, lastVerifiedAt: now, isInstallWorkspace: true }]
+        : [{ teamId: "T999", teamName: "Other connection", installationScope: "workspace" as const, enterpriseName: null, lastVerifiedAt: now, isInstallWorkspace: true }];
     });
 
     const result = await listPlaytestWorkspaces({

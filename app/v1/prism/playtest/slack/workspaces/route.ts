@@ -35,7 +35,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       grant_status: "active",
       installation_scope: workspace.installationScope,
       enterprise_name: workspace.enterpriseName,
-      last_verified_at: workspace.lastVerifiedAt.toISOString()
+      last_verified_at: workspace.lastVerifiedAt.toISOString(),
+      is_install_workspace: workspace.isInstallWorkspace
     }))
   }, 200, requestId, result.cache);
 }
