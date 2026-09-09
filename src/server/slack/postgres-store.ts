@@ -162,6 +162,7 @@ export function createPostgresOAuthFlowStore(
          do update set
           prism_user_id = excluded.prism_user_id,
            is_enterprise_install = excluded.is_enterprise_install,
+           team_id = excluded.team_id,
            team_name = excluded.team_name,
            enterprise_id = excluded.enterprise_id,
            enterprise_name = excluded.enterprise_name,
