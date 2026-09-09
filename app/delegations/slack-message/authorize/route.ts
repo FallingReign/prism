@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
       config
     });
     if (decision.kind === "redirect") return delegatedRedirect(decision.location, 302, correlationId);
-    if (decision.kind === "preview") return delegatedHtmlResponse(renderDelegatedConsentPage(decision.preview), 200, correlationId);
+    if (decision.kind === "preview") return delegatedHtmlResponse(renderDelegatedConsentPage(decision.preview), 200, correlationId, config.callbackUri);
     return errorPage(decision.status, correlationId);
   } catch {
     return errorPage(500, correlationId);

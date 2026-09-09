@@ -56,11 +56,19 @@ describe("delegated Slack message wire validation", () => {
     });
   });
 
+  it("binds an explicit bot sender into the immutable request", () => {
+    const user = validateDelegationRequestJson({ rawBody: JSON.stringify(request()), options, now });
+    const bot = validateDelegationRequestJson({ rawBody: JSON.stringify(request({ execution_mode: "bot" })), options, now });
+    expect(bot).toMatchObject({ kind: "valid", request: { executionMode: "bot" } });
+    if (user.kind !== "valid" || bot.kind !== "valid") throw new Error("expected valid senders");
+    expect(bot.request.immutableDigest).not.toBe(user.request.immutableDigest);
+  });
+
   it.each([
     ["unknown field", { sender: "UATTACKER" }],
     ["callback prefix", { callback_uri: `${options.callbackUri}/extra` }],
     ["caller-selected method", { action: "chat.delete" }],
-    ["bot fallback", { execution_mode: "bot" }],
+    ["automatic fallback", { execution_mode: "auto" }],
     ["channel name", { channel_id: "general" }],
     ["workspace mismatch", { team_id: "not-a-team" }],
     ["hash mismatch", { payload_sha256: "0".repeat(64) }],

@@ -44,6 +44,7 @@ export type SlackOAuthFailure = {
     | "fatal_error"
     | "refresh_token_kind_mismatch"
     | "malformed_refresh_response"
+    | "malformed_oauth_response"
     | "slack_error"
     | "network_error";
 };
@@ -88,7 +89,23 @@ export function createFetchSlackOAuthClient({
         body: new URLSearchParams(fields),
         signal: AbortSignal.timeout(SLACK_OAUTH_TIMEOUT_MS)
       });
-      const body = (await response.json()) as Record<string, unknown>;
+      let body: Record<string, unknown>;
+      try {
+        const parsed: unknown = await response.json();
+        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || typeof (parsed as Record<string, unknown>).ok !== "boolean") {
+          console.error("Slack OAuth response unparseable:", {
+            type: typeof parsed,
+            isArray: Array.isArray(parsed),
+            okType: typeof (parsed as Record<string, unknown> | null)?.ok,
+            status: response.status
+          });
+          return { ok: false, errorClass: "malformed_oauth_response" };
+        }
+        body = parsed as Record<string, unknown>;
+      } catch (error) {
+        if (error instanceof SyntaxError) return { ok: false, errorClass: "malformed_oauth_response" };
+        throw error;
+      }
       if (!body.ok) {
         return { ok: false, errorClass: classifySlackOAuthError(String(body.error ?? "slack_error")) };
       }
@@ -135,7 +152,22 @@ function normalizeSlackOAuthSuccess(body: Record<string, any>): SlackOAuthResult
     (body.is_enterprise_install !== undefined && typeof body.is_enterprise_install !== "boolean") ||
     (body.enterprise !== undefined && body.enterprise !== null && !nonemptySlackIdentifier(enterpriseId))
   ) {
-    return { ok: false, errorClass: "slack_error" };
+    console.error("Slack OAuth response rejected as malformed:", {
+      hasAppId: nonemptySlackIdentifier(appId),
+      hasAuthedUserId: nonemptySlackIdentifier(authedUserId),
+      hasWorkspace,
+      hasEnterprise,
+      isEnterpriseInstall,
+      isEnterpriseInstallType: typeof body.is_enterprise_install,
+      enterprisePresent: body.enterprise !== undefined && body.enterprise !== null,
+      validInstallationShape,
+      hasBotAccessToken: typeof body.access_token === "string" && body.access_token.length > 0,
+      hasUserAccessToken: typeof body.authed_user?.access_token === "string" && body.authed_user.access_token.length > 0,
+      botScopeCount: typeof body.scope === "string" && body.scope ? body.scope.split(",").length : 0,
+      userScopeCount: typeof body.authed_user?.scope === "string" && body.authed_user.scope ? body.authed_user.scope.split(",").length : 0,
+      responseKeys: Object.keys(body).sort()
+    });
+    return { ok: false, errorClass: "malformed_oauth_response" };
   }
 
   const topLevelToken = {

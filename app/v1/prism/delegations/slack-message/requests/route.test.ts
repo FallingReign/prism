@@ -97,11 +97,12 @@ describe("POST /v1/prism/delegations/slack-message/requests", () => {
     }));
     expect(acceptedSource.status).toBe(401);
 
-    for (const headers of [
+    const forwardingHeaders: Record<string, string>[] = [
       {},
       { "x-forwarded-for": "192.0.2.1, 10.0.0.1" },
       { "x-forwarded-for": "192.0.2.1", "x-real-ip": "192.0.2.2" }
-    ]) {
+    ];
+    for (const headers of forwardingHeaders) {
       const rejected = await POST(request("SOURCE_BODY_CANARY", {
         "content-type": "application/json",
         "prism-client-proof": "not-a-compact-jws",

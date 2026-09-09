@@ -125,11 +125,13 @@ export function validateTokenRequest(
 
 export function authorizationErrorRedirect(
   request: Pick<ValidatedAuthorizationRequest, "redirectUri" | "state">,
-  error: OidcAuthorizationError
+  error: OidcAuthorizationError,
+  failureReason?: import("../slack/oauth-failure").OAuthFailureReason
 ): URL {
   const redirect = new URL(request.redirectUri);
   redirect.searchParams.set("error", error);
   redirect.searchParams.set("state", request.state);
+  if (failureReason) redirect.searchParams.set("prism_reason", failureReason);
   return redirect;
 }
 

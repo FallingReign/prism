@@ -1,0 +1,31 @@
+{
+	admin off
+	auto_https disable_redirects
+	skip_install_trust
+	default_bind 10.62.240.10
+	pki {
+		ca local {
+			name "SHG Internal Apps"
+			root_cn "SHG Internal Apps Local Root CA"
+			intermediate_cn "SHG Internal Apps Local Intermediate CA"
+		}
+	}
+	log {
+		format filter {
+			request>uri delete
+			request>headers delete
+			resp_headers delete
+			wrap json
+		}
+	}
+}
+
+https://10.62.240.10:8443 {
+	tls internal
+	reverse_proxy 127.0.0.1:3732
+}
+
+https://10.62.240.10:9443 {
+	tls internal
+	reverse_proxy 127.0.0.1:3847
+}

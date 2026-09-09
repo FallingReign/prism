@@ -89,6 +89,7 @@ describe("Admin Prism user directory", () => {
           intendedUse: "Read refreshToken locally",
           preset: "read_only",
           executionIdentity: "automatic",
+          capabilities: { read: true, search: true, writeMessages: false, reactions: false, filesMetadata: false, destructive: false },
           expiresAt: null,
           status: "active",
           createdAt: "2026-02-01T12:00:00.000Z",

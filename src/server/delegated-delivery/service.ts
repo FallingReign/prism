@@ -155,6 +155,7 @@ export async function resolveDelegationConsent(input: {
     return {
       kind: "preview",
       preview: {
+        executionMode: lookup.request.executionMode,
         requestId: lookup.request.id,
         externalJobId: lookup.request.externalJobId,
         revision: lookup.request.revision,
@@ -317,6 +318,7 @@ export async function exchangeDelegatedAuthorizationCode(input: {
     return {
       kind: "success",
       body: {
+        ...(exchanged.executionMode === "bot" ? { execution_mode: "bot" as const } : {}),
         grant_token: grant,
         token_type: "DPoP",
         expires_in: Math.max(0, Math.floor((exchanged.expiresAt.getTime() - now.getTime()) / 1000)),

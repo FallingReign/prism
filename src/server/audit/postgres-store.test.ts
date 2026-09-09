@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { Database, QueryResult } from "../db";
+import type { QueryResult } from "../db";
+import { createTestDatabase } from "../../../test/database";
 import { hashSecret } from "../slack/oauth-flow";
 import { createPostgresActivityAuditStore } from "./postgres-store";
 
@@ -254,11 +255,4 @@ describe("Postgres activity audit store", () => {
   });
 });
 
-function fakeDatabase(query: Database["query"]): Database {
-  return {
-    query,
-    async transaction(callback) {
-      return callback(this);
-    }
-  };
-}
+const fakeDatabase = createTestDatabase;

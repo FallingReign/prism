@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { evaluateSlackMethodPolicy, type SlackMethodPolicyStore } from "./method-policy";
+import { evaluateSlackMethodPolicy, type SlackMethodPolicyStore, type SlackMethodPolicyContext } from "./method-policy";
 import { resolveSlackExecutionIdentity } from "./execution-identity";
 import { buildTokenProfilePolicy } from "./presets";
 import type { ResolvedDeveloperToken } from "./local-tool-status";
@@ -34,17 +34,18 @@ function store(row: ResolvedDeveloperToken | null): SlackMethodPolicyStore {
   };
 }
 
-async function allowedDecision(row: ResolvedDeveloperToken, method: string, surface = "public_channel") {
+async function allowedDecision(row: ResolvedDeveloperToken, method: string, surface: SlackMethodPolicyContext["surface"] = "public_channel") {
   const decision = await evaluateSlackMethodPolicy({
     store: store(row),
     bearerToken: "prism_dev_identityresolutioncanaryidentity",
     developerTokenConfig: { pepper: "pepper-secret-canary", pepperId: "local-pepper" },
     method,
     requestId: "req_policy",
-    requestContext: { workspaceId: "T123", surface: surface as never },
+    requestContext: { workspaceId: "T123", surface },
     now
   });
   expect(decision.kind).toBe("allowed");
+  if (decision.kind !== "allowed") throw new Error("expected allowed Slack method decision");
   return decision;
 }
 
@@ -100,6 +101,17 @@ describe("Slack execution identity resolution", () => {
       executionMode: "bot",
       requestedMode: null
     });
+  });
+
+  it("accepts an exact explicit sender for legacy fixed-identity tokens without broadening them", async () => {
+    const profile = buildTokenProfilePolicy({ preset: "messages_only", executionIdentity: "user" }, now);
+    const decision = await allowedDecision(resolved(profile, { hasBotCredential: false }), "chat.postMessage");
+    expect(resolveSlackExecutionIdentity({ decision, executionModeHeader: "user", requestId: "matching" }))
+      .toMatchObject({ kind: "resolved", executionMode: "user" });
+    expect(resolveSlackExecutionIdentity({ decision, executionModeHeader: "bot", requestId: "opposite" }))
+      .toMatchObject({ kind: "denied" });
+    expect(resolveSlackExecutionIdentity({ decision, executionModeHeader: "auto", requestId: "automatic" }))
+      .toMatchObject({ kind: "denied" });
   });
 
   it("uses deterministic automatic preferences with single-credential fallback and no membership side effects", async () => {

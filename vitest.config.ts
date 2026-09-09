@@ -14,6 +14,8 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // Avoid worker starvation in the complete Windows quality check.
+    ...(process.platform === "win32" ? { maxWorkers: 1 } : {}),
     globals: false
   }
 });

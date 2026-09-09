@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import type { AdminAuthorizationDecision } from "./authorization";
 import type { AdminUserDirectoryStore } from "./user-directory";
-import type { TokenProfileStore } from "../token-profiles/service";
+import type { TokenProfileStore, TokenProfileMetadata } from "../token-profiles/service";
+import { buildTokenProfilePolicy } from "../token-profiles/presets";
 import { deleteAdminTokenProfile, revokeAdminTokenProfile } from "./token-profile-actions";
 
 const now = new Date("2026-02-01T12:00:00.000Z");
@@ -207,7 +208,7 @@ function directoryWithProfile({ status, tokenStatus }: { status: "active" | "rev
             intendedUse: "Local tool",
             preset: "read_only",
             executionIdentity: "automatic",
-            capabilities: { read: true },
+            capabilities: { read: true, search: true, writeMessages: false, reactions: false, filesMetadata: false, destructive: false },
             expiresAt: null,
             status,
             createdAt: now.toISOString(),
@@ -298,7 +299,7 @@ function fakeTokenStore(overrides: Partial<TokenProfileStore>): TokenProfileStor
   };
 }
 
-function profileMetadata({ status }: { status: "active" | "revoked" }) {
+function profileMetadata({ status }: { status: "active" | "revoked" }): TokenProfileMetadata {
   return {
     id: "profile_1",
     prismUserId: "target_user",
@@ -307,7 +308,7 @@ function profileMetadata({ status }: { status: "active" | "revoked" }) {
     nameNormalized: "target profile",
     intendedUse: "Local tool",
     preset: "read_only",
-    capabilityMap: { version: 1, preset: "read_only", actions: { read: true }, surfaces: { publicChannels: true }, executionIdentity: "automatic" },
+    capabilityMap: buildTokenProfilePolicy({ preset: "read_only", executionIdentity: "automatic" }, now).capabilityMap,
     expiresAt: null,
     status,
     developerToken: { status: status === "active" ? "active" : "revoked", createdAt: now, expiresAt: null, lastUsedAt: null, revokedAt: status === "revoked" ? now : null, overlapExpiresAt: null },
@@ -315,5 +316,5 @@ function profileMetadata({ status }: { status: "active" | "revoked" }) {
     policyEffectiveAt: now,
     createdAt: now,
     updatedAt: now
-  } as const;
+  };
 }

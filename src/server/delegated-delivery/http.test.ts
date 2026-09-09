@@ -52,4 +52,15 @@ describe("delegated Slack-message HTTP responses", () => {
     expect(json.headers.get("Referrer-Policy")).toBe("no-referrer");
     expect(redirect.headers.get("Referrer-Policy")).toBe("no-referrer");
   });
+
+  it("allows the registered callback origin on consent form redirects without exposing its path or query", () => {
+    const response = delegatedHtmlResponse("<form></form>", 200, "request-id", "https://playtest.example:9443/api/announcements/delegation/callback");
+    const policy = response.headers.get("Content-Security-Policy");
+    expect(policy).toContain("form-action 'self' https://playtest.example:9443;");
+    expect(policy).not.toContain("/api/announcements");
+    expect(policy).toContain("default-src 'none'");
+    expect(policy).toContain("frame-ancestors 'none'");
+    expect(delegatedHtmlResponse("<p>error</p>", 403).headers.get("Content-Security-Policy"))
+      .toContain("form-action 'self';");
+  });
 });

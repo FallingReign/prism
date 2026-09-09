@@ -1,20 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
-const mockDb = vi.hoisted(() => ({
-  query: vi.fn<(sql: string, params?: unknown[]) => Promise<unknown>>(),
-  transaction: vi.fn<(callback: (db: typeof mockDb) => Promise<unknown>) => Promise<unknown>>()
-}));
+import type { TestQuery } from "../../../../test/database";
+
+const { mockDb, mockQuery } = await vi.hoisted(async () => {
+  const { createTestDatabase } = await import("../../../../test/database");
+  const mockQuery = vi.fn<TestQuery>();
+  return { mockDb: createTestDatabase(mockQuery), mockQuery };
+});
 
 vi.mock("../../../../src/server/db", () => ({ database: mockDb }));
 
 describe("DELETE /v1/prism/slack-connection", () => {
   beforeEach(() => {
     vi.resetModules();
-    mockDb.query.mockReset();
-    mockDb.transaction.mockReset();
-    mockDb.transaction.mockImplementation(async (callback) => callback(mockDb));
-    mockDb.query.mockImplementation(async (sql: string, params?: unknown[]) => {
+    mockDb.query.mockClear();
+    mockQuery.mockReset();
+    mockDb.transaction.mockClear();
+    mockQuery.mockImplementation(async (sql: string, params?: unknown[]) => {
       if (sql.includes("from prism_sessions s") && sql.includes("join slack_connections c")) {
         return {
           rows: [

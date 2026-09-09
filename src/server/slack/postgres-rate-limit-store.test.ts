@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { Database } from "../db";
+import { createTestDatabase } from "../../../test/database";
 import { createPostgresSlackRateLimitStore } from "./postgres-rate-limit-store";
 
 describe("Postgres Slack forwarding rate-limit store", () => {
@@ -57,11 +57,4 @@ describe("Postgres Slack forwarding rate-limit store", () => {
   });
 });
 
-function fakeDatabase(query: Database["query"]): Database {
-  return {
-    query,
-    async transaction(callback) {
-      return callback(this);
-    }
-  };
-}
+const fakeDatabase = createTestDatabase;

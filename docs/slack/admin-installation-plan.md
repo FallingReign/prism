@@ -1,32 +1,22 @@
-# Prism Slack admin installation plan
+# Slack Bridge installation and access
 
-This plan documents the required human Slack admin/security steps before any real Prism Slack app installation. It does not grant approval by itself.
+Prism serves multiple applications. Review the combined Slack permissions those applications need; keep each application's Prism token restricted to its own work. Slack credentials are encrypted and stored on the Prism server.
 
-## Required human approvals
+## Connect an organization or workspace
 
-1. Slack admin/security owner approves the non-admin scope set, redirect URLs, and installation target.
-2. Developer/security owner confirms Prism remains the hosted credential custodian and Local tools receive only Prism developer tokens.
-3. Issue #4 implementer confirms OAuth callback, token rotation, encryption, and credential custody design before any token exchange is attempted.
+1. Approve Slack Bridge and its required permissions in Slack. Configure the exact callback URL used by Prism. Production callbacks must use HTTPS; see [internal HTTPS](internal-https.md).
+2. Install Slack Bridge at the approved organization or workspace level. Prism detects the installation type from Slack's response; an organization connection can have no workspace ID.
+3. For an organization installation, grant Slack Bridge access to the workspaces people need. Organization installation alone does not establish every workspace grant.
+4. Check Member Permissions. If access is restricted, include the intended people or approved groups. No change is needed when the existing policy already allows them.
+5. Have the person start a fresh Playtest sign-in. Prism reuses their existing Slack connection when possible. In Playtest, choose an available workspace and channel independently of the login identity.
+6. Assign the appropriate Playtest role. Slack access alone does not grant Manager or Admin permission to manage playtests or send announcements.
 
-## Installation sequence
+Playtest's sign-in page contains the recovery steps above. The workspace and channel chooser shows guidance for empty results and connection failures. Some Slack policy screens never return to Prism, so Playtest cannot automatically identify the exact restriction on those screens.
 
-1. Review `docs/slack/scope-review-packet.md` and remove any scope not needed for the first approved Method registry slice.
-2. Create or update the Slack app from `docs/slack/prism-slack-app-manifest.template.yml` in Slack App Management, replacing only placeholders in the Slack UI.
-3. Configure redirect URLs for the selected environments:
-   - local: `http://localhost:3732/v1/slack/oauth/callback`
-   - pilot host VM: `http://10.62.240.10:3732/v1/slack/oauth/callback`
-   - dev tunnel: `https://<dev-tunnel-host>/v1/slack/oauth/callback`
-   - hosted: `https://<prism-hostname>/v1/slack/oauth/callback` or `https://prism.<internal-domain>/v1/slack/oauth/callback`
-4. Confirm Enterprise Grid org-ready deployment for the dev pilot. The committed manifest enables org deploy so org-level issues surface during development; production org rollout still requires explicit Slack admin/security approval.
-5. Keep Socket Mode disabled for v1. Do not configure event subscriptions, slash commands, interactivity, workflows, incoming webhooks, canvases, lists, or file transfer.
-6. Approve and install only after final scope review.
-7. Record approved scopes, workspace/org target, and admin decision notes outside source control.
-8. Store Slack client secret, signing secret, bot/user/refresh tokens, and any app-level token only in approved deployment secret storage. Do not commit, print, or paste them into docs.
+Keep Slack client secrets and Slack bot, user, and refresh tokens in deployment secret storage. Do not put them in diagnostics, screenshots, source control, or support messages.
 
-## Enterprise Grid notes
+## Acceptance
 
-Enterprise Grid governance remains Slack-admin controlled. Prism must not imply it can override Slack workspace, org, Okta, or security policy. The dev pilot enables org deploy to expose org-readiness issues early; production org-wide deployment remains a separate admin/security decision.
+Use a person who is allowed by Slack policy but is not a Slack app collaborator. Verify fresh sign-in, the intended workspace and channel, the person's Playtest role, and one explicitly authorized test announcement with its chosen sender. Automated tests use synthetic Slack responses and do not replace this enterprise acceptance check.
 
-## Handoff to issue #4
-
-Issue #4 may implement OAuth only after the approved redirect URI, token rotation posture, credential custody storage, and final Slack scope list are known. The OAuth implementation must preserve the selected redirect URI through authorize and token exchange.
+References: [Slack OAuth](https://docs.slack.dev/authentication/installing-with-oauth/), [Slack organization administration](https://slack.com/help/articles/360000281563-Manage-apps-in-an-Enterprise-organization).

@@ -9,8 +9,8 @@ describe("Prism MCP server", () => {
   it("registers allowed Prism-backed tools through the MCP SDK and executes them over a transport", async () => {
     const adapter = createPrismMcpAdapter({
       config: { baseUrl: "http://prism.local", developerToken: "prism_dev_mcpservercanarymcpservercanary12" },
-      fetch: async (url: string | URL) => {
-        const target = String(url);
+      fetch: async (url: string | URL | Request) => {
+        const target = url instanceof Request ? url.url : String(url);
         if (target.endsWith("/v1/prism/status")) {
           return jsonResponse({ requestId: "req_status", token: { valid: true, status: "active", tokenProfileId: "profile_1", expiresAt: null }, slack: { status: "healthy", reauthRequired: false } });
         }

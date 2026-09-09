@@ -1,0 +1,11 @@
+services:
+  web:
+    environment:
+      NODE_EXTRA_CA_CERTS: /etc/ssl/certs/shg-internal-apps-root.crt
+    volumes:
+      - /home/shgsylinux01/docker/internal-https/public/shg-internal-apps-root.crt:/etc/ssl/certs/shg-internal-apps-root.crt:ro
+  socket:
+    environment:
+      NODE_EXTRA_CA_CERTS: /etc/ssl/certs/shg-internal-apps-root.crt
+    volumes:
+      - /home/shgsylinux01/docker/internal-https/public/shg-internal-apps-root.crt:/etc/ssl/certs/shg-internal-apps-root.crt:ro

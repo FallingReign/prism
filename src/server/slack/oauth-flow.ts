@@ -1,4 +1,5 @@
 import "server-only";
+import { slackExchangeFailureReason } from "./oauth-failure";
 
 import { createHash, randomBytes as nodeRandomBytes, timingSafeEqual } from "node:crypto";
 
@@ -268,10 +269,11 @@ export async function completeSlackOAuthCallback({
     redirectUri: runtime.config.redirectUri
   });
   if (!slackResult.ok) {
+    const failureReason = slackExchangeFailureReason(slackResult.errorClass);
     return {
       kind: "slack_error",
-      redirectUrl: statusRedirect(deployment, "error", setupBinding, undefined, "provider_rejected"),
-      failureReason: "provider_rejected",
+      redirectUrl: statusRedirect(deployment, "error", setupBinding, undefined, failureReason),
+      failureReason,
       oidcAuthorizationRequestId: storedState.oidcAuthorizationRequestId,
       ...(storedState.delegatedDeliveryRequestId ? { delegatedDeliveryRequestId: storedState.delegatedDeliveryRequestId } : {}),
       ...(storedState.localAppAuthorizationId ? { localAppAuthorizationId: storedState.localAppAuthorizationId } : {})
@@ -497,12 +499,7 @@ function statusRedirect(
   return url.toString();
 }
 
-type OAuthFailureReason =
-  | "authorization_denied"
-  | "runtime_unavailable"
-  | "provider_rejected"
-  | "invalid_provider_response"
-  | "persistence_failed";
+type OAuthFailureReason = import("./oauth-failure").OAuthFailureReason;
 
 async function storeCredentialIfPresent({
   store,

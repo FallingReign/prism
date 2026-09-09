@@ -139,6 +139,20 @@ describe("GET /v1/slack/oauth/callback", () => {
     expect(response.headers.get("set-cookie")).toContain("prism_session=");
   });
 
+  it("preserves safe Slack denial guidance for the bound Playtest sign-in", async () => {
+    const oidcRequestId = "r".repeat(43);
+    mockDb.query.mockImplementation(async (sql: string) => {
+      if (sql.includes("update slack_oauth_states")) return { rows: [oauthStateRow({ oidc_authorization_request_id: oidcRequestId })], rowCount: 1 };
+      return { rows: [], rowCount: 1 };
+    });
+    const { GET } = await import("./route");
+    const response = await GET(new NextRequest(`http://localhost:3732/v1/slack/oauth/callback?error=access_denied&state=${callbackState}`, {
+      headers: { cookie: `prism_slack_oauth_state=${callbackState}` }
+    }));
+    expect(response.headers.get("location")).toBe(`http://localhost:3732/oauth/authorize?request=${oidcRequestId}&error=access_denied&prism_reason=authorization_denied`);
+    expect(response.headers.get("set-cookie")).not.toContain("prism_session=");
+  });
+
   it("terminally denies a local-app request when Slack OAuth is cancelled", async () => {
     const localAppAuthorizationId = "00000000-0000-4000-8000-000000000123";
     mockDb.query.mockImplementation(async (sql: string) => {

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { Database } from "../db";
+import { createTestDatabase } from "../../../test/database";
 import { hashSecret } from "./oauth-flow";
 import { getSlackLinkStatusWithDisplayNameEnrichment } from "./connection-status";
 import type { SlackConnectionDisplayNameStore } from "./connection-display-names";
@@ -122,32 +123,27 @@ describe("Slack website status display names", () => {
 });
 
 function fakeDatabase(): Database {
-  return {
-    async query(sql: string, params?: unknown[]) {
-      expect(sql).toContain("from prism_sessions");
-      expect(params).toEqual([hashSecret("session-token")]);
-      return {
-        rows: [
-          {
-            id: "conn_1",
-            status: "healthy",
-            installation_scope: "workspace",
-            team_id: "T123",
-            team_name: null,
-            enterprise_id: null,
-            enterprise_name: null,
-            authed_user_id: "U123",
-            authed_user_display_name: null,
-            display_names_enriched_at: null,
-            last_error_class: null,
-            workspace_grants: []
-          }
-        ],
-        rowCount: 1
-      };
-    },
-    async transaction(callback) {
-      return callback(this);
-    }
-  };
+  return createTestDatabase(async (sql: string, params?: unknown[]) => {
+    expect(sql).toContain("from prism_sessions");
+    expect(params).toEqual([hashSecret("session-token")]);
+    return {
+      rows: [
+        {
+          id: "conn_1",
+          status: "healthy",
+          installation_scope: "workspace",
+          team_id: "T123",
+          team_name: null,
+          enterprise_id: null,
+          enterprise_name: null,
+          authed_user_id: "U123",
+          authed_user_display_name: null,
+          display_names_enriched_at: null,
+          last_error_class: null,
+          workspace_grants: []
+        }
+      ],
+      rowCount: 1
+    };
+  });
 }

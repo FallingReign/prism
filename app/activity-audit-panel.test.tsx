@@ -38,7 +38,11 @@ describe("Prism website activity audit panel", () => {
             errorClass: null,
             httpStatus: 200,
             upstreamCalled: true,
-            requestId: "req_safe_123"
+            requestId: "req_safe_123",
+            adminActorPrismUserId: null,
+            adminActorSlackUserId: null,
+            adminActorSlackDisplayName: null,
+            adminReason: null
           }
         ]}
       />
@@ -82,7 +86,11 @@ describe("Prism website activity audit panel", () => {
             errorClass: null,
             httpStatus: 200,
             upstreamCalled: false,
-            requestId: "req_rotate"
+            requestId: "req_rotate",
+            adminActorPrismUserId: null,
+            adminActorSlackUserId: null,
+            adminActorSlackDisplayName: null,
+            adminReason: null
           }
         ]}
       />
@@ -225,7 +233,11 @@ describe("Prism website activity audit panel", () => {
             errorClass: "authorization client_secret access_token",
             httpStatus: 403,
             upstreamCalled: false,
-            requestId: "req_refresh-secret"
+            requestId: "req_refresh-secret",
+            adminActorPrismUserId: null,
+            adminActorSlackUserId: null,
+            adminActorSlackDisplayName: null,
+            adminReason: null
           }
         ]}
       />

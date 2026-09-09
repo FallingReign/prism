@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import type { Database } from "../db";
+import { createTestDatabase } from "../../../test/database";
 import { hashSecret } from "../slack/oauth-flow";
 import { createPostgresAdminIdentityStore } from "./postgres-store";
 
@@ -63,8 +64,5 @@ describe("Postgres Prism admin identity store", () => {
 });
 
 function databaseWithRows(rows: unknown[]): Database {
-  return {
-    query: vi.fn(async () => ({ rows, rowCount: rows.length })),
-    transaction: vi.fn()
-  };
+  return createTestDatabase(async () => ({ rows, rowCount: rows.length }));
 }

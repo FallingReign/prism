@@ -70,7 +70,7 @@ describe("Admin Prism user directory UI", () => {
               intendedUse: "Read Slack locally",
               preset: "read_only",
               executionIdentity: "automatic",
-              capabilities: { read: true },
+              capabilities: { read: true, search: false, writeMessages: false, reactions: false, filesMetadata: false, destructive: false },
               expiresAt: null,
               status: "active",
               createdAt: "2026-02-01T12:00:00.000Z",
@@ -94,7 +94,11 @@ describe("Admin Prism user directory UI", () => {
               errorClass: null,
               httpStatus: 200,
               upstreamCalled: true,
-              requestId: "req_1"
+              requestId: "req_1",
+              adminActorPrismUserId: null,
+              adminActorSlackUserId: null,
+              adminActorSlackDisplayName: null,
+              adminReason: null
             }
           ]
         }}

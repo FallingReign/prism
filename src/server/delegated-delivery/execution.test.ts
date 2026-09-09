@@ -12,7 +12,7 @@ const issuer = "https://prism.example";
 const grantToken = `prism_grant_${"a".repeat(43)}`;
 const canonical = JSON.stringify({ blocks: [], channel: "C12345678", text: "Playtest" });
 
-async function fixture(slackResult: { status: number; body: unknown }) {
+async function fixture(slackResult: { status: number; body: unknown }, executionMode: "user" | "bot" = "user", credentialAvailable = true) {
   const { privateKey, publicKey } = generateKeyPairSync("ec", { namedCurve: "P-256" });
   const jwk = await exportJWK(publicKey);
   const jkt = await calculateJwkThumbprint(jwk, "sha256");
@@ -24,6 +24,7 @@ async function fixture(slackResult: { status: number; body: unknown }) {
     jti: "execute-service-proof-1",
   }).setProtectedHeader({ typ: "dpop+jwt", alg: "ES256", jwk }).sign(privateKey);
   const binding: DelegatedGrantExecutionBinding = {
+    executionMode,
     grantId: "ddg_12345678-1234-4123-8123-123456789012",
     requestId: "ddr_12345678-1234-4123-8123-123456789012",
     externalJobId: "job-1",
@@ -67,18 +68,21 @@ async function fixture(slackResult: { status: number; body: unknown }) {
     limits: DEFAULT_DELEGATED_DELIVERY_LIMITS,
   };
   const slackClient = { callMethod: vi.fn().mockResolvedValue(slackResult) };
+  const credentialProvider = { getAccessToken: vi.fn().mockResolvedValue(credentialAvailable
+    ? { kind: "available", accessToken: executionMode === "bot" ? "xoxb-test" : "xoxp-test" }
+    : { kind: "unavailable", errorClass: "credential_missing" }) };
   const decision = await executeDelegatedSlackMessage({
     grantToken,
     dpopProof: proof,
     store,
     cipher: { encrypt: vi.fn(), decrypt: vi.fn().mockResolvedValue(canonical) },
-    credentialProvider: { getAccessToken: vi.fn().mockResolvedValue({ kind: "available", accessToken: "xoxp-test" }) },
+    credentialProvider,
     slackClient,
     config,
     now,
     randomId: () => "lease-1",
   });
-  return { decision, store, slackClient };
+  return { decision, store, slackClient, credentialProvider };
 }
 
 describe("delegated Slack execution", () => {
@@ -96,6 +100,20 @@ describe("delegated Slack execution", () => {
         client_context_team_id: "T12345678"
       })
     }));
+  });
+
+  it("uses the approved bot credential and records the bot without changing the approving person", async () => {
+    const { decision, slackClient, credentialProvider } = await fixture({ status: 200, body: { ok: true, channel: "C12345678", ts: "1787710000.000100" } }, "bot");
+    expect(credentialProvider.getAccessToken).toHaveBeenCalledExactlyOnceWith({ connectionId: "connection-1", kind: "bot" });
+    expect(slackClient.callMethod).toHaveBeenCalledWith(expect.objectContaining({ executionMode: "bot", accessToken: "xoxb-test" }));
+    expect(decision).toMatchObject({ kind: "success", body: { state: "sent", execution_mode: "bot", slack_user_id: "U12345678" } });
+  });
+
+  it("does not fall back to Me when the approved bot credential is unavailable", async () => {
+    const { decision, slackClient, credentialProvider } = await fixture({ status: 200, body: { ok: true } }, "bot", false);
+    expect(credentialProvider.getAccessToken).toHaveBeenCalledExactlyOnceWith({ connectionId: "connection-1", kind: "bot" });
+    expect(slackClient.callMethod).not.toHaveBeenCalled();
+    expect(decision).toMatchObject({ kind: "success", body: { state: "failed", execution_mode: "bot", error: "credential_missing" } });
   });
 
   it("marks every Slack 5xx as outcome unknown instead of retrying", async () => {

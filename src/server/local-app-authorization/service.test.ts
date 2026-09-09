@@ -10,19 +10,19 @@ import {
 
 function store(overrides: Partial<LocalAppAuthorizationStore> = {}): LocalAppAuthorizationStore {
   return {
-    begin: vi.fn(async () => "created"),
-    consumeRequestRateLimit: vi.fn(async () => true),
-    resolveConsent: vi.fn(async () => ({ kind: "unavailable" })),
-    decide: vi.fn(async () => "approved"),
-    denyAfterOAuth: vi.fn(async () => undefined),
-    exchange: vi.fn(async () => ({ kind: "pending" })),
+    begin: vi.fn<LocalAppAuthorizationStore["begin"]>(async () => "created"),
+    consumeRequestRateLimit: vi.fn<LocalAppAuthorizationStore["consumeRequestRateLimit"]>(async () => true),
+    resolveConsent: vi.fn<LocalAppAuthorizationStore["resolveConsent"]>(async () => ({ kind: "unavailable" })),
+    decide: vi.fn<LocalAppAuthorizationStore["decide"]>(async () => "approved"),
+    denyAfterOAuth: vi.fn<LocalAppAuthorizationStore["denyAfterOAuth"]>(async () => undefined),
+    exchange: vi.fn<LocalAppAuthorizationStore["exchange"]>(async () => ({ kind: "pending" })),
     ...overrides
   };
 }
 
 describe("generic local-app authorization service", () => {
   it("returns raw codes once while giving the store hashes only", async () => {
-    const begin = vi.fn(async () => "created" as const);
+    const begin = vi.fn<LocalAppAuthorizationStore["begin"]>(async () => "created" as const);
     const result = await beginLocalAppAuthorization({
       store: store({ begin }),
       request: {
@@ -51,7 +51,7 @@ describe("generic local-app authorization service", () => {
   });
 
   it("binds browser decisions to the hashed website session", async () => {
-    const decide = vi.fn(async () => "approved" as const);
+    const decide = vi.fn<LocalAppAuthorizationStore["decide"]>(async () => "approved" as const);
     await decideLocalAppAuthorization({
       store: store({ decide }),
       requestId: "00000000-0000-4000-8000-000000000000",
@@ -67,7 +67,7 @@ describe("generic local-app authorization service", () => {
   });
 
   it("requires the OAuth continuation request and browser-held human code to match", async () => {
-    const resolveConsent: LocalAppAuthorizationStore["resolveConsent"] = vi.fn(async () => ({
+    const resolveConsent = vi.fn<LocalAppAuthorizationStore["resolveConsent"]>(async () => ({
       kind: "preview",
       preview: {
         requestId: "00000000-0000-4000-8000-000000000000",
@@ -105,7 +105,7 @@ describe("generic local-app authorization service", () => {
   it("rate limits invalid device-code polling before exchange lookup", async () => {
     const exchange = vi.fn(async () => ({ kind: "invalid_grant" as const }));
     const result = await pollLocalAppAuthorization({
-      store: store({ consumeRequestRateLimit: vi.fn(async () => false), exchange }),
+      store: store({ consumeRequestRateLimit: vi.fn<LocalAppAuthorizationStore["consumeRequestRateLimit"]>(async () => false), exchange }),
       clientId: "example-local-app",
       deviceCode: "A".repeat(43),
       developerTokenConfig: { pepper: "test-pepper", pepperId: "v1" },
@@ -116,7 +116,7 @@ describe("generic local-app authorization service", () => {
   });
 
   it("generates the copy-once developer token only inside an approved exchange", async () => {
-    const exchange: LocalAppAuthorizationStore["exchange"] = vi.fn(async (input) => {
+    const exchange = vi.fn<LocalAppAuthorizationStore["exchange"]>(async (input) => {
       const credential = input.issueCredential();
       expect(credential.verifier.tokenHash).toMatch(/^[a-f0-9]{64}$/);
       return {
@@ -126,6 +126,7 @@ describe("generic local-app authorization service", () => {
         clientId: input.clientId,
         subject: {
           prismUserId: "user-1",
+          slackUserId: "U1",
           installationScope: "workspace",
           slackTeamId: "T123",
           slackEnterpriseId: null,

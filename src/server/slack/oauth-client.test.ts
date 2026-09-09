@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createFetchSlackOAuthClient } from "./oauth-client";
+import { slackExchangeFailureReason } from "./oauth-failure";
 
 describe("Slack OAuth client", () => {
   it("uses Basic auth for code exchange and returns sanitized failures", async () => {
@@ -19,6 +20,39 @@ describe("Slack OAuth client", () => {
     expect(String((init as RequestInit).body)).toContain("redirect_uri=http%3A%2F%2Flocalhost%3A3732%2Fv1%2Fslack%2Foauth%2Fcallback");
     expect(JSON.stringify(result)).not.toContain("client-secret-canary");
   });
+
+  it.each([
+    ["missing user", { ok: true, app_id: "A123", team: null, privateDiagnostic: "provider-secret-canary" }],
+    ["null body", null],
+    ["array body", []],
+    ["non-boolean result", { ok: "true" }],
+    ["invalid JSON", undefined],
+  ])("offers invalid-response guidance for %s without exposing provider text", async (_label, body) => {
+    const client = createFetchSlackOAuthClient({
+      clientId: "synthetic-id", clientSecret: "synthetic-secret",
+      fetchImpl: vi.fn<typeof fetch>().mockResolvedValue({ json: async () => {
+        if (body === undefined) throw new SyntaxError("provider-secret-canary");
+        return body;
+      } } as Response),
+    });
+    const result = await client.exchangeCode({ code: "synthetic-code", redirectUri: "https://prism.example/callback" });
+    expect(result).toEqual({ ok: false, errorClass: "malformed_oauth_response" });
+    if (!result.ok) expect(slackExchangeFailureReason(result.errorClass)).toBe("invalid_provider_response");
+    expect(JSON.stringify(result)).not.toContain("provider-secret-canary");
+  });
+
+  it.each([new TypeError("connection reset"), new DOMException("request timed out", "AbortError")])(
+    "keeps a body-read %s as an availability failure",
+    async (error) => {
+      const client = createFetchSlackOAuthClient({
+        clientId: "synthetic-id", clientSecret: "synthetic-secret",
+        fetchImpl: vi.fn<typeof fetch>().mockResolvedValue(Object.assign(new Response(), { json: async () => { throw error; } })),
+      });
+      const result = await client.exchangeCode({ code: "synthetic-code", redirectUri: "https://prism.example/callback" });
+      expect(result).toEqual({ ok: false, errorClass: "network_error" });
+      if (!result.ok) expect(slackExchangeFailureReason(result.errorClass)).toBe("provider_unavailable");
+    },
+  );
 
   it("maps top-level Slack token rotation responses to user credentials when refreshing a user token", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue({
@@ -172,7 +206,7 @@ describe("Slack OAuth client", () => {
 
     await expect(client.exchangeCode({ code: "code-123", redirectUri: "http://localhost/callback" })).resolves.toEqual({
       ok: false,
-      errorClass: "slack_error"
+      errorClass: "malformed_oauth_response"
     });
   });
 
@@ -194,7 +228,7 @@ describe("Slack OAuth client", () => {
 
     await expect(client.exchangeCode({ code: "code-123", redirectUri: "http://localhost:3732/v1/slack/oauth/callback" })).resolves.toEqual({
       ok: false,
-      errorClass: "slack_error"
+      errorClass: "malformed_oauth_response"
     });
   });
 });

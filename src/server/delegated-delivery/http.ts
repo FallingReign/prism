@@ -22,12 +22,16 @@ export function delegatedRedirect(location: string, status: 302 | 303 = 302, req
   return secureDelegatedResponse(NextResponse.redirect(location, { status }), requestId);
 }
 
-export function delegatedHtmlResponse(html: string, status = 200, requestId?: string): NextResponse {
+export function delegatedHtmlResponse(html: string, status = 200, requestId?: string, registeredCallbackUri?: string): NextResponse {
   const response = new NextResponse(html, {
     status,
     headers: { "Content-Type": "text/html; charset=utf-8" }
   });
-  response.headers.set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'");
+  // Browsers apply form-action to the redirect after consent as well as its
+  // same-origin POST. Only the validated application registration may add an origin.
+  const callbackOrigin = registeredCallbackUri ? new URL(registeredCallbackUri).origin : null;
+  const formAction = callbackOrigin ? `'self' ${callbackOrigin}` : "'self'";
+  response.headers.set("Content-Security-Policy", `default-src 'none'; style-src 'unsafe-inline'; form-action ${formAction}; base-uri 'none'; frame-ancestors 'none'`);
   response.headers.set("X-Content-Type-Options", "nosniff");
   response.headers.set("X-Frame-Options", "DENY");
   const secured = secureDelegatedResponse(response, requestId);

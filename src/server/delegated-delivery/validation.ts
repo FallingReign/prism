@@ -6,7 +6,6 @@ import { hasDuplicateJsonObjectKeys } from "../http/json-shape";
 
 import {
   DELEGATED_ACTION,
-  DELEGATED_EXECUTION_MODE,
   DELEGATED_GRANT_TYPE,
   type DelegatedSlackPayload,
   type DelegationRequestInput
@@ -94,7 +93,7 @@ export function validateDelegationRequestJson(input: {
     !isSlackTeamId(parsed.team_id) ||
     !isSlackChannelId(parsed.channel_id) ||
     parsed.action !== DELEGATED_ACTION ||
-    parsed.execution_mode !== DELEGATED_EXECUTION_MODE ||
+    (parsed.execution_mode !== "user" && parsed.execution_mode !== "bot") ||
     parsed.payload_sha256 !== payloadSha256 ||
     !notBefore ||
     !deliveryExpiresAt ||
@@ -123,7 +122,7 @@ export function validateDelegationRequestJson(input: {
     team_id: parsed.team_id,
     channel_id: parsed.channel_id,
     action: DELEGATED_ACTION,
-    execution_mode: DELEGATED_EXECUTION_MODE,
+    execution_mode: parsed.execution_mode,
     payload,
     payload_sha256: payloadSha256,
     not_before: notBefore.toISOString(),
@@ -146,7 +145,7 @@ export function validateDelegationRequestJson(input: {
       teamId: parsed.team_id,
       channelId: parsed.channel_id,
       action: DELEGATED_ACTION,
-      executionMode: DELEGATED_EXECUTION_MODE,
+      executionMode: parsed.execution_mode,
       payload,
       canonicalPayload,
       payloadSha256,

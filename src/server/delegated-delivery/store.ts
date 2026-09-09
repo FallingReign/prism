@@ -4,11 +4,13 @@ import type { CredentialEnvelope } from "../credentials/encryption";
 import type { VerifiedProofReplay } from "./proof";
 import type {
   DelegatedConsentIdentity,
+  DelegatedExecutionMode,
   DelegationRequestInput,
   DelegationRequestRecord
 } from "./types";
 
 export type DelegatedGrantExecutionBinding = {
+  executionMode: DelegatedExecutionMode;
   grantId: string;
   requestId: string;
   externalJobId: string;
@@ -65,6 +67,7 @@ export type DelegatedApprovalResult = {
 };
 
 export type DelegatedGrantExchangeResult = {
+  executionMode: DelegatedExecutionMode;
   grantId: string;
   clientId: string;
   externalJobId: string;

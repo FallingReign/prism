@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { handleSlackConfigurationVerifyPost } from "./handler";
+import { handleSlackConfigurationVerifyPost, type SetupVerificationDependencies } from "./handler";
 
 const SETUP_PROOF = `v1.${"1".repeat(13)}.${"a".repeat(43)}.${"b".repeat(43)}`;
 
@@ -13,7 +13,7 @@ describe("POST /v1/prism/setup/slack-configuration/verify", () => {
   });
 
   it("starts OAuth for the server-selected pending version without browser identifiers", async () => {
-    const startVerification = vi.fn().mockResolvedValue({
+    const startVerification = vi.fn<SetupVerificationDependencies["startVerification"]>().mockResolvedValue({
       redirectUrl: "https://slack.com/oauth/v2/authorize?state=opaque",
       cookie: { name: "prism_slack_oauth_state", value: "oauth-state-cookie", httpOnly: true, sameSite: "lax", secure: false, path: "/", maxAge: 600 }
     });
@@ -30,7 +30,7 @@ describe("POST /v1/prism/setup/slack-configuration/verify", () => {
 
   it("returns the existing Slack authorization URL contract as no-store JSON for same-origin fetch", async () => {
     const redirectUrl = "https://slack.com/oauth/v2/authorize?client_id=123&state=opaque";
-    const startVerification = vi.fn().mockResolvedValue({
+    const startVerification = vi.fn<SetupVerificationDependencies["startVerification"]>().mockResolvedValue({
       redirectUrl,
       cookie: { name: "prism_slack_oauth_state", value: "oauth-state-cookie", httpOnly: true, sameSite: "lax", secure: false, path: "/", maxAge: 600 }
     });
@@ -45,7 +45,7 @@ describe("POST /v1/prism/setup/slack-configuration/verify", () => {
   });
 
   it("rejects query/body configuration selectors and missing sessions", async () => {
-    const startVerification = vi.fn();
+    const startVerification = vi.fn<SetupVerificationDependencies["startVerification"]>();
     const query = await handleSlackConfigurationVerifyPost(request("?versionId=attacker"), { startVerification });
     const body = await handleSlackConfigurationVerifyPost(request("", "versionId=attacker"), { startVerification });
     const missing = await handleSlackConfigurationVerifyPost(request("", undefined, false), { startVerification });
@@ -58,14 +58,14 @@ describe("POST /v1/prism/setup/slack-configuration/verify", () => {
   });
 
   it("rejects cross-origin verification", async () => {
-    const startVerification = vi.fn();
+    const startVerification = vi.fn<SetupVerificationDependencies["startVerification"]>();
     const response = await handleSlackConfigurationVerifyPost(request("", undefined, true, "https://attacker.invalid"), { startVerification });
     expect(response.status).toBe(403);
     expect(startVerification).not.toHaveBeenCalled();
   });
 
   it("still rejects native top-level and cross-origin JSON requests", async () => {
-    const startVerification = vi.fn();
+    const startVerification = vi.fn<SetupVerificationDependencies["startVerification"]>();
     const native = await handleSlackConfigurationVerifyPost(request("", undefined, true, null, "application/json", "none"), { startVerification });
     const crossOrigin = await handleSlackConfigurationVerifyPost(request("", undefined, true, "https://attacker.invalid", "application/json", "cross-site"), { startVerification });
 
@@ -75,7 +75,7 @@ describe("POST /v1/prism/setup/slack-configuration/verify", () => {
   });
 
   it("requires the exact form media-type essence while accepting normal casing, whitespace, and parameters", async () => {
-    const startVerification = vi.fn().mockResolvedValue(validStart());
+    const startVerification = vi.fn<SetupVerificationDependencies["startVerification"]>().mockResolvedValue(validStart());
     const mediaRequest = (contentType: string) => new NextRequest("http://localhost:3732/v1/prism/setup/slack-configuration/verify", {
       method: "POST",
       headers: {
@@ -96,7 +96,7 @@ describe("POST /v1/prism/setup/slack-configuration/verify", () => {
   });
 
   it("does not return or navigate to an unexpected verification destination", async () => {
-    const startVerification = vi.fn().mockResolvedValue({
+    const startVerification = vi.fn<SetupVerificationDependencies["startVerification"]>().mockResolvedValue({
       redirectUrl: "https://attacker.invalid/oauth/v2/authorize?state=opaque",
       cookie: { name: "prism_slack_oauth_state", value: "must-not-be-set", httpOnly: true, sameSite: "lax", secure: false, path: "/", maxAge: 600 }
     });
@@ -125,7 +125,7 @@ describe("POST /v1/prism/setup/slack-configuration/verify", () => {
     ["opaque origin with none", "null", "none", true],
     ["missing metadata", null, null, true]
   ])("accepts a valid browser synchronizer for verification with %s", async (_label, origin, fetchSite, withCookie) => {
-    const startVerification = vi.fn().mockResolvedValue(validStart());
+    const startVerification = vi.fn<SetupVerificationDependencies["startVerification"]>().mockResolvedValue(validStart());
     const response = await handleSlackConfigurationVerifyPost(verificationProofRequest(origin, fetchSite, SETUP_PROOF, withCookie), verificationProofDependencies(startVerification));
 
     expect(response.status).toBe(200);
@@ -140,7 +140,7 @@ describe("POST /v1/prism/setup/slack-configuration/verify", () => {
     ["same-site", null, "same-site", SETUP_PROOF],
     ["mismatched proof", null, "none", `v1.${"1".repeat(13)}.${"a".repeat(43)}.${"c".repeat(43)}`]
   ])("rejects verification synchronizer with %s", async (_label, origin, fetchSite, proof) => {
-    const startVerification = vi.fn();
+    const startVerification = vi.fn<SetupVerificationDependencies["startVerification"]>();
     const response = await handleSlackConfigurationVerifyPost(verificationProofRequest(origin, fetchSite, proof), verificationProofDependencies(startVerification));
 
     expect(response.status).toBe(403);
@@ -148,14 +148,14 @@ describe("POST /v1/prism/setup/slack-configuration/verify", () => {
   });
 });
 
-function validStart() {
+function validStart(): NonNullable<Awaited<ReturnType<SetupVerificationDependencies["startVerification"]>>> {
   return {
     redirectUrl: "https://slack.com/oauth/v2/authorize?client_id=123&state=opaque",
     cookie: { name: "prism_slack_oauth_state", value: "oauth-state-cookie", httpOnly: true as const, sameSite: "lax" as const, secure: false, path: "/", maxAge: 600 }
   };
 }
 
-function verificationProofDependencies(startVerification: ReturnType<typeof vi.fn>) {
+function verificationProofDependencies(startVerification: SetupVerificationDependencies["startVerification"]) {
   return {
     startVerification,
     expectedOrigin: "http://localhost:3732",

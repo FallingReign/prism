@@ -6,6 +6,7 @@ describe("Prism MCP adapter config", () => {
   it("accepts only Prism config and rejects Slack credential-like environment variables with redacted errors", () => {
     expect(
       readAdapterConfig({
+        NODE_ENV: "test",
         PRISM_BASE_URL: "http://localhost:3732/",
         PRISM_DEVELOPER_TOKEN: "prism_dev_configcanaryconfigcanaryconfig12"
       })
@@ -16,6 +17,7 @@ describe("Prism MCP adapter config", () => {
 
     expect(() =>
       readAdapterConfig({
+        NODE_ENV: "test",
         PRISM_BASE_URL: "http://localhost:3732",
         PRISM_DEVELOPER_TOKEN: "prism_dev_configcanaryconfigcanaryconfig12",
         SLACK_BOT_TOKEN: "xoxb-secret-canary",
@@ -25,6 +27,7 @@ describe("Prism MCP adapter config", () => {
 
     try {
       readAdapterConfig({
+        NODE_ENV: "test",
         PRISM_BASE_URL: "http://localhost:3732",
         PRISM_DEVELOPER_TOKEN: "prism_dev_configcanaryconfigcanaryconfig12",
         SLACK_BOT_TOKEN: "xoxb-secret-canary"

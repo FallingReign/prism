@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { Database } from "../db";
+import { createTestDatabase } from "../../../test/database";
 import { hashSecret } from "./oauth-flow";
 import { createPostgresSlackConnectionManagementStore, removeSlackConnection, type SlackConnectionManagementStore } from "./connection-management";
 
@@ -88,14 +88,7 @@ describe("Slack connection management", () => {
   });
 });
 
-function fakeDatabase(query: Database["query"]): Database {
-  return {
-    query,
-    async transaction(callback) {
-      return callback(this);
-    }
-  };
-}
+const fakeDatabase = createTestDatabase;
 
 function activityRowFromInsertParams(params: unknown[] | undefined) {
   if (!params) throw new Error("expected activity params");

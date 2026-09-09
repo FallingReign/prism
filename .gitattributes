@@ -1,0 +1,2 @@
+# Executable Node scripts must keep Unix shebangs on every checkout.
+*.mjs text eol=lf

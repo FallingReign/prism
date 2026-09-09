@@ -78,6 +78,31 @@ function store(overrides: Partial<OidcStore> = {}): OidcStore {
 }
 
 describe("OIDC authorization service", () => {
+  it("returns bounded Slack guidance through the stored callback and consumes the failed request", async () => {
+    const pending = { requestId: "r".repeat(43), clientId: "shg-playtest", redirectUri: config.playtestClient.redirectUri,
+      state: "stored-state", nonce: "nonce", scope: "openid profile", codeChallenge: "c".repeat(43),
+      codeChallengeMethod: "S256" as const, expiresAt: new Date(now.getTime() + 60_000) };
+    const oidcStore = store({ consumePendingAuthorizationRequest: vi.fn(async () => pending) });
+    const result = await authorizeOidcRequest({
+      url: new URL(`https://prism.example/oauth/authorize?request=${pending.requestId}&error=server_error&prism_reason=persistence_failed`),
+      store: oidcStore, config, now
+    });
+    expect(result).toEqual({ kind: "redirect", location: `${config.playtestClient.redirectUri}?error=server_error&state=stored-state&prism_reason=persistence_failed` });
+    expect(oidcStore.consumePendingAuthorizationRequest).toHaveBeenCalledOnce();
+    expect(oidcStore.issueAuthorizationCode).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "error=access_denied&prism_reason=raw-secret",
+    "error=access_denied&prism_reason=authorization_denied&prism_reason=provider_rejected",
+    "prism_reason=authorization_denied"
+  ])("rejects malformed failure guidance without consuming a request: %s", async (query) => {
+    const oidcStore = store();
+    expect(await authorizeOidcRequest({ url: new URL(`https://prism.example/oauth/authorize?request=${"r".repeat(43)}&${query}`), store: oidcStore, config, now }))
+      .toEqual({ kind: "error", status: 400, error: "invalid_request" });
+    expect(oidcStore.consumePendingAuthorizationRequest).not.toHaveBeenCalled();
+  });
+
   it("issues a code immediately for an eligible Prism session", async () => {
     const oidcStore = store({ resolveEligiblePrismSessionIdentity: vi.fn(async () => identity) });
 
@@ -583,6 +608,14 @@ describe("OIDC token and UserInfo service", () => {
     await expect(resolveOidcUserInfo({
       authorization: `Bearer ${"a".repeat(43)}, second`, store: oidcStore, config, now
     })).resolves.toEqual({ kind: "error", status: 401, error: "invalid_token" });
+  });
+
+  it("returns organization identity without inventing a workspace claim", async () => {
+    const oidcStore = store({ resolveAccessToken: vi.fn(async () => ({ ...identity, teamId: null, teamName: null, clientId: "shg-playtest", scope: "openid profile" })) });
+    const result = await resolveOidcUserInfo({ authorization: `Bearer ${"a".repeat(43)}`, store: oidcStore, config, now });
+    expect(result).toMatchObject({ kind: "success", body: { sub: identity.prismUserId, slack_enterprise_id: "E123" } });
+    if (result.kind !== "success") throw new Error("Expected organization identity");
+    expect(result.body).not.toHaveProperty("slack_team_id");
   });
 
   it("returns only sub from UserInfo for openid-only or email-only identity grants", async () => {

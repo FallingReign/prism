@@ -78,6 +78,7 @@ describe("Postgres delegated delivery issuance store", () => {
         return { rows: [], rowCount: 1 };
       }
       if (sql.includes("insert into slack_delivery_rate_limits")) {
+        expect(sql).toContain("updated_at = greatest(slack_delivery_rate_limits.created_at, slack_delivery_rate_limits.updated_at, $2)");
         return { rows: [{ request_count: 1, window_reset_at: new Date(now.getTime() + 60_000) }], rowCount: 1 };
       }
       if (sql.includes("pg_advisory_xact_lock")) return { rows: [{}], rowCount: 1 };
@@ -171,6 +172,12 @@ describe("Postgres delegated delivery issuance store", () => {
     expect(cleanupCalls.every(({ sql, params }) =>
       /limit \$2/i.test(sql) && params[1] === limits.cleanupBatchSize
     )).toBe(true);
+    for (const { sql } of cleanupCalls.filter(({ sql }) => sql.includes("update slack_delivery_delegation_requests r"))) {
+      expect(sql).toContain("terminal_at = greatest(r.created_at, r.updated_at, $1)");
+      expect(sql).toContain("updated_at = greatest(r.created_at, r.updated_at, $1)");
+    }
+    expect(cleanupCalls.find(({ sql }) => sql.includes("update slack_delivery_grants g"))?.sql)
+      .toContain("updated_at = greatest(g.created_at, g.updated_at, $1)");
     const oauthCleanup = cleanupCalls.find(({ sql }) =>
       sql.includes("select state_hash from slack_oauth_states")
     );
@@ -190,18 +197,22 @@ describe("Postgres delegated delivery issuance store", () => {
   });
 
   it.each([
-    ["search:read", "policy_denied"],
-    ["search:read,chat:write", "ready"]
-  ] as const)("requires an actual user credential with chat:write (%s)", async (userScopes, expectedKind) => {
-    const query = vi.fn(async (sql: string) => {
+    ["user", "search:read", "policy_denied"],
+    ["user", "search:read,chat:write", "ready"],
+    ["bot", null, "policy_denied"],
+    ["bot", "chat:write", "ready"]
+  ] as const)("requires the selected %s credential with chat:write (%s)", async (executionMode, senderScopes, expectedKind) => {
+    const query = vi.fn(async (sql: string, params: unknown[] = []) => {
       if (sql.includes("where approval_handle_hash = $1 or oauth_resume_handle_hash = $1")) {
-        return { rows: [requestRow()], rowCount: 1 };
+        return { rows: [{ ...requestRow(), execution_mode: executionMode }], rowCount: 1 };
       }
       if (sql.includes("select prism_user_id from prism_sessions")) {
         return { rows: [{ prism_user_id: "prism-user-123" }], rowCount: 1 };
       }
       if (sql.includes("join slack_credentials cred")) {
-        expect(sql).toContain("cred.kind = 'user'");
+        expect(sql).toContain("cred.kind = $5");
+        expect(params[4]).toBe(executionMode);
+        expect(sql).toContain("c.id = s.slack_connection_id");
         expect(sql).toContain("s.prism_user_id = $3");
         expect(sql).toContain("slack_connection_workspace_grants");
         expect(sql).toContain("g.status = 'active'");
@@ -217,7 +228,7 @@ describe("Postgres delegated delivery issuance store", () => {
             slack_user_display_name: "Ada",
             team_id: "T123ABC",
             team_name: "Studio",
-            user_scopes: userScopes
+            sender_scopes: senderScopes
           }],
           rowCount: 1
         };
@@ -331,11 +342,13 @@ describe("Postgres delegated delivery issuance store", () => {
       }
       if (sql.includes("from prism_sessions s") && sql.includes("slack_credentials")) {
         return {
-          rows: [{ prism_user_id: "prism-user-123", slack_connection_id: "connection-1", slack_user_id: "U123", slack_user_display_name: "Ada", team_id: "T123ABC", team_name: "Studio", user_scopes: "openid,chat:write" }],
+          rows: [{ prism_user_id: "prism-user-123", slack_connection_id: "connection-1", slack_user_id: "U123", slack_user_display_name: "Ada", team_id: "T123ABC", team_name: "Studio", sender_scopes: "openid,chat:write" }],
           rowCount: 1
         };
       }
       if (sql.includes("set state = 'approved'")) {
+        expect(sql).toContain("approved_at = greatest(created_at, updated_at, $6)");
+        expect(sql).toContain("updated_at = greatest(created_at, updated_at, $6)");
         state = "approved";
         return { rows: [], rowCount: 1 };
       }
@@ -379,7 +392,7 @@ describe("Postgres delegated delivery issuance store", () => {
         expect(sql).toContain("sc.installation_scope = 'workspace'");
         expect(sql).toContain("sc.installation_scope = 'organization'");
         expect(sql).toContain("sc.authed_user_id = r.approved_slack_user_id");
-        expect(sql).toContain("cred.kind = 'user'");
+        expect(sql).toContain("cred.kind = r.execution_mode");
         expect(sql).toContain("sc.status = 'healthy'");
         return {
           rows: [{
@@ -396,13 +409,17 @@ describe("Postgres delegated delivery issuance store", () => {
             expires_at: deliveryExpiresAt,
             slack_connection_id: "connection-1",
             connection_id_snapshot: "connection-1",
+            execution_mode: "user",
             code_hash: "c".repeat(64),
-            user_scopes: "search:read,chat:write"
+            sender_scopes: "search:read,chat:write"
           }],
           rowCount: 1
         };
       }
-      if (sql.includes("update slack_delivery_authorization_codes")) return { rows: [], rowCount: 1 };
+      if (sql.includes("update slack_delivery_authorization_codes")) {
+        expect(sql).toContain("used_at = greatest(created_at, $2)");
+        return { rows: [], rowCount: 1 };
+      }
       if (sql.includes("insert into slack_delivery_grants")) return { rows: [], rowCount: 1 };
       if (sql.includes("insert into prism_activity_audit")) return { rows: [auditRow("issued")], rowCount: 1 };
       throw new Error(`unexpected-sql:${sql.slice(0, 80)}`);
@@ -429,6 +446,71 @@ describe("Postgres delegated delivery issuance store", () => {
     expect(sqlCalls.some((sql) => sql.includes("from slack_delivery_delegation_requests where id = $1"))).toBe(false);
   });
 });
+
+describe("delegated grant lifecycle timestamp ordering", () => {
+  it("floors claim, upstream marker and terminal timestamps at the stored row time without extending deadlines", async () => {
+    let state = "active";
+    const writes: Array<{ sql: string; params: unknown[] }> = [];
+    const applicationNow = new Date("2026-08-22T00:05:00.535Z");
+    const leaseExpiresAt = new Date("2026-08-22T00:06:00.535Z");
+    const query = vi.fn(async (sql: string, params: unknown[] = []) => {
+      if (sql.includes("insert into slack_delivery_dpop_replay")) return { rows: [], rowCount: 1 };
+      if (sql.includes("update slack_delivery_grants")) {
+        writes.push({ sql, params });
+        if (sql.includes("set state = 'executing'")) state = "executing";
+        if (sql.includes("set state = $3")) state = String(params[2]);
+        return { rows: [], rowCount: 1 };
+      }
+      if (sql.includes("from slack_delivery_grants g")) return { rows: [executionRow(state)], rowCount: 1 };
+      if (sql.includes("insert into prism_activity_audit")) return { rows: [auditRow("sent")], rowCount: 1 };
+      throw new Error(`unexpected-sql:${sql.slice(0, 80)}`);
+    });
+    const store = createPostgresDelegatedDeliveryStore(fakeDatabase(query));
+    const claimed = await store.claimGrantExecution({ grantHash: "g".repeat(64), pepperId: "pepper", leaseId: "lease-1", leaseExpiresAt, now: applicationNow,
+      proofReplay: { jkt: "j".repeat(43), jtiHash: "f".repeat(64), expiresAt: leaseExpiresAt } });
+    expect(claimed).toMatchObject({ state: "executing", expiresAt: deliveryExpiresAt });
+    await store.markGrantUpstreamCalled({ grantId: claimed.grantId, leaseId: "lease-1", now: applicationNow });
+    await expect(store.finishGrantExecution({ grantId: claimed.grantId, leaseId: "lease-1", state: "sent", slackTs: "100.1", upstreamCalled: true, now: applicationNow }))
+      .resolves.toMatchObject({ state: "sent", expiresAt: deliveryExpiresAt });
+    expect(writes[0].sql).toContain("updated_at = greatest(created_at, updated_at, $4)");
+    expect(writes[0].sql).toContain("lease_expires_at = $3");
+    expect(writes[0].params.slice(2)).toEqual([leaseExpiresAt, applicationNow]);
+    expect(writes[1].sql).toContain("updated_at = greatest(created_at, updated_at, $3)");
+    for (const column of ["executed_at", "terminal_at", "updated_at"]) {
+      expect(writes[2].sql).toContain(`${column} = greatest(created_at, updated_at, $8)`);
+    }
+    expect(writes[2].params[7]).toBe(applicationNow);
+  });
+
+  it("preserves timestamp ordering when an abandoned execution lease becomes uncertain", async () => {
+    let expired = false;
+    let transition = "";
+    const query = vi.fn(async (sql: string) => {
+      if (sql.includes("insert into slack_delivery_dpop_replay")) return { rows: [], rowCount: 1 };
+      if (sql.includes("update slack_delivery_grants")) { transition = sql; expired = true; return { rows: [], rowCount: 1 }; }
+      if (sql.includes("from slack_delivery_grants g")) return { rows: [{ ...executionRow(expired ? "outcome_unknown" : "executing"), lease_expires_at: now }], rowCount: 1 };
+      if (sql.includes("insert into prism_activity_audit")) return { rows: [auditRow("outcome_unknown")], rowCount: 1 };
+      throw new Error(`unexpected-sql:${sql.slice(0, 80)}`);
+    });
+    const store = createPostgresDelegatedDeliveryStore(fakeDatabase(query));
+    await expect(store.claimGrantExecution({ grantHash: "g".repeat(64), pepperId: "pepper", leaseId: "lease-2", leaseExpiresAt: approvalExpiresAt, now,
+      proofReplay: { jkt: "j".repeat(43), jtiHash: "f".repeat(64), expiresAt: approvalExpiresAt } })).resolves.toMatchObject({ state: "outcome_unknown" });
+    expect(transition).toContain("terminal_at = greatest(created_at, updated_at, $2)");
+    expect(transition).toContain("updated_at = greatest(created_at, updated_at, $2)");
+  });
+});
+
+function executionRow(state: string) {
+  return {
+    grant_id: "ddg_1234567890123456", request_id: "ddr_1234567890123456", external_job_id: "job-123", revision: 1,
+    execution_mode: "bot", dpop_jkt: "j".repeat(43), prism_user_id: "prism-user-123", slack_connection_id: "connection-1",
+    connection_id_snapshot: "connection-1", slack_user_id: "U0123456789", team_id: "T123ABC", channel_id: "C123ABC",
+    payload_envelope: envelope, payload_sha256: "a".repeat(64), not_before: now, expires_at: deliveryExpiresAt,
+    state, slack_ts: state === "sent" ? "100.1" : null, last_error_code: null, lease_expires_at: null,
+    connection_status: "healthy", sender_scopes: "chat:write",
+    created_at: "2026-08-22T00:05:00.538875Z", updated_at: "2026-08-22T00:05:00.538875Z",
+  };
+}
 
 function requestRow() {
   return {

@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { Database } from "../db";
+import { createTestDatabase } from "../../../test/database";
 import { replaceOrganizationWorkspaceGrants } from "./organization-workspace-grant-store";
 
 describe("organization workspace grant persistence", () => {
   it("replaces a complete discovered set atomically and retains revoked rows for audit", async () => {
-    const query = vi.fn(async (sql: string) => {
+    const query = vi.fn(async (sql: string, _params?: unknown[]) => {
       if (sql.includes("for update")) return { rows: [{ id: "conn_org" }], rowCount: 1 };
       return { rows: [], rowCount: 1 };
     });
@@ -33,10 +33,4 @@ describe("organization workspace grant persistence", () => {
   });
 });
 
-function fakeDatabase(query: unknown): Database {
-  const database: Database = {
-    query: query as Database["query"],
-    transaction: async (callback) => callback(database)
-  };
-  return database;
-}
+const fakeDatabase = createTestDatabase;

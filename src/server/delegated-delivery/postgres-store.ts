@@ -16,6 +16,7 @@ import type {
 import {
   DelegatedDeliveryStoreError,
   type DelegatedConsentIdentity,
+  type DelegatedExecutionMode,
   type DelegationRequestRecord
 } from "./types";
 
@@ -60,6 +61,9 @@ export async function runPostgresDelegatedDeliveryCleanup(input: {
 }
 
 export function createPostgresDelegatedDeliveryStore(database: Database): DelegatedDeliveryStore {
+  // PostgreSQL retains sub-millisecond row times that JavaScript Date cannot.
+  // Floor lifecycle metadata at the stored row time; authorization deadlines
+  // and their comparisons continue to use the original supplied times.
   return {
     async createRequest(input): Promise<StoredDelegationRequestResult> {
       return database.transaction(async (tx) => {
@@ -174,7 +178,7 @@ export function createPostgresDelegatedDeliveryStore(database: Database): Delega
           surface: surfaceForChannel(input.request.channelId),
           objectType: "channel",
           objectId: input.request.channelId,
-          executionMode: "user",
+          executionMode: input.request.executionMode,
           status: "created",
           requestId: input.requestId,
           upstreamCalled: false
@@ -220,7 +224,7 @@ export function createPostgresDelegatedDeliveryStore(database: Database): Delega
     async saveOAuthResumeHandle({ requestId, handleHash, now }): Promise<boolean> {
       const result = await database.query(
         `update slack_delivery_delegation_requests
-         set oauth_resume_handle_hash = $2, updated_at = $3
+         set oauth_resume_handle_hash = $2, updated_at = greatest(created_at, updated_at, $3)
          where id = $1 and state = 'pending' and approval_expires_at > $3`,
         [requestId, handleHash, now]
       );
@@ -237,9 +241,9 @@ export function createPostgresDelegatedDeliveryStore(database: Database): Delega
            set state = 'approved', approved_slack_connection_id = $2,
                approved_connection_id_snapshot = $2, approved_prism_user_id = $3,
                approved_slack_user_id = $4, approved_slack_team_id = $5,
-               approved_at = $6, approval_handle_envelope = null,
+               approved_at = greatest(created_at, updated_at, $6), approval_handle_envelope = null,
                return_state_envelope = null, oauth_resume_handle_hash = null,
-               updated_at = $6
+               updated_at = greatest(created_at, updated_at, $6)
            where id = $1`,
           [request.id, identity.slackConnectionId, identity.prismUserId, identity.slackUserId, identity.teamId, input.now]
         );
@@ -312,7 +316,7 @@ export function createPostgresDelegatedDeliveryStore(database: Database): Delega
       return database.transaction(async (tx) => {
         await insertProofReplay(tx, input.proofReplay.jkt, input.proofReplay.jtiHash, input.proofReplay.expiresAt, input.now);
         const result = await tx.query<GrantBindingRow>(
-          `select r.id as request_id, r.client_id, r.external_job_id, r.revision,
+          `select r.id as request_id, r.client_id, r.external_job_id, r.revision, r.execution_mode,
                   r.approved_prism_user_id as prism_user_id,
                   r.approved_slack_user_id as slack_user_id,
                   r.approved_slack_team_id as team_id,
@@ -320,7 +324,7 @@ export function createPostgresDelegatedDeliveryStore(database: Database): Delega
                   r.delivery_expires_at as expires_at,
                   r.approved_slack_connection_id as slack_connection_id,
                   r.approved_connection_id_snapshot as connection_id_snapshot,
-                  c.code_hash, cred.scopes as user_scopes
+                  c.code_hash, cred.scopes as sender_scopes
            from slack_delivery_authorization_codes c
            join slack_delivery_delegation_requests r on r.id = c.request_id
            join slack_connections sc on sc.id = r.approved_slack_connection_id
@@ -330,7 +334,7 @@ export function createPostgresDelegatedDeliveryStore(database: Database): Delega
              on wg.slack_connection_id = sc.id
             and wg.team_id = r.approved_slack_team_id
             and wg.status = 'active'
-           join slack_credentials cred on cred.connection_id = sc.id and cred.kind = 'user'
+           join slack_credentials cred on cred.connection_id = sc.id and cred.kind = r.execution_mode
            where c.code_hash = $1 and c.used_at is null and c.expires_at > $5
              and r.client_id = $2 and r.callback_uri = $3 and r.code_challenge = $4
              and r.state = 'approved' and r.delivery_expires_at > $5
@@ -343,7 +347,7 @@ export function createPostgresDelegatedDeliveryStore(database: Database): Delega
            for update of c, r, sc, cred`,
           [input.codeHash, input.clientId, input.redirectUri, input.codeChallenge, input.now]
         );
-        const row = result.rows.find((candidate) => candidate.prism_user_id && candidate.slack_user_id && candidate.team_id && hasChatWrite(candidate.user_scopes));
+        const row = result.rows.find((candidate) => candidate.prism_user_id && candidate.slack_user_id && candidate.team_id && hasChatWrite(candidate.sender_scopes));
         if (!row) {
           const lifecycle = await tx.query<{
             used_at: Date | string | null;
@@ -371,16 +375,16 @@ export function createPostgresDelegatedDeliveryStore(database: Database): Delega
           }
           throw new DelegatedDeliveryStoreError("policy_denied");
         }
-        await tx.query("update slack_delivery_authorization_codes set used_at = $2 where code_hash = $1", [input.codeHash, input.now]);
+        await tx.query("update slack_delivery_authorization_codes set used_at = greatest(created_at, $2) where code_hash = $1", [input.codeHash, input.now]);
         await tx.query(
           `insert into slack_delivery_grants
              (id, grant_hash, pepper_id, request_id, dpop_jkt, slack_connection_id,
               connection_id_snapshot, prism_user_id, slack_user_id, team_id,
               channel_id, state, attempt_count, upstream_called, expires_at,
-              status_retained_until)
+              status_retained_until, execution_mode)
            values
              ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
-              'active', 0, false, $12, $13)`,
+              'active', 0, false, $12, $13, $14)`,
           [
             input.grantId,
             input.grantHash,
@@ -394,12 +398,13 @@ export function createPostgresDelegatedDeliveryStore(database: Database): Delega
             row.team_id,
             row.channel_id,
             row.expires_at,
-            new Date(toDate(row.expires_at).getTime() + input.statusRetentionMs)
+            new Date(toDate(row.expires_at).getTime() + input.statusRetentionMs),
+            row.execution_mode
           ]
         );
         const identity = identityFromGrantRow(row);
         await insertActivityAuditRecord(tx, auditForRequest(
-          { id: row.request_id, channelId: row.channel_id },
+          { id: row.request_id, channelId: row.channel_id, executionMode: row.execution_mode },
           identity,
           "delegated_delivery_grant_issued",
           "issued",
@@ -433,7 +438,9 @@ export function createPostgresDelegatedDeliveryStore(database: Database): Delega
             const updated = await tx.query(
               `update slack_delivery_grants
                set state = 'outcome_unknown', lease_id = null, lease_expires_at = null,
-                   last_error_code = 'execution_lease_expired', terminal_at = $2, updated_at = $2
+                   last_error_code = 'execution_lease_expired',
+                   terminal_at = greatest(created_at, updated_at, $2),
+                   updated_at = greatest(created_at, updated_at, $2)
                where id = $1`,
               [binding.grantId, input.now]
             );
@@ -446,14 +453,14 @@ export function createPostgresDelegatedDeliveryStore(database: Database): Delega
           throw new DelegatedDeliveryStoreError("lifecycle_conflict");
         }
         if (binding.notBefore > input.now) throw new DelegatedDeliveryStoreError("not_yet_valid");
-        if (row.connection_status !== "healthy" || !hasChatWrite(row.user_scopes)) {
+        if (row.connection_status !== "healthy" || !hasChatWrite(row.sender_scopes)) {
           throw new DelegatedDeliveryStoreError("policy_denied");
         }
         const claimed = await tx.query(
           `update slack_delivery_grants
            set state = 'executing', attempt_count = attempt_count + 1,
                lease_id = $2, lease_expires_at = $3, upstream_called = false,
-               last_error_code = null, updated_at = $4
+               last_error_code = null, updated_at = greatest(created_at, updated_at, $4)
            where id = $1 and state = 'active'`,
           [binding.grantId, input.leaseId, input.leaseExpiresAt, input.now]
         );
@@ -469,7 +476,9 @@ export function createPostgresDelegatedDeliveryStore(database: Database): Delega
           `update slack_delivery_grants
            set state = $3, lease_id = null, lease_expires_at = null,
                slack_request_id = $4, slack_ts = $5, last_error_code = $6,
-               upstream_called = $7, executed_at = $8, terminal_at = $8, updated_at = $8
+               upstream_called = $7, executed_at = greatest(created_at, updated_at, $8),
+               terminal_at = greatest(created_at, updated_at, $8),
+               updated_at = greatest(created_at, updated_at, $8)
            where id = $1 and state = 'executing' and lease_id = $2`,
           [
             input.grantId, input.leaseId, input.state,
@@ -485,7 +494,7 @@ export function createPostgresDelegatedDeliveryStore(database: Database): Delega
            left join slack_connections sc on sc.id = g.slack_connection_id
            left join slack_connection_workspace_grants wg on wg.slack_connection_id = sc.id
              and wg.team_id = g.team_id and wg.status = 'active'
-           left join slack_credentials cred on cred.connection_id = sc.id and cred.kind = 'user'
+           left join slack_credentials cred on cred.connection_id = sc.id and cred.kind = g.execution_mode
            where g.id = $1`,
           [input.grantId]
         );
@@ -497,7 +506,7 @@ export function createPostgresDelegatedDeliveryStore(database: Database): Delega
 
     async markGrantUpstreamCalled(input) {
       const updated = await database.query(
-        `update slack_delivery_grants set upstream_called = true, updated_at = $3
+        `update slack_delivery_grants set upstream_called = true, updated_at = greatest(created_at, updated_at, $3)
          where id = $1 and state = 'executing' and lease_id = $2`,
         [input.grantId, input.leaseId, input.now]
       );
@@ -508,15 +517,15 @@ export function createPostgresDelegatedDeliveryStore(database: Database): Delega
 
 const EXECUTION_COLUMNS = `g.id as grant_id, g.request_id, r.external_job_id, r.revision,
   g.dpop_jkt, g.prism_user_id, g.slack_connection_id, g.connection_id_snapshot,
-  g.slack_user_id, g.team_id, g.channel_id, r.payload_envelope, r.payload_sha256,
+  g.slack_user_id, g.team_id, g.channel_id, g.execution_mode, r.payload_envelope, r.payload_sha256,
   r.not_before, g.expires_at, g.state, g.slack_ts, g.last_error_code,
   g.lease_expires_at,
   case
-    when sc.installation_scope = 'workspace' and sc.team_id = g.team_id then sc.status
-    when sc.installation_scope = 'organization' and wg.team_id = g.team_id then sc.status
+    when g.execution_mode = r.execution_mode and sc.installation_scope = 'workspace' and sc.team_id = g.team_id then sc.status
+    when g.execution_mode = r.execution_mode and sc.installation_scope = 'organization' and wg.team_id = g.team_id then sc.status
     else null
   end as connection_status,
-  cred.scopes as user_scopes`;
+  cred.scopes as sender_scopes`;
 
 function executionSelect(lock: boolean): string {
   return `select ${EXECUTION_COLUMNS}
@@ -526,7 +535,7 @@ function executionSelect(lock: boolean): string {
       and sc.prism_user_id = g.prism_user_id and sc.authed_user_id = g.slack_user_id
     left join slack_connection_workspace_grants wg on wg.slack_connection_id = sc.id
       and wg.team_id = g.team_id and wg.status = 'active'
-    left join slack_credentials cred on cred.connection_id = sc.id and cred.kind = 'user'
+    left join slack_credentials cred on cred.connection_id = sc.id and cred.kind = g.execution_mode
     where g.grant_hash = $1 and g.pepper_id = $2${lock ? " for update of g, r" : ""}`;
 }
 
@@ -537,6 +546,7 @@ function toExecutionBinding(row: ExecutionRow): DelegatedGrantExecutionBinding {
     revision: Number(row.revision), dpopJkt: row.dpop_jkt, prismUserId: row.prism_user_id,
     slackConnectionId: row.slack_connection_id, connectionIdSnapshot: row.connection_id_snapshot,
     slackUserId: row.slack_user_id, teamId: row.team_id, channelId: row.channel_id,
+    executionMode: row.execution_mode,
     payloadEnvelope: row.payload_envelope, payloadSha256: row.payload_sha256,
     notBefore: toDate(row.not_before), expiresAt: toDate(row.expires_at), state: row.state,
     slackTs: row.slack_ts, lastErrorCode: row.last_error_code
@@ -558,7 +568,7 @@ async function auditGrantExecution(
     activityType: status === "outcome_unknown" ? "delegated_delivery_outcome_unknown" : "delegated_delivery_execution",
     endpoint: "/v1/prism/delegations/slack-message/execute", slackMethod: "chat.postMessage",
     actionCategory: "messages.write", surface: surfaceForChannel(binding.channelId),
-    objectType: "channel", objectId: binding.channelId, executionMode: "user", status,
+    objectType: "channel", objectId: binding.channelId, executionMode: binding.executionMode, status,
     errorClass, httpStatus, requestId: binding.requestId, upstreamCalled, occurredAt: now
   });
 }
@@ -597,10 +607,10 @@ async function resolveEligibleIdentity(
     `select s.prism_user_id, c.id as slack_connection_id, c.authed_user_id as slack_user_id,
             nullif(c.authed_user_display_name, '') as slack_user_display_name,
             $4::text as team_id, nullif(coalesce(g.team_name, c.team_name), '') as team_name,
-            cred.scopes as user_scopes
+            cred.scopes as sender_scopes
      from prism_sessions s
-     join slack_connections c on c.prism_user_id = s.prism_user_id
-     join slack_credentials cred on cred.connection_id = c.id and cred.kind = 'user'
+     join slack_connections c on c.id = s.slack_connection_id and c.prism_user_id = s.prism_user_id
+     join slack_credentials cred on cred.connection_id = c.id and cred.kind = $5
      left join slack_connection_workspace_grants g
        on g.slack_connection_id = c.id and g.team_id = $4 and g.status = 'active'
      where s.session_token_hash = $1 and s.expires_at > $2
@@ -614,9 +624,9 @@ async function resolveEligibleIdentity(
               c.updated_at desc,
               c.id
      limit 1${lock ? " for update of s, c, cred" : ""}`,
-    [sessionTokenHash, now, request.expectedPrismUserId, request.teamId]
+    [sessionTokenHash, now, request.expectedPrismUserId, request.teamId, request.executionMode]
   );
-  const row = result.rows.find((candidate) => hasChatWrite(candidate.user_scopes));
+  const row = result.rows.find((candidate) => hasChatWrite(candidate.sender_scopes));
   return row ? toIdentity(row) : null;
 }
 
@@ -625,7 +635,8 @@ async function markDenied(database: Database, request: DelegationRequestRecord, 
     `update slack_delivery_delegation_requests
      set state = 'denied', payload_envelope = null, approval_handle_envelope = null,
          return_state_envelope = null, oauth_resume_handle_hash = null,
-         terminal_at = $2, updated_at = $2
+         terminal_at = greatest(created_at, updated_at, $2),
+         updated_at = greatest(created_at, updated_at, $2)
      where id = $1`,
     [request.id, now]
   );
@@ -638,7 +649,7 @@ async function markDenied(database: Database, request: DelegationRequestRecord, 
     surface: surfaceForChannel(request.channelId),
     objectType: "channel",
     objectId: request.channelId,
-    executionMode: "user",
+    executionMode: request.executionMode,
     status: "denied",
     requestId: request.id,
     upstreamCalled: false,
@@ -651,7 +662,8 @@ async function expireRequest(database: Database, request: DelegationRequestRecor
     `update slack_delivery_delegation_requests
      set state = 'expired', payload_envelope = null, approval_handle_envelope = null,
          return_state_envelope = null, oauth_resume_handle_hash = null,
-         terminal_at = $2, updated_at = $2
+         terminal_at = greatest(created_at, updated_at, $2),
+         updated_at = greatest(created_at, updated_at, $2)
      where id = $1 and state = 'pending'`,
     [request.id, now]
   );
@@ -663,7 +675,7 @@ async function expireRequest(database: Database, request: DelegationRequestRecor
     surface: surfaceForChannel(request.channelId),
     objectType: "channel",
     objectId: request.channelId,
-    executionMode: "user",
+    executionMode: request.executionMode,
     status: "expired",
     requestId: request.id,
     upstreamCalled: false,
@@ -714,7 +726,7 @@ async function consumeFixedWindow(database: Database, bucketKey: string, now: Da
        window_started_at = case when slack_delivery_rate_limits.window_reset_at <= $2 then $2 else slack_delivery_rate_limits.window_started_at end,
        window_reset_at = case when slack_delivery_rate_limits.window_reset_at <= $2 then $3 else slack_delivery_rate_limits.window_reset_at end,
        request_count = case when slack_delivery_rate_limits.window_reset_at <= $2 then 1 else slack_delivery_rate_limits.request_count + 1 end,
-       updated_at = $2
+       updated_at = greatest(slack_delivery_rate_limits.created_at, slack_delivery_rate_limits.updated_at, $2)
      returning request_count, window_reset_at`,
     [bucketKey, now, resetAt]
   );
@@ -729,7 +741,7 @@ async function cleanupExpiredArtifacts(
   statusRetentionMs: number,
   batchSize: number
 ): Promise<DelegatedDeliveryCleanupResult> {
-  const expiredPending = await database.query<{ id: string; channel_id: string }>(
+  const expiredPending = await database.query<{ id: string; channel_id: string; execution_mode: DelegatedExecutionMode }>(
     `with targets as (
        select id from slack_delivery_delegation_requests
        where state = 'pending' and approval_expires_at <= $1
@@ -738,9 +750,10 @@ async function cleanupExpiredArtifacts(
      update slack_delivery_delegation_requests r
      set state = 'expired', payload_envelope = null, approval_handle_envelope = null,
          return_state_envelope = null, oauth_resume_handle_hash = null,
-         terminal_at = $1, updated_at = $1
+         terminal_at = greatest(r.created_at, r.updated_at, $1),
+         updated_at = greatest(r.created_at, r.updated_at, $1)
      from targets where r.id = targets.id
-     returning r.id, r.channel_id`,
+     returning r.id, r.channel_id, r.execution_mode`,
     [now, batchSize]
   );
   await auditExpiredRequests(database, expiredPending.rows, now);
@@ -753,12 +766,13 @@ async function cleanupExpiredArtifacts(
      )
      update slack_delivery_grants g
      set state = 'expired', lease_id = null, lease_expires_at = null,
-         retry_after = null, terminal_at = coalesce(g.terminal_at, $1), updated_at = $1
+         retry_after = null, terminal_at = coalesce(g.terminal_at, greatest(g.created_at, g.updated_at, $1)),
+         updated_at = greatest(g.created_at, g.updated_at, $1)
      from targets where g.id = targets.id`,
     [now, batchSize]
   );
 
-  const expiredApproved = await database.query<{ id: string; channel_id: string }>(
+  const expiredApproved = await database.query<{ id: string; channel_id: string; execution_mode: DelegatedExecutionMode }>(
     `with targets as (
        select r.id from slack_delivery_delegation_requests r
        where r.state = 'approved'
@@ -779,9 +793,10 @@ async function cleanupExpiredArtifacts(
      update slack_delivery_delegation_requests r
      set state = 'expired', payload_envelope = null, approval_handle_envelope = null,
          return_state_envelope = null, oauth_resume_handle_hash = null,
-         terminal_at = $1, updated_at = $1
+         terminal_at = greatest(r.created_at, r.updated_at, $1),
+         updated_at = greatest(r.created_at, r.updated_at, $1)
      from targets where r.id = targets.id
-     returning r.id, r.channel_id`,
+     returning r.id, r.channel_id, r.execution_mode`,
     [now, batchSize]
   );
   await auditExpiredRequests(database, expiredApproved.rows, now);
@@ -836,14 +851,14 @@ async function cleanupExpiredArtifacts(
 
 async function auditExpiredRequests(
   database: Database,
-  rows: Array<{ id: string; channel_id: string }>,
+  rows: Array<{ id: string; channel_id: string; execution_mode: DelegatedExecutionMode }>,
   now: Date
 ): Promise<void> {
   for (const row of rows) {
     await insertActivityAuditRecord(database, {
       activityType: "delegated_delivery_expired", slackMethod: "chat.postMessage",
       actionCategory: "messages.write", surface: surfaceForChannel(row.channel_id),
-      objectType: "channel", objectId: row.channel_id, executionMode: "user",
+      objectType: "channel", objectId: row.channel_id, executionMode: row.execution_mode,
       status: "expired", requestId: row.id, upstreamCalled: false, occurredAt: now
     });
   }
@@ -936,7 +951,7 @@ function enforceOutstandingCaps(
 }
 
 function auditForRequest(
-  request: Pick<DelegationRequestRecord, "id" | "channelId">,
+  request: Pick<DelegationRequestRecord, "id" | "channelId" | "executionMode">,
   identity: DelegatedConsentIdentity,
   activityType: "delegated_delivery_approved" | "delegated_delivery_grant_issued",
   status: "approved" | "issued",
@@ -956,7 +971,7 @@ function auditForRequest(
     surface: surfaceForChannel(request.channelId),
     objectType: "channel",
     objectId: request.channelId,
-    executionMode: "user",
+    executionMode: request.executionMode,
     status,
     requestId: request.id,
     upstreamCalled: false,
@@ -977,7 +992,7 @@ function toRequestRecord(row: RequestRow): DelegationRequestRecord {
     callbackUri: row.callback_uri,
     expectedPrismUserId: row.expected_prism_user_id,
     action: "chat.postMessage",
-    executionMode: "user",
+    executionMode: row.execution_mode,
     teamId: row.team_id,
     channelId: row.channel_id,
     payloadEnvelope: row.payload_envelope,
@@ -1013,6 +1028,7 @@ function identityFromGrantRow(row: GrantBindingRow): DelegatedConsentIdentity {
 function toGrantExchangeResult(grantId: string, row: GrantBindingRow): DelegatedGrantExchangeResult {
   return {
     grantId,
+    executionMode: row.execution_mode,
     clientId: row.client_id,
     externalJobId: row.external_job_id,
     revision: Number(row.revision),
@@ -1042,7 +1058,7 @@ function toDate(value: Date | string): Date { return value instanceof Date ? val
 
 type RequestRow = {
   id: string; client_id: string; external_job_id: string; revision: number | string; idempotency_key: string;
-  callback_uri: string; expected_prism_user_id: string; action: "chat.postMessage"; execution_mode: "user";
+  callback_uri: string; expected_prism_user_id: string; action: "chat.postMessage"; execution_mode: DelegatedExecutionMode;
   team_id: string; channel_id: string; payload_envelope: CredentialEnvelope | null; payload_sha256: string;
   return_state_envelope: CredentialEnvelope | null; code_challenge: string; dpop_jkt: string;
   not_before: Date | string; approval_expires_at: Date | string; delivery_expires_at: Date | string;
@@ -1050,21 +1066,21 @@ type RequestRow = {
 };
 type IdentityRow = {
   prism_user_id: string; slack_connection_id: string; slack_user_id: string; slack_user_display_name: string | null;
-  team_id: string; team_name: string | null; user_scopes: string | null;
+  team_id: string; team_name: string | null; sender_scopes: string | null;
 };
 type GrantBindingRow = {
-  request_id: string; client_id: string; external_job_id: string; revision: number | string;
+  request_id: string; client_id: string; external_job_id: string; revision: number | string; execution_mode: DelegatedExecutionMode;
   prism_user_id: string | null; slack_user_id: string | null; team_id: string | null; channel_id: string;
   payload_sha256: string; not_before: Date | string; expires_at: Date | string;
-  slack_connection_id: string | null; connection_id_snapshot: string | null; code_hash: string; user_scopes: string | null;
+  slack_connection_id: string | null; connection_id_snapshot: string | null; code_hash: string; sender_scopes: string | null;
 };
 type ExecutionRow = {
-  grant_id: string; request_id: string; external_job_id: string; revision: number | string;
+  grant_id: string; request_id: string; external_job_id: string; revision: number | string; execution_mode: DelegatedExecutionMode;
   dpop_jkt: string; prism_user_id: string; slack_connection_id: string; connection_id_snapshot: string;
   slack_user_id: string; team_id: string; channel_id: string; payload_envelope: CredentialEnvelope | null;
   payload_sha256: string; not_before: Date | string; expires_at: Date | string;
   state: DelegatedGrantExecutionBinding["state"]; slack_ts: string | null; last_error_code: string | null;
-  lease_expires_at: Date | string | null; connection_status: string | null; user_scopes: string | null;
+  lease_expires_at: Date | string | null; connection_status: string | null; sender_scopes: string | null;
 };
 type OutstandingRow = {
   client_count: number | string; source_count: number | string; user_count: number | string;

@@ -124,6 +124,16 @@ describe("GET /v1/slack/oauth/start", () => {
     );
   });
 
+  it("returns startup failures to the pending Playtest sign-in without trusting a callback URL", async () => {
+    delete process.env.SLACK_CLIENT_SECRET;
+    mockDb.query.mockResolvedValue({ rows: [], rowCount: 0 });
+    const { GET } = await import("./route");
+    const requestId = "r".repeat(43);
+    const response = await GET(new NextRequest(`http://localhost:3732/v1/slack/oauth/start?oidc_request=${requestId}`));
+    expect(response.headers.get("location")).toBe(`http://localhost:3732/oauth/authorize?request=${requestId}&error=server_error&prism_reason=runtime_unavailable`);
+    expect(response.headers.get("set-cookie") ?? "").not.toContain("prism_session=");
+  });
+
   it("rejects a delegated continuation before OAuth state persistence while the feature is disabled", async () => {
     const { GET } = await import("./route");
     const requestId = "ddr_12345678-1234-4123-8123-123456789012";

@@ -148,7 +148,7 @@ describe("Slack forwarding service", () => {
 
   it("runs the rate-limit seam before upstream calls", async () => {
     const client: SlackWebApiClient = { callMethod: vi.fn() };
-    const rateLimiter = vi.fn(() => ({ kind: "limited" as const, httpStatus: 429, retryAfterSeconds: 60, body: { ok: false as const, error: "rate_limited" as const } }));
+    const rateLimiter = vi.fn(() => ({ kind: "limited" as const, httpStatus: 429 as const, retryAfterSeconds: 60, body: { ok: false as const, error: "rate_limited" as const } }));
 
     const response = await forwardSlackMethod({
       request: new NextRequest("http://localhost:3732/v1/slack/api/conversations.list?limit=2"),

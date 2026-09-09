@@ -84,7 +84,7 @@ export async function executeDelegatedSlackMessage(input: {
 
   const credential = await input.credentialProvider.getAccessToken({
     connectionId: binding.slackConnectionId,
-    kind: "user"
+    kind: binding.executionMode
   });
   if (credential.kind === "unavailable") {
     const terminal = await input.store.finishGrantExecution({
@@ -100,7 +100,7 @@ export async function executeDelegatedSlackMessage(input: {
     httpMethod: "POST",
     payloadEncoding: "json",
     payload: { ...payload, client_context_team_id: binding.teamId },
-    executionMode: "user",
+    executionMode: binding.executionMode,
     accessToken: credential.accessToken
   });
   const slack = parseSlackResult(upstream.body, binding.channelId);
@@ -126,6 +126,7 @@ function responseFor(binding: Awaited<ReturnType<DelegatedDeliveryStore["claimGr
   const state = binding.state === "sent" ? "sent" : binding.state === "outcome_unknown" ? "outcome_unknown" : "failed";
   return {
     state,
+    ...(binding.executionMode === "bot" ? { execution_mode: "bot" as const } : {}),
     grant_id: binding.grantId,
     external_job_id: binding.externalJobId,
     revision: binding.revision,
