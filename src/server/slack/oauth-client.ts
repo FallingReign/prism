@@ -93,6 +93,12 @@ export function createFetchSlackOAuthClient({
       try {
         const parsed: unknown = await response.json();
         if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || typeof (parsed as Record<string, unknown>).ok !== "boolean") {
+          console.error("Slack OAuth response unparseable:", {
+            type: typeof parsed,
+            isArray: Array.isArray(parsed),
+            okType: typeof (parsed as Record<string, unknown> | null)?.ok,
+            status: response.status
+          });
           return { ok: false, errorClass: "malformed_oauth_response" };
         }
         body = parsed as Record<string, unknown>;
@@ -146,6 +152,21 @@ function normalizeSlackOAuthSuccess(body: Record<string, any>): SlackOAuthResult
     (body.is_enterprise_install !== undefined && typeof body.is_enterprise_install !== "boolean") ||
     (body.enterprise !== undefined && body.enterprise !== null && !nonemptySlackIdentifier(enterpriseId))
   ) {
+    console.error("Slack OAuth response rejected as malformed:", {
+      hasAppId: nonemptySlackIdentifier(appId),
+      hasAuthedUserId: nonemptySlackIdentifier(authedUserId),
+      hasWorkspace,
+      hasEnterprise,
+      isEnterpriseInstall,
+      isEnterpriseInstallType: typeof body.is_enterprise_install,
+      enterprisePresent: body.enterprise !== undefined && body.enterprise !== null,
+      validInstallationShape,
+      hasBotAccessToken: typeof body.access_token === "string" && body.access_token.length > 0,
+      hasUserAccessToken: typeof body.authed_user?.access_token === "string" && body.authed_user.access_token.length > 0,
+      botScopeCount: typeof body.scope === "string" && body.scope ? body.scope.split(",").length : 0,
+      userScopeCount: typeof body.authed_user?.scope === "string" && body.authed_user.scope ? body.authed_user.scope.split(",").length : 0,
+      responseKeys: Object.keys(body).sort()
+    });
     return { ok: false, errorClass: "malformed_oauth_response" };
   }
 
