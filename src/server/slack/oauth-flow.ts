@@ -329,18 +329,22 @@ export async function completeSlackOAuthCallback({
         userScopes: slackResult.authedUser.scope ?? ""
       });
 
+      // Record every workspace the organization exposes, then ensure the
+      // workspace the user actually authorized from is present regardless of
+      // whether discovery ran or succeeded.
+      if (organizationWorkspaceDiscovery?.kind === "ok") {
+        await transactionStore.replaceOrganizationGrants({
+          connectionId: connection.id,
+          teams: organizationWorkspaceDiscovery.teams,
+          verifiedAt: now
+        });
+      }
       if (slackResult.team) {
         await transactionStore.upsertWorkspaceGrant({
           connectionId: connection.id,
           teamId: slackResult.team.id,
           teamName: slackResult.team.name ?? null,
           source: "oauth",
-          verifiedAt: now
-        });
-      } else if (organizationWorkspaceDiscovery?.kind === "ok") {
-        await transactionStore.replaceOrganizationGrants({
-          connectionId: connection.id,
-          teams: organizationWorkspaceDiscovery.teams,
           verifiedAt: now
         });
       }

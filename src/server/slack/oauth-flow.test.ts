@@ -274,8 +274,42 @@ describe("Slack OAuth flow", () => {
     expect(JSON.stringify(result)).not.toMatch(/xox[bp]-|client-secret/i);
   });
 
-  it("keeps a valid organization connection when workspace discovery is unavailable", async () => {
+  it("discovers every organization workspace even when Slack reports the authorizing team", async () => {
     const store = createMemoryStore();
+    const cipher = createLocalAesGcmCredentialCipher({ key: encryptionKey, keyId: "local-test" });
+    const config = {
+      clientId: "client-id-123", clientSecret: "client-secret-must-not-appear",
+      redirectUri: "http://localhost:3732/v1/slack/oauth/callback", publicBaseUrl: "http://localhost:3732",
+      botScopes: [], userScopes: ["search:read"]
+    };
+    const start = await createTestSlackOAuthStart({ store, config, now, randomBytes: () => Buffer.alloc(32, 31) });
+    const discoverOrganizationWorkspaces = vi.fn(async () => ({
+      kind: "ok" as const,
+      teams: [{ teamId: "T111", teamName: "2136a Dev" }, { teamId: "T222", teamName: "2136b Dev" }]
+    }));
+
+    const result = await completeTestSlackOAuthCallback({
+      store, cipher, config, code: "valid-code", state: start.state, cookieState: start.state, now,
+      randomBytes: () => Buffer.alloc(32, 32), discoverOrganizationWorkspaces,
+      slackOAuthClient: {
+        async exchangeCode() {
+          return {
+            ok: true, appId: "A123", installationScope: "organization", isEnterpriseInstall: true,
+            team: { id: "T111", name: "2136a Dev" }, enterprise: { id: "E123", name: "2136a" },
+            authedUser: { id: "U123", accessToken: "xoxp-org-user-canary", tokenType: "user", scope: "search:read" },
+            bot: { accessToken: "xoxb-org-bot-canary", tokenType: "bot", scope: "channels:read" }
+          };
+        },
+        async refreshToken() { throw new Error("not used"); }
+      }
+    });
+
+    expect(result).toMatchObject({ kind: "linked", installationScope: "organization" });
+    expect(discoverOrganizationWorkspaces).toHaveBeenCalledWith("xoxp-org-user-canary");
+    expect((store.rows.workspaceGrants as Array<{ teamId: string }>).map((grant) => grant.teamId).sort()).toEqual(["T111", "T222"]);
+  });
+
+  it("keeps a valid organization connection when workspace discovery is unavailable", async () => {    const store = createMemoryStore();
     const cipher = createLocalAesGcmCredentialCipher({ key: encryptionKey, keyId: "local-test" });
     const config = {
       clientId: "client-id-123", clientSecret: "client-secret-must-not-appear",
