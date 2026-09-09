@@ -49,10 +49,10 @@ describe("Prism admin allowlist", () => {
     const allowlistPath = join(dir, "admins.json");
     await writeFile(allowlistPath, JSON.stringify({ admins: [{ slackUserId: "U_LOCAL_ADMIN", scope: { kind: "global" } }] }), "utf8");
 
-    await expect(loadAdminAllowlist({ PRISM_ADMIN_ALLOWLIST_PATH: allowlistPath } as NodeJS.ProcessEnv)).resolves.toEqual({
+    await expect(loadAdminAllowlist({ NODE_ENV: "test", PRISM_ADMIN_ALLOWLIST_PATH: allowlistPath })).resolves.toEqual({
       entries: [{ slackUserId: "U_LOCAL_ADMIN", scope: { kind: "global" } }]
     });
-    await expect(loadAdminAllowlist({ PRISM_ADMIN_ALLOWLIST_PATH: join(dir, "missing.json") } as NodeJS.ProcessEnv)).resolves.toEqual({
+    await expect(loadAdminAllowlist({ NODE_ENV: "test", PRISM_ADMIN_ALLOWLIST_PATH: join(dir, "missing.json") })).resolves.toEqual({
       entries: []
     });
   });

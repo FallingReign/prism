@@ -55,6 +55,8 @@ describe("Local-tool Prism capability discovery", () => {
         "admin.users.list": { status: "unsupported" }
       }
     });
+    expect(result.body.unsupported).toBeDefined();
+    if (!result.body.unsupported) throw new Error("expected unsupported capability summary");
     expect(result.body.unsupported.surfaces).toEqual(expect.arrayContaining(["admin", "events", "fileTransfer", "canvases", "lists"]));
     expect(JSON.stringify(result.body)).not.toMatch(/prism_dev_|tokenHash|pepper-secret-canary|xox[bp]-|refresh|access_token|client_secret/i);
   });

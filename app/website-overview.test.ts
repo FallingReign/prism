@@ -54,7 +54,11 @@ describe("Prism website overview", () => {
           errorClass: null,
           httpStatus: 200,
           upstreamCalled: true,
-          requestId: "req_1"
+          requestId: "req_1",
+          adminActorPrismUserId: null,
+          adminActorSlackUserId: null,
+          adminActorSlackDisplayName: null,
+          adminReason: null
         }
       ]
     );

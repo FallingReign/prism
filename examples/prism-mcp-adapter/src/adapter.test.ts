@@ -8,12 +8,13 @@ const developerToken = "prism_dev_referenceadaptercanaryreferenceadapter";
 describe("Prism reference MCP adapter", () => {
   it("validates Prism capabilities, exposes allowed representative tools, and calls Prism with only the Prism developer token", async () => {
     const requests: Array<{ url: string; init: RequestInit | undefined }> = [];
-    const fetch = vi.fn(async (url: string | URL, init?: RequestInit) => {
-      requests.push({ url: String(url), init });
-      if (String(url).endsWith("/v1/prism/status")) {
+    const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const target = url instanceof Request ? url.url : String(url);
+      requests.push({ url: target, init });
+      if (target.endsWith("/v1/prism/status")) {
         return jsonResponse({ requestId: "req_status", token: { valid: true, status: "active", tokenProfileId: "profile_1", expiresAt: null }, slack: { status: "healthy", reauthRequired: false } });
       }
-      if (String(url).endsWith("/v1/prism/capabilities")) {
+      if (target.endsWith("/v1/prism/capabilities")) {
         return jsonResponse({
           requestId: "req_capabilities",
           token: { status: "active", tokenProfileId: "profile_1", expiresAt: null },
@@ -26,7 +27,7 @@ describe("Prism reference MCP adapter", () => {
           }
         });
       }
-      if (String(url).includes("/v1/slack/api/conversations.history")) {
+      if (target.includes("/v1/slack/api/conversations.history")) {
         return jsonResponse({ ok: true, messages: [{ type: "message", channel: "C123", text: "hello" }] }, { "x-prism-request-id": "req_history", "x-prism-upstream-called": "true" });
       }
       throw new Error(`unexpected request ${url}`);
@@ -60,8 +61,8 @@ describe("Prism reference MCP adapter", () => {
   });
 
   it("surfaces Prism-side and upstream Slack rate limits distinctly without leaking the Prism developer token", async () => {
-    const fetch = vi.fn(async (url: string | URL, init?: RequestInit) => {
-      const target = String(url);
+    const fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      const target = url instanceof Request ? url.url : String(url);
       expect(JSON.stringify(init)).not.toMatch(/xox[bp]-|client_secret|refresh_token/i);
       if (target.endsWith("/v1/prism/status")) {
         return jsonResponse({ requestId: "req_status", token: { valid: true, status: "active", tokenProfileId: "profile_1", expiresAt: null }, slack: { status: "healthy", reauthRequired: false } });
@@ -108,8 +109,9 @@ describe("Prism reference MCP adapter", () => {
   });
 
   it("fails startup before tool exposure for invalid tokens and Slack reauth-required state", async () => {
-    const invalidFetch = vi.fn(async (url: string | URL) => {
-      if (String(url).endsWith("/v1/prism/status")) return jsonResponse({ requestId: "req_invalid", token: { valid: false, status: "invalid" } }, { status: "401" });
+    const invalidFetch = vi.fn(async (url: string | URL | Request) => {
+      const target = url instanceof Request ? url.url : String(url);
+      if (target.endsWith("/v1/prism/status")) return jsonResponse({ requestId: "req_invalid", token: { valid: false, status: "invalid" } }, { status: "401" });
       throw new Error(`unexpected request ${url}`);
     });
     await expect(createPrismMcpAdapter({ config: { baseUrl: "http://prism.local", developerToken }, fetch: invalidFetch }).initialize()).rejects.toThrow(
@@ -117,8 +119,9 @@ describe("Prism reference MCP adapter", () => {
     );
     expect(invalidFetch).toHaveBeenCalledTimes(1);
 
-    const reauthFetch = vi.fn(async (url: string | URL) => {
-      if (String(url).endsWith("/v1/prism/status")) {
+    const reauthFetch = vi.fn(async (url: string | URL | Request) => {
+      const target = url instanceof Request ? url.url : String(url);
+      if (target.endsWith("/v1/prism/status")) {
         return jsonResponse({
           requestId: "req_reauth",
           token: { valid: true, status: "active", tokenProfileId: "profile_1", expiresAt: null },

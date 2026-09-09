@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { handleSlackConfigurationPost, handleSlackConfigurationPut } from "./handler";
+import { handleSlackConfigurationPost, handleSlackConfigurationPut, type SlackConfigurationRouteDependencies } from "./handler";
 
 const SETUP_PROOF = `v1.${"1".repeat(13)}.${"a".repeat(43)}.${"b".repeat(43)}`;
 
@@ -14,7 +14,7 @@ describe("PUT /v1/prism/setup/slack-configuration", () => {
 
   it("saves through the server-resolved setup session and returns only redacted fields", async () => {
     const secret = "client-secret-canary";
-    const createPendingConfiguration = vi.fn().mockResolvedValue({ clientId: "123.456", version: "7", botScopes: ["users:read"], userScopes: ["chat:write"], socketModeEnabled: false, socketApiAppId: null, socketAppTokenConfigured: false });
+    const createPendingConfiguration = vi.fn<SlackConfigurationRouteDependencies["createPendingConfiguration"]>().mockResolvedValue({ clientId: "123.456", version: "7", botScopes: ["users:read"], userScopes: ["chat:write"], socketModeEnabled: false, socketApiAppId: null, socketAppTokenConfigured: false });
     const response = await handleSlackConfigurationPut(configurationRequest({ clientId: "123.456", clientSecret: secret, botScopes: ["users:read"], userScopes: ["chat:write"] }), {
       resolveSession: vi.fn().mockResolvedValue({ id: "setup-session-1", pendingConfigurationVersionId: "server-selected-pending" }),
       createPendingConfiguration
@@ -30,7 +30,7 @@ describe("PUT /v1/prism/setup/slack-configuration", () => {
   });
 
   it("rejects an absent setup session and does not inspect configuration values", async () => {
-    const createPendingConfiguration = vi.fn();
+    const createPendingConfiguration = vi.fn<SlackConfigurationRouteDependencies["createPendingConfiguration"]>();
     const response = await handleSlackConfigurationPut(configurationRequest({ clientId: "123", clientSecret: "secret-canary", botScopes: [], userScopes: ["chat:write"] }, false), {
       resolveSession: vi.fn().mockResolvedValue(null),
       createPendingConfiguration
@@ -70,7 +70,7 @@ describe("PUT /v1/prism/setup/slack-configuration", () => {
   });
 
   it("rejects unknown JSON fields before saving", async () => {
-    const createPendingConfiguration = vi.fn();
+    const createPendingConfiguration = vi.fn<SlackConfigurationRouteDependencies["createPendingConfiguration"]>();
     const response = await handleSlackConfigurationPut(configurationRequest({ clientId: "123", clientSecret: "secret", userScopes: ["chat:write"], botScopes: [], versionId: "browser-selected" }), {
       resolveSession: vi.fn().mockResolvedValue({ id: "setup-session", pendingConfigurationVersionId: null }),
       createPendingConfiguration
@@ -101,7 +101,7 @@ describe("PUT /v1/prism/setup/slack-configuration", () => {
     ["cookie-bound with exact origin", "http://localhost:3732", "none", true]
   ])("saves a native form using %s and redirects only to the configured public origin", async (_label, origin, fetchSite, withProofCookie) => {
     const secret = "native-client-secret-canary";
-    const createPendingConfiguration = vi.fn().mockResolvedValue({ clientId: "123.456", version: "8", botScopes: ["users:read"], userScopes: ["chat:write"] });
+    const createPendingConfiguration = vi.fn<SlackConfigurationRouteDependencies["createPendingConfiguration"]>().mockResolvedValue({ clientId: "123.456", version: "8", botScopes: ["users:read"], userScopes: ["chat:write"], socketModeEnabled: false, socketApiAppId: null, socketAppTokenConfigured: false });
     const response = await handleSlackConfigurationPost(nativeConfigurationRequest({ origin, fetchSite, withProofCookie, secret, requestUrl: "http://0.0.0.0:3732/v1/prism/setup/slack-configuration" }), nativeDependencies(createPendingConfiguration));
 
     expect(response.status).toBe(303);
@@ -112,7 +112,7 @@ describe("PUT /v1/prism/setup/slack-configuration", () => {
   });
 
   it("passes additional Slack scopes through the native setup form", async () => {
-    const createPendingConfiguration = vi.fn().mockResolvedValue({ clientId: "123.456", version: "8", botScopes: ["users:read", "admin.conversations:write"], userScopes: ["chat:write", "users:read.email"] });
+    const createPendingConfiguration = vi.fn<SlackConfigurationRouteDependencies["createPendingConfiguration"]>().mockResolvedValue({ clientId: "123.456", version: "8", botScopes: ["users:read", "admin.conversations:write"], userScopes: ["chat:write", "users:read.email"], socketModeEnabled: false, socketApiAppId: null, socketAppTokenConfigured: false });
     const request = nativeConfigurationRequest({ origin: "http://localhost:3732", fetchSite: "same-origin" });
     const body = new URLSearchParams(await request.text());
     body.set("additionalBotScopes", "admin.conversations:write");
@@ -127,7 +127,7 @@ describe("PUT /v1/prism/setup/slack-configuration", () => {
   });
 
   it("requires explicit callback review before enabling Socket Mode", async () => {
-    const createPendingConfiguration = vi.fn().mockResolvedValue({
+    const createPendingConfiguration = vi.fn<SlackConfigurationRouteDependencies["createPendingConfiguration"]>().mockResolvedValue({
       clientId: "123.456",
       version: "8",
       botScopes: ["users:read"],
@@ -174,7 +174,7 @@ describe("PUT /v1/prism/setup/slack-configuration", () => {
     ["same-site", null, "same-site", SETUP_PROOF],
     ["tampered proof", null, "none", `v1.${"1".repeat(13)}.${"a".repeat(43)}.${"c".repeat(43)}`]
   ])("rejects native configuration submission with %s", async (_label, origin, fetchSite, proof) => {
-    const createPendingConfiguration = vi.fn();
+    const createPendingConfiguration = vi.fn<SlackConfigurationRouteDependencies["createPendingConfiguration"]>();
     const response = await handleSlackConfigurationPost(nativeConfigurationRequest({ origin, fetchSite, proof }), nativeDependencies(createPendingConfiguration));
 
     expect(response.status).toBe(origin === "https://attacker.invalid" || fetchSite === "cross-site" || fetchSite === "same-site" ? 403 : 303);
@@ -183,7 +183,7 @@ describe("PUT /v1/prism/setup/slack-configuration", () => {
   });
 
   it("rejects unknown, duplicate, and oversized native form fields before saving", async () => {
-    const createPendingConfiguration = vi.fn();
+    const createPendingConfiguration = vi.fn<SlackConfigurationRouteDependencies["createPendingConfiguration"]>();
     const dependencies = nativeDependencies(createPendingConfiguration);
     const base = new URLSearchParams({ setupProof: SETUP_PROOF, clientId: "123", clientSecret: "secret", userScope: "chat:write" });
     const unknown = new URLSearchParams(base); unknown.set("versionId", "browser-selected");
@@ -197,7 +197,7 @@ describe("PUT /v1/prism/setup/slack-configuration", () => {
   });
 
   it("requires the exact native form media-type essence while accepting normal casing, whitespace, and parameters", async () => {
-    const createPendingConfiguration = vi.fn().mockResolvedValue({ clientId: "123.456", version: "8", botScopes: ["users:read"], userScopes: ["chat:write"] });
+    const createPendingConfiguration = vi.fn<SlackConfigurationRouteDependencies["createPendingConfiguration"]>().mockResolvedValue({ clientId: "123.456", version: "8", botScopes: ["users:read"], userScopes: ["chat:write"], socketModeEnabled: false, socketApiAppId: null, socketAppTokenConfigured: false });
     const dependencies = nativeDependencies(createPendingConfiguration);
     const prefixed = await handleSlackConfigurationPost(nativeConfigurationRequest({
       origin: "http://localhost:3732",
@@ -216,7 +216,7 @@ describe("PUT /v1/prism/setup/slack-configuration", () => {
   });
 });
 
-function nativeDependencies(createPendingConfiguration: ReturnType<typeof vi.fn>) {
+function nativeDependencies(createPendingConfiguration: SlackConfigurationRouteDependencies["createPendingConfiguration"]) {
   return {
     expectedOrigin: "http://localhost:3732",
     secureBrowserTransactionCookie: false,

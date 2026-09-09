@@ -16,6 +16,7 @@ import {
 import { UNATTRIBUTED_OIDC_SOURCE } from "./request-source";
 import type { OidcSigningService } from "./signing";
 import type { PlaytestAppCredential } from "../token-profiles/first-party-app";
+import { isOAuthFailureReason, type OAuthFailureReason } from "../slack/oauth-failure";
 
 const PENDING_REQUEST_TTL_MS = 10 * 60 * 1000;
 const AUTHORIZATION_CODE_TTL_MS = 5 * 60 * 1000;
@@ -101,7 +102,8 @@ export async function authorizeOidcRequest(input: {
 
 async function resumeOidcAuthorization(input: {
   requestId: string;
-  oauthError: "access_denied" | null;
+  oauthError: "access_denied" | "server_error" | null;
+  failureReason?: OAuthFailureReason;
   sessionToken?: string;
   store: OidcStore;
   now: Date;
@@ -115,7 +117,7 @@ async function resumeOidcAuthorization(input: {
     if (!cancelled) return invalidRequest();
     return {
       kind: "redirect",
-      location: authorizationErrorRedirect(cancelled, "access_denied").toString()
+      location: authorizationErrorRedirect(cancelled, input.oauthError, input.failureReason).toString()
     };
   }
 
@@ -367,7 +369,7 @@ function identityClaims(identity: OidcAccessTokenIdentity, scope: string): Recor
     name: displayName,
     preferred_username: displayName,
     slack_user_id: identity.slackUserId,
-    slack_team_id: identity.teamId,
+    ...(identity.teamId ? { slack_team_id: identity.teamId } : {}),
     ...(identity.enterpriseId ? { slack_enterprise_id: identity.enterpriseId } : {})
   };
 }
@@ -375,18 +377,22 @@ function identityClaims(identity: OidcAccessTokenIdentity, scope: string): Recor
 function parseResumeRequest(url: URL):
   | { kind: "none" }
   | { kind: "invalid" }
-  | { kind: "resume"; requestId: string; oauthError: "access_denied" | null } {
+  | { kind: "resume"; requestId: string; oauthError: "access_denied" | "server_error" | null; failureReason?: OAuthFailureReason } {
   if (!url.searchParams.has("request")) return { kind: "none" };
-  if ([...url.searchParams.keys()].some((key) => key !== "request" && key !== "error")) return { kind: "invalid" };
+  if ([...url.searchParams.keys()].some((key) => key !== "request" && key !== "error" && key !== "prism_reason")) return { kind: "invalid" };
   const requests = url.searchParams.getAll("request");
   const errors = url.searchParams.getAll("error");
+  const reasons = url.searchParams.getAll("prism_reason");
   if (
     requests.length !== 1 || !OPAQUE_HANDLE_PATTERN.test(requests[0]!) ||
-    errors.length > 1 || (errors.length === 1 && errors[0] !== "access_denied")
+    errors.length > 1 || (errors.length === 1 && errors[0] !== "access_denied" && errors[0] !== "server_error") ||
+    reasons.length > 1 || (reasons.length === 1 && (errors.length !== 1 || !isOAuthFailureReason(reasons[0])))
   ) {
     return { kind: "invalid" };
   }
-  return { kind: "resume", requestId: requests[0]!, oauthError: errors[0] === "access_denied" ? "access_denied" : null };
+  return { kind: "resume", requestId: requests[0]!,
+    oauthError: errors[0] === "access_denied" || errors[0] === "server_error" ? errors[0] : null,
+    ...(isOAuthFailureReason(reasons[0]) ? { failureReason: reasons[0] } : {}) };
 }
 
 function parseBearerToken(value: string | null): string | null {

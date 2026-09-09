@@ -25,7 +25,7 @@ describe("rejectCrossOriginBrowserMutation", () => {
 
   it("fails closed for null Origin without exact same-origin Fetch Metadata", () => {
     vi.stubEnv("PRISM_PUBLIC_BASE_URL", "http://localhost:3732");
-    for (const headers of [
+    const rejectedHeaders: Array<Record<string, string>> = [
       { origin: "null" },
       { origin: "null", "sec-fetch-site": "none" },
       { origin: "null", "sec-fetch-site": "same-site" },
@@ -33,7 +33,8 @@ describe("rejectCrossOriginBrowserMutation", () => {
       { origin: "http://localhost:3732", "sec-fetch-site": "same-site" },
       { origin: "http://localhost:3732", "sec-fetch-site": "cross-site" },
       { origin: "http://localhost:3732", "sec-fetch-site": "none" }
-    ]) {
+    ];
+    for (const headers of rejectedHeaders) {
       expect(rejectCrossOriginBrowserMutation(request(headers))?.status).toBe(403);
     }
   });

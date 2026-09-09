@@ -1,6 +1,7 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import type { Database } from "../db";
+import { createTestDatabase } from "../../../test/database";
 import { buildCurrentGlobalTokenProfilePolicy, GLOBAL_TOKEN_PROFILE_POLICY_SETTING_KEY } from "./global-policy";
 import { createPostgresGlobalTokenProfilePolicyStore } from "./global-policy-store";
 
@@ -22,27 +23,24 @@ describe("Postgres Global Token profile policy store", () => {
     const now = new Date("2026-02-01T12:00:00.000Z");
     const policy = buildCurrentGlobalTokenProfilePolicy({ presets: { allowed: ["read_only"], default: "read_only" } });
     const queries: Array<{ sql: string; params: unknown[] | undefined }> = [];
-    const database: Database = {
-      query: vi.fn(async (sql: string, params?: unknown[]) => {
-        queries.push({ sql, params });
-        if (sql.includes("insert into prism_settings")) {
-          return {
-            rows: [
-              {
-                value: policy,
-                version: 3,
-                updated_by_prism_user_id: "admin_user",
-                updated_at: now
-              }
-            ],
-            rowCount: 1
-          };
-        }
-        if (sql.includes("insert into prism_activity_audit")) return { rows: [activityRowFromInsertParams(params)], rowCount: 1 };
-        return { rows: [], rowCount: 0 };
-      }),
-      transaction: vi.fn(async (callback) => callback(database))
-    };
+    const database = createTestDatabase(async (sql: string, params?: unknown[]) => {
+      queries.push({ sql, params });
+      if (sql.includes("insert into prism_settings")) {
+        return {
+          rows: [
+            {
+              value: policy,
+              version: 3,
+              updated_by_prism_user_id: "admin_user",
+              updated_at: now
+            }
+          ],
+          rowCount: 1
+        };
+      }
+      if (sql.includes("insert into prism_activity_audit")) return { rows: [activityRowFromInsertParams(params)], rowCount: 1 };
+      return { rows: [], rowCount: 0 };
+    });
 
     const updated = await createPostgresGlobalTokenProfilePolicyStore(database).updateGlobalTokenProfilePolicy({
       policy,
@@ -59,10 +57,7 @@ describe("Postgres Global Token profile policy store", () => {
 });
 
 function databaseWithRows(rows: unknown[]): Database {
-  return {
-    query: vi.fn(async () => ({ rows, rowCount: rows.length })),
-    transaction: vi.fn()
-  };
+  return createTestDatabase(async () => ({ rows, rowCount: rows.length }));
 }
 
 function activityRowFromInsertParams(params: unknown[] = []) {

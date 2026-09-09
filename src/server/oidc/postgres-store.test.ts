@@ -54,6 +54,15 @@ describe("Postgres OIDC store", () => {
     expect(query).toHaveBeenCalledWith(expect.not.stringContaining("order by c.updated_at desc"), expect.any(Array));
   });
 
+  it("preserves an organization connection without a workspace through session and access-token identity", async () => {
+    const now = new Date("2026-08-21T00:00:00.000Z");
+    const query = vi.fn(async () => ({ rows: [{ prism_user_id: "user-1", slack_connection_id: "connection-1", client_id: "shg-playtest", scope: "openid profile",
+      slack_user_id: "U1", slack_user_display_name: "Ada", team_id: null, team_name: null, enterprise_id: "E1", enterprise_name: "Organization", auth_time: now }], rowCount: 1 }));
+    const store = createPostgresOidcStore(fakeDatabase(query));
+    expect(await store.resolveEligiblePrismSessionIdentity({ sessionToken: "session-token", now })).toMatchObject({ teamId: null, enterpriseId: "E1", prismUserId: "user-1" });
+    expect(await store.resolveAccessToken({ token: "access-token", now })).toMatchObject({ teamId: null, enterpriseId: "E1", prismUserId: "user-1" });
+  });
+
   it("derives Playtest initial-admin eligibility only from a live global configuration admin row", async () => {
     const query = vi.fn(async (sql: string, params?: unknown[]) => {
       expect(sql).toContain("from prism_configuration_admins");

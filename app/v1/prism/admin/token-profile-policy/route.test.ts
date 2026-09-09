@@ -7,10 +7,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { buildCurrentGlobalTokenProfilePolicy } from "../../../../../src/server/token-profiles/global-policy";
 
-const mockDb = vi.hoisted(() => ({
-  query: vi.fn<(sql: string, params?: unknown[]) => Promise<unknown>>(),
-  transaction: vi.fn<(callback: (db: typeof mockDb) => Promise<unknown>) => Promise<unknown>>()
-}));
+import type { TestQuery } from "../../../../../test/database";
+
+const { mockDb, mockQuery } = await vi.hoisted(async () => {
+  const { createTestDatabase } = await import("../../../../../test/database");
+  const mockQuery = vi.fn<TestQuery>();
+  return { mockDb: createTestDatabase(mockQuery), mockQuery };
+});
 
 vi.mock("../../../../../src/server/db", () => ({ database: mockDb }));
 
@@ -19,11 +22,11 @@ const tempDirs: string[] = [];
 describe("/v1/prism/admin/token-profile-policy", () => {
   beforeEach(() => {
     vi.resetModules();
-    mockDb.query.mockReset();
-    mockDb.transaction.mockReset();
-    mockDb.transaction.mockImplementation(async (callback) => callback(mockDb));
+    mockDb.query.mockClear();
+    mockQuery.mockReset();
+    mockDb.transaction.mockClear();
     delete process.env.PRISM_ADMIN_ALLOWLIST_PATH;
-    mockDb.query.mockImplementation(async (sql: string, params?: unknown[]) => {
+    mockQuery.mockImplementation(async (sql: string, params?: unknown[]) => {
       if (sql.includes("from prism_sessions s")) return { rows: [adminIdentityRow()], rowCount: 1 };
       if (sql.includes("from prism_settings")) return { rows: [settingRow(buildCurrentGlobalTokenProfilePolicy())], rowCount: 1 };
       if (sql.includes("insert into prism_settings")) return { rows: [settingRow(JSON.parse(String(params?.[1])), 2, "admin_user")], rowCount: 1 };

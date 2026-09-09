@@ -47,7 +47,11 @@ describe("Token profile detail workspace", () => {
             errorClass: null,
             httpStatus: 200,
             upstreamCalled: true,
-            requestId: "req_1"
+            requestId: "req_1",
+            adminActorPrismUserId: null,
+            adminActorSlackUserId: null,
+            adminActorSlackDisplayName: null,
+            adminReason: null
           }
         ]}
       />

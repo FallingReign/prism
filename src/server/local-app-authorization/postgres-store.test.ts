@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createPostgresLocalAppAuthorizationStore } from "./postgres-store";
+import { createTestDatabase } from "../../../test/database";
 
 describe("Postgres local-app authorization store", () => {
   it("casts cleanup timestamps before PostgreSQL interval arithmetic", async () => {
@@ -27,10 +28,7 @@ describe("Postgres local-app authorization store", () => {
       }
       throw new Error(`unexpected query: ${sql}`);
     });
-    const database = {
-      query,
-      transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(database))
-    } as any;
+    const database = createTestDatabase(query);
 
     await expect(createPostgresLocalAppAuthorizationStore(database).begin({
       requestId: "00000000-0000-4000-8000-000000000000",
@@ -39,6 +37,7 @@ describe("Postgres local-app authorization store", () => {
       clientId: "example-local-app",
       displayName: "Example Local App",
       intendedUse: "Read and reply to Slack messages",
+      inboundBlockActions: false,
       sourceKey: "s".repeat(64),
       pollIntervalSeconds: 5,
       expiresAt: new Date("2026-09-01T00:10:00Z"),
@@ -66,10 +65,7 @@ describe("Postgres local-app authorization store", () => {
       }
       throw new Error(`unexpected query after terminal state: ${sql}`);
     });
-    const database = {
-      query,
-      transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(database))
-    } as any;
+    const database = createTestDatabase(query);
 
     const result = await createPostgresLocalAppAuthorizationStore(database).exchange({
       deviceCodeHash: "d".repeat(64),
@@ -93,7 +89,7 @@ describe("Postgres local-app authorization store", () => {
       }
       throw new Error(`unexpected query: ${sql}`);
     });
-    const database = { query } as any;
+    const database = createTestDatabase(query);
     await expect(createPostgresLocalAppAuthorizationStore(database).resolveConsent({
       userCodeHash: "u".repeat(64),
       requestId: "00000000-0000-4000-8000-000000000000",
@@ -137,10 +133,7 @@ describe("Postgres local-app authorization store", () => {
       }
       throw new Error(`unexpected query: ${sql}`);
     });
-    const database = {
-      query,
-      transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) => callback(database))
-    } as any;
+    const database = createTestDatabase(query);
 
     await expect(createPostgresLocalAppAuthorizationStore(database).decide({
       requestId: "00000000-0000-4000-8000-000000000000",
@@ -167,7 +160,7 @@ describe("Postgres local-app authorization store", () => {
       }
       throw new Error(`approved request must not resolve a browser identity: ${sql}`);
     });
-    const database = { query } as any;
+    const database = createTestDatabase(query);
     await expect(createPostgresLocalAppAuthorizationStore(database).resolveConsent({
       userCodeHash: "u".repeat(64),
       requestId: null,

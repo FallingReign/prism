@@ -5,7 +5,7 @@ import type { CredentialEnvelope } from "../credentials/encryption";
 export const DELEGATED_CLIENT_PROOF_AUDIENCE = "urn:prism:delegated-slack-message:v1";
 export const DELEGATED_GRANT_TYPE = "urn:prism:params:grant-type:delegated-slack-message";
 export const DELEGATED_ACTION = "chat.postMessage";
-export const DELEGATED_EXECUTION_MODE = "user";
+export type DelegatedExecutionMode = "user" | "bot";
 
 export type DelegatedSlackPayload = {
   channel: string;
@@ -23,7 +23,7 @@ export type DelegationRequestInput = {
   teamId: string;
   channelId: string;
   action: typeof DELEGATED_ACTION;
-  executionMode: typeof DELEGATED_EXECUTION_MODE;
+  executionMode: DelegatedExecutionMode;
   payload: DelegatedSlackPayload;
   canonicalPayload: string;
   payloadSha256: string;
@@ -47,7 +47,7 @@ export type DelegationRequestRecord = {
   callbackUri: string;
   expectedPrismUserId: string;
   action: typeof DELEGATED_ACTION;
-  executionMode: typeof DELEGATED_EXECUTION_MODE;
+  executionMode: DelegatedExecutionMode;
   teamId: string;
   channelId: string;
   payloadEnvelope: StoredEnvelope;
@@ -71,6 +71,7 @@ export type DelegatedConsentIdentity = {
 };
 
 export type DelegatedConsentPreview = {
+  executionMode: DelegatedExecutionMode;
   requestId: string;
   externalJobId: string;
   revision: number;
@@ -84,6 +85,7 @@ export type DelegatedConsentPreview = {
 };
 
 export type DelegatedTokenResponse = {
+  execution_mode?: DelegatedExecutionMode;
   grant_token: string;
   token_type: "DPoP";
   expires_in: number;
@@ -101,6 +103,7 @@ export type DelegatedTokenResponse = {
 };
 
 export type DelegatedExecutionResponse = {
+  execution_mode?: DelegatedExecutionMode;
   state: "sent" | "failed" | "outcome_unknown";
   grant_id: string;
   external_job_id: string;

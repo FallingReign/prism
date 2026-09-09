@@ -30,7 +30,8 @@ export function resolveSlackExecutionIdentity({
   const requestedMode = parseExecutionMode(executionModeHeader);
   if (requestedMode === "invalid") return denied(decision, requestId, "invalid_execution_mode", null);
 
-  if (requestedMode && decision.capabilityMap.executionIdentity !== "selectable") {
+  if (requestedMode && decision.capabilityMap.executionIdentity !== "selectable" &&
+      requestedMode !== decision.capabilityMap.executionIdentity) {
     return denied(decision, requestId, "execution_mode_not_selectable", requestedMode);
   }
 

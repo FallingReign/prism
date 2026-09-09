@@ -7,8 +7,9 @@ import {
 } from "./presentation";
 
 describe("delegated delivery consent presentation", () => {
-  it("renders an escaped readable preview with collapsed exact payload verification", () => {
+  it.each(["user", "bot"] as const)("renders an escaped preview with the explicit %s sender and separate approver", (executionMode) => {
     const html = renderDelegatedConsentPage({
+      executionMode,
       requestId: "ddr_1234567890123456",
       externalJobId: "job-123",
       revision: 2,
@@ -38,6 +39,8 @@ describe("delegated delivery consent presentation", () => {
     });
 
     expect(html).toContain("Release &lt;img src=x&gt;");
+    expect(html).toContain(`<div class="label">Sender</div><div>${executionMode === "bot" ? "Slack Bridge bot" : "Ada &lt;Admin&gt;"}</div>`);
+    expect(html).toContain('<div class="label">Approved by</div><div>Ada &lt;Admin&gt;');
     expect(html).toContain("Readable section");
     expect(html).toContain("Fallback &lt;script&gt;MESSAGE_CANARY&lt;/script&gt;");
     expect(html).not.toContain("<script>");

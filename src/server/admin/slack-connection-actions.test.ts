@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { AdminAuthorizationDecision } from "./authorization";
-import type { Database } from "../db";
+import { createTestDatabase } from "../../../test/database";
 import type { AdminUserDirectoryStore } from "./user-directory";
 import { createPostgresAdminSlackConnectionActionStore, removeAdminSlackConnection, type AdminSlackConnectionActionStore } from "./slack-connection-actions";
 
@@ -192,14 +192,7 @@ function fakeConnectionStore(overrides: Partial<AdminSlackConnectionActionStore>
   };
 }
 
-function fakeDatabase(query: Database["query"]): Database {
-  return {
-    query,
-    async transaction(callback) {
-      return callback(this);
-    }
-  };
-}
+const fakeDatabase = createTestDatabase;
 
 function activityRowFromInsertParams(params: unknown[] | undefined) {
   if (!params) throw new Error("expected activity params");

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { NextRequest, NextResponse } from "next/server";
 
-import { getDelegatedDeliveryConfig, isSetupRequiredError } from "../../../../../src/server/config";
+import { getDelegatedDeliveryConfig, getSlackOAuthDeploymentConfig, isSetupRequiredError } from "../../../../../src/server/config";
 import { database } from "../../../../../src/server/db";
 import { createConfiguredSlackAppConfigurationResolver } from "../../../../../src/server/slack/app-configuration-factory";
 import { createSlackOAuthStart } from "../../../../../src/server/slack/oauth-flow";
@@ -12,6 +12,7 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request?: NextRequest): Promise<NextResponse> {
   const correlationId = randomUUID();
+  let oidcRequestId: string | null = null;
   try {
     const continuation = parseContinuation(request?.nextUrl.searchParams);
     if (continuation.kind === "invalid") {
@@ -22,6 +23,7 @@ export async function GET(request?: NextRequest): Promise<NextResponse> {
     if (continuation.delegatedDeliveryRequestId && !getDelegatedDeliveryConfig().enabled) {
       return secureOAuthResponse(NextResponse.redirect(errorRedirect(), { status: 302 }), correlationId);
     }
+    oidcRequestId = continuation.oidcAuthorizationRequestId;
     const resolved = await createConfiguredSlackAppConfigurationResolver({ database }).resolveOrdinary();
     const config = resolved.oauthConfig;
     const start = await createSlackOAuthStart({
@@ -42,6 +44,17 @@ export async function GET(request?: NextRequest): Promise<NextResponse> {
     });
     return secureOAuthResponse(response, correlationId);
   } catch (error) {
+    if (oidcRequestId) {
+      try {
+        // The resume endpoint consumes the pending request and uses its stored
+        // callback and state. No caller-supplied callback URL is accepted here.
+        const resume = new URL("/oauth/authorize", getSlackOAuthDeploymentConfig().publicBaseUrl);
+        resume.searchParams.set("request", oidcRequestId);
+        resume.searchParams.set("error", "server_error");
+        resume.searchParams.set("prism_reason", "runtime_unavailable");
+        return secureOAuthResponse(NextResponse.redirect(resume, { status: 302 }), correlationId);
+      } catch { /* A broken deployment origin cannot safely resume a client. */ }
+    }
     if (isSetupRequiredError(error)) {
       return secureOAuthResponse(
         NextResponse.redirect(setupRedirect(), { status: 302 }), correlationId

@@ -4,7 +4,8 @@ import type { DelegatedConsentPreview } from "./types";
 import { canonicalJson } from "./validation";
 
 export function renderDelegatedConsentPage(preview: DelegatedConsentPreview): string {
-  const sender = preview.identity.slackUserDisplayName ?? preview.identity.slackUserId;
+  const approver = preview.identity.slackUserDisplayName ?? preview.identity.slackUserId;
+  const sender = preview.executionMode === "bot" ? "Slack Bridge bot" : approver;
   const team = preview.identity.teamName ?? preview.identity.teamId;
   const canonicalPayload = canonicalJson(preview.payload);
   const readableBlocks = renderReadableBlocks(preview.payload.blocks);
@@ -24,7 +25,8 @@ export function renderDelegatedConsentPage(preview: DelegatedConsentPreview): st
   <h1>Approve this exact Slack message</h1>
   <p class="warning">Approval is for one message only. Prism will bind it to the sender, workspace, channel, content, and delivery window shown below.</p>
   <div class="meta">
-    <div class="label">Sender</div><div>${escapeHtml(sender)} <code>${escapeHtml(preview.identity.slackUserId)}</code></div>
+    <div class="label">Sender</div><div>${escapeHtml(sender)}</div>
+    <div class="label">Approved by</div><div>${escapeHtml(approver)} <code>${escapeHtml(preview.identity.slackUserId)}</code></div>
     <div class="label">Workspace</div><div>${escapeHtml(team)} <code>${escapeHtml(preview.identity.teamId)}</code></div>
     <div class="label">Channel</div><div><code>${escapeHtml(preview.channelId)}</code></div>
     <div class="label">Approve by</div><div>${escapeHtml(preview.approvalExpiresAt.toISOString())}</div>
@@ -45,7 +47,9 @@ export function renderDelegatedConsentPage(preview: DelegatedConsentPreview): st
 
 export function renderDelegatedConsentErrorPage(status: number): string {
   const title = status === 410 ? "Approval request expired" : status === 403 ? "Approval is not available for this identity" : "Approval request unavailable";
-  return renderErrorDocument(title, "Return to the application that started this request and create a new authorization request if needed.");
+  return renderErrorDocument(title, status === 403
+    ? "Check that your Slack connection has access to this workspace and the selected sender has permission to post. For Slack Bridge bot, ask a Slack administrator to check its installation and channel membership, then reconnect Slack in Prism. Return to the application that started this request and try again. No announcement was sent."
+    : "Return to the application that started this request and create a new authorization request if needed.");
 }
 
 export function renderDelegatedConsentCsrfErrorPage(): string {

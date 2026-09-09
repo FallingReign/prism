@@ -75,10 +75,11 @@ describe("delegated delivery browser mutations", () => {
     ["deny", () => import("./[id]/deny/route")]
   ])("rejects null or missing browser identity for %s before authorization", async (_name, loadRoute) => {
     const { POST } = await loadRoute();
-    for (const headers of [
+    const browserHeaders: Record<string, string>[] = [
       { "content-type": "application/x-www-form-urlencoded", origin: "null" },
       { "content-type": "application/x-www-form-urlencoded" }
-    ]) {
+    ];
+    for (const headers of browserHeaders) {
       const response = await POST(new NextRequest(
         `http://localhost:3732/v1/prism/delegations/slack-message/ddr_12345678-1234-4123-8123-123456789012/${_name}`,
         { method: "POST", headers, body: "" }

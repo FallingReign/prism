@@ -39,7 +39,7 @@ export type OidcSessionIdentity = {
   slackConnectionId: string;
   slackUserId: string;
   slackUserDisplayName: string | null;
-  teamId: string;
+  teamId: string | null;
   teamName: string | null;
   enterpriseId: string | null;
   enterpriseName: string | null;
@@ -65,7 +65,7 @@ export type OidcAccessTokenIdentity = {
   scope: string;
   slackUserId: string;
   slackUserDisplayName: string | null;
-  teamId: string;
+  teamId: string | null;
   teamName: string | null;
   enterpriseId: string | null;
   enterpriseName: string | null;
@@ -588,7 +588,7 @@ type PendingRow = {
 
 type SessionIdentityRow = {
   prism_user_id: string; slack_connection_id: string; slack_user_id: string; slack_user_display_name: string | null;
-  team_id: string; team_name: string | null; enterprise_id: string | null; enterprise_name: string | null; auth_time: Date;
+  team_id: string | null; team_name: string | null; enterprise_id: string | null; enterprise_name: string | null; auth_time: Date;
 };
 
 type AuthorizationCodeRow = {
@@ -598,7 +598,7 @@ type AuthorizationCodeRow = {
 
 type AccessTokenRow = {
   prism_user_id: string; slack_connection_id: string; client_id: string; scope: string; slack_user_id: string;
-  slack_user_display_name: string | null; team_id: string; team_name: string | null;
+  slack_user_display_name: string | null; team_id: string | null; team_name: string | null;
   enterprise_id: string | null; enterprise_name: string | null;
 };
 

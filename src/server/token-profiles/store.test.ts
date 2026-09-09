@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { Database } from "../db";
+import { createTestDatabase } from "../../../test/database";
 import { createPostgresTokenProfileStore } from "./store";
+import type { CapabilityMap } from "./presets";
 
 describe("Postgres Token profile store lifecycle resolution", () => {
   it("resolves the owner from the website session's exact Slack connection", async () => {
@@ -38,6 +39,7 @@ describe("Postgres Token profile store lifecycle resolution", () => {
     });
 
     const store = createPostgresTokenProfileStore(fakeDatabase(query));
+    if (!store.isWorkspaceAllowed) throw new Error("expected PostgreSQL workspace authorization");
     await expect(store.isWorkspaceAllowed({ slackConnectionId: "conn_org_1", workspaceId: "T_GRANTED" })).resolves.toBe(true);
   });
 
@@ -45,6 +47,7 @@ describe("Postgres Token profile store lifecycle resolution", () => {
     const query = vi.fn(async () => ({ rows: [{ allowed: false }], rowCount: 1 }));
     const store = createPostgresTokenProfileStore(fakeDatabase(query));
 
+    if (!store.isWorkspaceAllowed) throw new Error("expected PostgreSQL workspace authorization");
     await expect(store.isWorkspaceAllowed({ slackConnectionId: "conn_org_1", workspaceId: "T_REVOKED" })).resolves.toBe(false);
   });
 
@@ -379,14 +382,7 @@ describe("Postgres Token profile store lifecycle resolution", () => {
   });
 });
 
-function fakeDatabase(query: Database["query"]): Database {
-  return {
-    query,
-    async transaction(callback) {
-      return callback(this);
-    }
-  };
-}
+const fakeDatabase = createTestDatabase;
 
 function tokenProfileRow({
   preset,
@@ -397,7 +393,7 @@ function tokenProfileRow({
   tokenRevokedAt = null
 }: {
   preset: "read_only" | "messages_only";
-  capabilityMap: ReturnType<typeof capabilityMap>;
+  capabilityMap: CapabilityMap;
   expiresAt: Date | null;
   tokenExpiresAt: Date | null;
   status?: "active" | "revoked";
@@ -458,7 +454,7 @@ function activityRowFromInsertParams(params: unknown[] = []) {
   };
 }
 
-function capabilityMap(preset: "read_only" | "messages_only" = "read_only") {
+function capabilityMap(preset: "read_only" | "messages_only" = "read_only"): CapabilityMap {
   const messagesOnly = preset === "messages_only";
   return {
     version: 1,

@@ -1,19 +1,31 @@
 import { describe, expect, it } from "vitest";
 
 import { buildCurrentGlobalTokenProfilePolicy, type GlobalTokenProfilePolicy } from "./global-policy";
-import { createTokenProfile, deleteTokenProfile, listTokenProfiles, revokeTokenProfile, rotateTokenProfile, updateTokenProfilePolicy, type TokenProfileStore } from "./service";
+import { createTokenProfile, deleteTokenProfile, listTokenProfiles, revokeTokenProfile, rotateTokenProfile, updateTokenProfilePolicy, type TokenProfileStore, type TokenProfileMetadata } from "./service";
+import type { DeveloperTokenVerifier } from "./developer-token";
 
 const now = new Date("2026-01-01T00:00:00.000Z");
 
-function createMemoryStore(): TokenProfileStore & {
-  rows: {
-    profiles: any[];
-    verifiers: any[];
-  };
-} {
-  const rows = {
-    profiles: [] as any[],
-    verifiers: [] as any[]
+type StoredVerifier = DeveloperTokenVerifier & {
+  tokenProfileId: string;
+  isCurrent: boolean;
+  expiresAt: Date | null;
+  createdAt: Date;
+  lastUsedAt?: Date | null;
+  revokedAt?: Date | null;
+  overlapExpiresAt?: Date | null;
+  supersededAt?: Date | null;
+};
+
+type MemoryRows = {
+  profiles: TokenProfileMetadata[];
+  verifiers: StoredVerifier[];
+};
+
+function createMemoryStore(): TokenProfileStore & { rows: MemoryRows } {
+  const rows: MemoryRows = {
+    profiles: [],
+    verifiers: []
   };
 
   return {
@@ -22,7 +34,7 @@ function createMemoryStore(): TokenProfileStore & {
       return { prismUserId: "user_1", slackConnectionId: "conn_1", slackStatus: "healthy" };
     },
     async listProfiles() {
-      return rows.profiles.map((profile) => {
+      return rows.profiles.map((profile): TokenProfileMetadata => {
         const verifier = rows.verifiers.find((candidate) => candidate.tokenProfileId === profile.id && candidate.isCurrent !== false);
         return {
           ...profile,
@@ -44,7 +56,14 @@ function createMemoryStore(): TokenProfileStore & {
         return { kind: "duplicate_name" };
       }
       const { verifier, ...profileInput } = input;
-      const profile = { id: `profile_${rows.profiles.length + 1}`, ...profileInput, policyEffectiveAt: now, createdAt: now, updatedAt: now };
+      const profile: TokenProfileMetadata = {
+        id: `profile_${rows.profiles.length + 1}`,
+        ...profileInput,
+        globalPolicyStatus: { kind: "inside", reasons: [] },
+        policyEffectiveAt: now,
+        createdAt: now,
+        updatedAt: now
+      };
       rows.profiles.push(profile);
       rows.verifiers.push({ tokenProfileId: profile.id, ...verifier, expiresAt: input.expiresAt, isCurrent: true, createdAt: now });
       return { kind: "created", profile };

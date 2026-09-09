@@ -106,6 +106,7 @@ describe("Token profile form request bodies", () => {
         intendedUse: "Post release notes",
         preset: "messages_only",
         executionIdentity: "user",
+        capabilities: { read: true, search: false, writeMessages: true, reactions: true, filesMetadata: false, destructive: false },
         expiresAt: null,
         createdAt: "2026-01-01T00:00:00.000Z"
       })
@@ -136,6 +137,7 @@ describe("Token profile form request bodies", () => {
         intendedUse: "Search Slack metadata",
         preset: "read_only",
         executionIdentity: "automatic",
+        capabilities: { read: true, search: true, writeMessages: false, reactions: false, filesMetadata: false, destructive: false },
         expiresAt: null,
         createdAt: "2026-01-01T00:00:00.000Z"
       })

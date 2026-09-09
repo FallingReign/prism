@@ -508,6 +508,19 @@ describe("Slack OAuth flow", () => {
     expect(store.rows.users).toHaveLength(0);
   });
 
+  it.each(["network_error", "service_unavailable", "request_timeout", "ratelimited", "internal_error"] as const)("offers availability recovery for Slack %s without creating a session", async (errorClass) => {
+    const store = createMemoryStore();
+    const config = { clientId: "client-id", clientSecret: "synthetic-secret", redirectUri: "http://localhost:3732/v1/slack/oauth/callback", publicBaseUrl: "http://localhost:3732", botScopes: [], userScopes: [] };
+    const start = await createTestSlackOAuthStart({ store, config, oidcAuthorizationRequestId: "r".repeat(43), now });
+    const result = await completeTestSlackOAuthCallback({ store, config, now,
+      cipher: createLocalAesGcmCredentialCipher({ key: encryptionKey, keyId: "local-test" }),
+      state: start.state, cookieState: start.state, code: "synthetic-code",
+      slackOAuthClient: { async exchangeCode() { return { ok: false, errorClass }; }, async refreshToken() { throw new Error("unused"); } }
+    });
+    expect(result).toMatchObject({ kind: "slack_error", failureReason: "provider_unavailable", oidcAuthorizationRequestId: "r".repeat(43) });
+    expect(store.rows.sessions).toHaveLength(0);
+  });
+
   it("rejects malformed Slack success identity before creating a Prism user or session", async () => {
     const store = createMemoryStore();
     const cipher = createLocalAesGcmCredentialCipher({ key: encryptionKey, keyId: "local-test" });

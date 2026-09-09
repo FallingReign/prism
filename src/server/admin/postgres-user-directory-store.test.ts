@@ -1,6 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
-import type { Database } from "../db";
+import { createTestDatabase, type TestDatabase } from "../../../test/database";
 import { createPostgresAdminUserDirectoryStore } from "./postgres-user-directory-store";
 
 describe("Postgres admin user directory store", () => {
@@ -270,10 +270,6 @@ describe("Postgres admin user directory store", () => {
   });
 });
 
-function databaseWithResults(results: Array<{ rows: unknown[]; rowCount: number }>): Database & { query: ReturnType<typeof vi.fn> } {
-  const query = vi.fn(async () => results.shift() ?? { rows: [], rowCount: 0 });
-  return {
-    query,
-    transaction: vi.fn()
-  };
+function databaseWithResults(results: Array<{ rows: unknown[]; rowCount: number }>): TestDatabase {
+  return createTestDatabase(async () => results.shift() ?? { rows: [], rowCount: 0 });
 }

@@ -2,10 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 import { buildCurrentGlobalTokenProfilePolicy } from "../../../../src/server/token-profiles/global-policy";
 
-const mockDb = vi.hoisted(() => ({
-  query: vi.fn<(sql: string, params?: unknown[]) => Promise<unknown>>(),
-  transaction: vi.fn<(callback: (db: typeof mockDb) => Promise<unknown>) => Promise<unknown>>()
-}));
+import type { TestQuery } from "../../../../test/database";
+
+const { mockDb, mockQuery } = await vi.hoisted(async () => {
+  const { createTestDatabase } = await import("../../../../test/database");
+  const mockQuery = vi.fn<TestQuery>();
+  return { mockDb: createTestDatabase(mockQuery), mockQuery };
+});
 
 vi.mock("../../../../src/server/db", () => ({ database: mockDb }));
 
@@ -20,9 +23,9 @@ let persistedGlobalPolicy: ReturnType<typeof buildCurrentGlobalTokenProfilePolic
 describe("/v1/prism/token-profiles", () => {
   beforeEach(() => {
     vi.resetModules();
-    mockDb.query.mockReset();
-    mockDb.transaction.mockReset();
-    mockDb.transaction.mockImplementation(async (callback) => callback(mockDb));
+    mockDb.query.mockClear();
+    mockQuery.mockReset();
+    mockDb.transaction.mockClear();
     failAuditInsert = false;
     persistedPreset = "read_only";
     persistedCapabilityMap = capabilityMapFor("read_only");
@@ -32,7 +35,7 @@ describe("/v1/prism/token-profiles", () => {
     persistedGlobalPolicy = buildCurrentGlobalTokenProfilePolicy();
     process.env.PRISM_DEVELOPER_TOKEN_PEPPER = "pepper-secret-canary";
     process.env.PRISM_DEVELOPER_TOKEN_PEPPER_ID = "test-pepper";
-    mockDb.query.mockImplementation(async (sql: string, params?: unknown[]) => {
+    mockQuery.mockImplementation(async (sql: string, params?: unknown[]) => {
       if (sql.includes("from prism_sessions")) {
         return { rows: [{ prism_user_id: "user_1", slack_connection_id: "conn_1", status: "healthy" }], rowCount: 1 };
       }

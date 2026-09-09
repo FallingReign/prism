@@ -12,6 +12,7 @@ import { denyLocalAppAuthorizationAfterOAuth } from "../../../../../src/server/l
 import { createFetchSlackOAuthClient } from "../../../../../src/server/slack/oauth-client";
 import { createConfiguredSlackAppConfigurationResolver } from "../../../../../src/server/slack/app-configuration-factory";
 import { completeSlackOAuthCallback, slackOAuthStateCookieName } from "../../../../../src/server/slack/oauth-flow";
+import { oauthFailureStandardError, type OAuthFailureReason } from "../../../../../src/server/slack/oauth-failure";
 import { createMockSlackOAuthClient } from "../../../../../src/server/slack/mock-oauth-client";
 import { createPostgresOAuthFlowStore } from "../../../../../src/server/slack/postgres-store";
 import { fetchAllGrantedSlackTeams } from "../../../../../src/server/slack/organization-workspaces";
@@ -57,7 +58,8 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     let continuationUrl = oidcResumeUrl(
         deployment.publicBaseUrl,
         result.oidcAuthorizationRequestId,
-        result.kind === "linked" ? null : "access_denied"
+        result.kind === "linked" ? null : oauthFailureStandardError(result.failureReason),
+        result.kind === "linked" ? undefined : result.failureReason
       );
     if (!continuationUrl && result.delegatedDeliveryRequestId) {
       const delegatedConfig = getDelegatedDeliveryConfig();
@@ -151,12 +153,14 @@ function parseAuthorizationResponse(params: URLSearchParams): ParsedAuthorizatio
 function oidcResumeUrl(
   publicBaseUrl: string,
   requestId: string | null | undefined,
-  error: "access_denied" | null
+  error: "access_denied" | "server_error" | null,
+  failureReason?: OAuthFailureReason
 ): string | null {
   if (!requestId || !/^[A-Za-z0-9_-]{43}$/.test(requestId)) return null;
   const url = new URL("/oauth/authorize", publicBaseUrl);
   url.searchParams.set("request", requestId);
   if (error) url.searchParams.set("error", error);
+  if (error && failureReason) url.searchParams.set("prism_reason", failureReason);
   return url.toString();
 }
 

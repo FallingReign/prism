@@ -289,10 +289,11 @@ describe("delegated delivery issuance service", () => {
     let persistedGrant: Parameters<DelegatedDeliveryStore["exchangeCodeForGrant"]>[0] | undefined;
     const delegatedStore = fakeStore({
       loadCodeBinding: vi.fn(async () => ({ kind: "ready" as const, dpopJkt: jkt })),
-      exchangeCodeForGrant: vi.fn(async (input) => {
+      exchangeCodeForGrant: vi.fn<DelegatedDeliveryStore["exchangeCodeForGrant"]>(async (input) => {
         persistedGrant = input;
         return {
           grantId: input.grantId,
+          executionMode: "user",
           clientId: "shg-playtest-delegation",
           externalJobId: "job-123",
           revision: 1,
@@ -404,6 +405,10 @@ function fakeStore(overrides: Partial<DelegatedDeliveryStore> = {}): DelegatedDe
     denyRequestAfterOAuth: vi.fn(async () => null),
     loadCodeBinding: vi.fn(async () => null),
     exchangeCodeForGrant: vi.fn(async () => null),
+    loadGrantExecutionBinding: vi.fn(async () => null),
+    claimGrantExecution: vi.fn(async () => { throw new Error("unexpected-execution-claim"); }),
+    finishGrantExecution: vi.fn(async () => { throw new Error("unexpected-execution-finish"); }),
+    markGrantUpstreamCalled: vi.fn(async () => { throw new Error("unexpected-upstream-call"); }),
     ...overrides
   };
 }

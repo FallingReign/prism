@@ -1,7 +1,7 @@
 import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { handleSetupSessionPost } from "./handler";
+import { handleSetupSessionPost, type SetupSessionExchange } from "./handler";
 
 const SETUP_PROOF = `v1.${"1".repeat(13)}.${"a".repeat(43)}.${"b".repeat(43)}`;
 
@@ -13,7 +13,7 @@ describe("POST /v1/prism/setup/session", () => {
   });
 
   it("exchanges a same-origin form capability and sets only an HttpOnly setup session", async () => {
-    const exchangeCapability = vi.fn().mockResolvedValue({ sessionToken: "browser-session-token", expiresAt: new Date(Date.now() + 20 * 60_000) });
+    const exchangeCapability = vi.fn<SetupSessionExchange["exchangeCapability"]>().mockResolvedValue({ sessionToken: "browser-session-token", expiresAt: new Date(Date.now() + 20 * 60_000) });
     const code = "one-time-code-canary-value-that-is-long-enough";
     const response = await handleSetupSessionPost(formRequest(code), { exchangeCapability });
 
@@ -34,7 +34,7 @@ describe("POST /v1/prism/setup/session", () => {
 
   it("sets Secure from the validated HTTPS deployment origin in development", async () => {
     vi.stubEnv("PRISM_PUBLIC_BASE_URL", "https://prism.example.test");
-    const exchangeCapability = vi.fn().mockResolvedValue({ sessionToken: "browser-session-token", expiresAt: new Date(Date.now() + 20 * 60_000) });
+    const exchangeCapability = vi.fn<SetupSessionExchange["exchangeCapability"]>().mockResolvedValue({ sessionToken: "browser-session-token", expiresAt: new Date(Date.now() + 20 * 60_000) });
 
     const response = await handleSetupSessionPost(
       formRequest("one-time-code-canary-value-that-is-long-enough", "https://prism.example.test"),
@@ -47,7 +47,7 @@ describe("POST /v1/prism/setup/session", () => {
 
   it("rejects every query string before CSRF, source, or body work without reflection", async () => {
     const queryCanary = "query-secret-canary-must-not-appear";
-    const exchangeCapability = vi.fn();
+    const exchangeCapability = vi.fn<SetupSessionExchange["exchangeCapability"]>();
     const request = new NextRequest(
       `http://localhost:3732/v1/prism/setup/session?setupCode=${queryCanary}`,
       {
@@ -75,7 +75,7 @@ describe("POST /v1/prism/setup/session", () => {
   });
 
   it("ignores spoofed forwarding headers by default and skips source attribution", async () => {
-    const exchangeCapability = vi.fn().mockResolvedValue({ sessionToken: "browser-session-token", expiresAt: new Date(Date.now() + 20 * 60_000) });
+    const exchangeCapability = vi.fn<SetupSessionExchange["exchangeCapability"]>().mockResolvedValue({ sessionToken: "browser-session-token", expiresAt: new Date(Date.now() + 20 * 60_000) });
     const request = formRequest("one-time-code-canary-value-that-is-long-enough", "http://localhost:3732", {
       "x-forwarded-for": "attacker-selected, 192.0.2.1",
       "x-real-ip": "not-an-ip"
@@ -88,7 +88,7 @@ describe("POST /v1/prism/setup/session", () => {
   });
 
   it("normalizes one trusted proxy source before exchange", async () => {
-    const exchangeCapability = vi.fn().mockResolvedValue({ sessionToken: "browser-session-token", expiresAt: new Date(Date.now() + 20 * 60_000) });
+    const exchangeCapability = vi.fn<SetupSessionExchange["exchangeCapability"]>().mockResolvedValue({ sessionToken: "browser-session-token", expiresAt: new Date(Date.now() + 20 * 60_000) });
     const request = formRequest("one-time-code-canary-value-that-is-long-enough", "http://localhost:3732", {
       "x-forwarded-for": " 2001:DB8::42 ",
       "x-real-ip": "2001:db8::42"
@@ -106,7 +106,7 @@ describe("POST /v1/prism/setup/session", () => {
     ["malformed", { "x-real-ip": "not-an-ip" }],
     ["disagreeing", { "x-forwarded-for": "192.0.2.1", "x-real-ip": "192.0.2.2" }]
   ])("rejects %s trusted proxy sources before exchange", async (_label, forwardingHeaders) => {
-    const exchangeCapability = vi.fn();
+    const exchangeCapability = vi.fn<SetupSessionExchange["exchangeCapability"]>();
     const request = formRequest("one-time-code-canary-value-that-is-long-enough", "http://localhost:3732", forwardingHeaders);
 
     const response = await handleSetupSessionPost(request, { exchangeCapability, trustProxyHeaders: true });
@@ -141,7 +141,7 @@ describe("POST /v1/prism/setup/session", () => {
 
   it("uses the configured public origin for invalid, rate-limited, and successful redirects", async () => {
     const internalUrl = "http://0.0.0.0:3732/v1/prism/setup/session";
-    const dependencies = (exchangeCapability: ReturnType<typeof vi.fn>) => ({ exchangeCapability, expectedOrigin: "http://localhost:3732" });
+    const dependencies = (exchangeCapability: SetupSessionExchange["exchangeCapability"]) => ({ exchangeCapability, expectedOrigin: "http://localhost:3732" });
     const invalidResponse = await handleSetupSessionPost(formRequest("x".repeat(40), "http://localhost:3732", {}, internalUrl), dependencies(vi.fn().mockResolvedValue(null)));
     const rateError = Object.assign(new Error("rate limited"), { retryAfterSeconds: 10 });
     const rateResponse = await handleSetupSessionPost(formRequest("x".repeat(40), "http://localhost:3732", {}, internalUrl), dependencies(vi.fn().mockRejectedValue(rateError)));
@@ -153,7 +153,7 @@ describe("POST /v1/prism/setup/session", () => {
   });
 
   it("rejects duplicate and unknown form fields before exchange", async () => {
-    const exchangeCapability = vi.fn();
+    const exchangeCapability = vi.fn<SetupSessionExchange["exchangeCapability"]>();
     const duplicate = new NextRequest("http://localhost:3732/v1/prism/setup/session", { method: "POST", headers: sameOriginHeaders({ "content-type": "application/x-www-form-urlencoded" }), body: `setupCode=${"a".repeat(40)}&setupCode=${"b".repeat(40)}&setupProof=${SETUP_PROOF}` });
     const unknown = new NextRequest("http://localhost:3732/v1/prism/setup/session", { method: "POST", headers: sameOriginHeaders({ "content-type": "application/x-www-form-urlencoded" }), body: `setupCode=${"a".repeat(40)}&setupProof=${SETUP_PROOF}&returnTo=%2Fadmin` });
 
@@ -163,7 +163,7 @@ describe("POST /v1/prism/setup/session", () => {
   });
 
   it("rejects cross-origin, unsupported, and oversized requests before exchange", async () => {
-    const exchangeCapability = vi.fn();
+    const exchangeCapability = vi.fn<SetupSessionExchange["exchangeCapability"]>();
     const crossOrigin = await handleSetupSessionPost(formRequest("x".repeat(40), "https://attacker.invalid"), { exchangeCapability });
     const unsupported = await handleSetupSessionPost(new NextRequest("http://localhost:3732/v1/prism/setup/session", { method: "POST", headers: sameOriginHeaders({ "content-type": "text/plain" }), body: "x".repeat(40) }), { exchangeCapability });
     const oversized = await handleSetupSessionPost(new NextRequest("http://localhost:3732/v1/prism/setup/session", { method: "POST", headers: sameOriginHeaders({ "content-type": "application/x-www-form-urlencoded", "content-length": "4097" }), body: "setupCode=x" }), { exchangeCapability });
@@ -177,7 +177,7 @@ describe("POST /v1/prism/setup/session", () => {
   });
 
   it("requires the exact form media-type essence while accepting normal casing, whitespace, and parameters", async () => {
-    const exchangeCapability = vi.fn().mockResolvedValue({ sessionToken: "browser-session-token", expiresAt: new Date(Date.now() + 60_000) });
+    const exchangeCapability = vi.fn<SetupSessionExchange["exchangeCapability"]>().mockResolvedValue({ sessionToken: "browser-session-token", expiresAt: new Date(Date.now() + 60_000) });
     const code = "one-time-code-canary-value-that-is-long-enough";
     const prefixed = await handleSetupSessionPost(formRequest(code, "http://localhost:3732", {
       "content-type": "application/x-www-form-urlencoded-evil"
@@ -192,7 +192,7 @@ describe("POST /v1/prism/setup/session", () => {
   });
 
   it("returns a friendly configured-origin redirect when a native form proof is unavailable", async () => {
-    const exchangeCapability = vi.fn();
+    const exchangeCapability = vi.fn<SetupSessionExchange["exchangeCapability"]>();
     const request = new NextRequest("http://localhost:3732/v1/prism/setup/session", {
       method: "POST",
       headers: { "sec-fetch-site": "none", "content-type": "application/x-www-form-urlencoded" },
@@ -211,7 +211,7 @@ describe("POST /v1/prism/setup/session", () => {
     ["opaque origin with none", "null", "none", true],
     ["missing metadata", null, null, true]
   ])("accepts a valid browser synchronizer for %s", async (_label, origin, fetchSite, withCookie) => {
-    const exchangeCapability = vi.fn().mockResolvedValue(null);
+    const exchangeCapability = vi.fn<SetupSessionExchange["exchangeCapability"]>().mockResolvedValue(null);
     const response = await handleSetupSessionPost(browserProofRequest(origin, fetchSite, SETUP_PROOF, withCookie), browserProofDependencies(exchangeCapability));
 
     expect(response.status).toBe(303);
@@ -226,7 +226,7 @@ describe("POST /v1/prism/setup/session", () => {
     ["same-site", null, "same-site", SETUP_PROOF],
     ["mismatched proof", null, "none", `v1.${"1".repeat(13)}.${"a".repeat(43)}.${"c".repeat(43)}`]
   ])("rejects a synchronizer with %s", async (_label, origin, fetchSite, proof) => {
-    const exchangeCapability = vi.fn();
+    const exchangeCapability = vi.fn<SetupSessionExchange["exchangeCapability"]>();
     const response = await handleSetupSessionPost(browserProofRequest(origin, fetchSite, proof), browserProofDependencies(exchangeCapability));
 
     const hostileMetadata = origin === "https://attacker.invalid" || fetchSite === "cross-site" || fetchSite === "same-site";
@@ -236,7 +236,7 @@ describe("POST /v1/prism/setup/session", () => {
   });
 
   it("rejects duplicate raw browser-transaction cookies before proof validation", async () => {
-    const exchangeCapability = vi.fn().mockResolvedValue(null);
+    const exchangeCapability = vi.fn<SetupSessionExchange["exchangeCapability"]>().mockResolvedValue(null);
     const response = await handleSetupSessionPost(
       browserProofRequest(null, null, SETUP_PROOF, true, "prism_setup_browser_transaction=signed-browser-cookie; prism_setup_browser_transaction=signed-browser-cookie"),
       browserProofDependencies(exchangeCapability)
@@ -248,7 +248,7 @@ describe("POST /v1/prism/setup/session", () => {
   });
 });
 
-function browserProofDependencies(exchangeCapability: ReturnType<typeof vi.fn>) {
+function browserProofDependencies(exchangeCapability: SetupSessionExchange["exchangeCapability"]) {
   return {
     exchangeCapability,
     expectedOrigin: "http://localhost:3732",

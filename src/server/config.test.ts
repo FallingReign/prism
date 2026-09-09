@@ -164,11 +164,13 @@ describe("server setup config", () => {
 
   it("loads bounded cleanup settings without enabling or loading delegation secrets", () => {
     expect(getDelegatedDeliveryMaintenanceConfig({
+      NODE_ENV: "test",
       PRISM_DELEGATED_SLACK_DELIVERY_STATUS_RETENTION_SECONDS: "3600",
       PRISM_DELEGATED_SLACK_DELIVERY_CLEANUP_BATCH_SIZE: "25",
       PRISM_DELEGATED_SLACK_DELIVERY_GRANT_PEPPER: "cleanup-secret-canary"
     })).toEqual({ statusRetentionMs: 3_600_000, cleanupBatchSize: 25 });
     expect(() => getDelegatedDeliveryMaintenanceConfig({
+      NODE_ENV: "test",
       PRISM_DELEGATED_SLACK_DELIVERY_CLEANUP_BATCH_SIZE: "1001"
     })).toThrow("setup-required:PRISM_DELEGATED_SLACK_DELIVERY_CLEANUP_BATCH_SIZE");
   });
@@ -176,6 +178,7 @@ describe("server setup config", () => {
   it("derives the local database URL from canonical Postgres fields", () => {
     expect(
       getDatabaseUrl({
+        NODE_ENV: "test",
         POSTGRES_USER: "prism user",
         POSTGRES_PASSWORD: "local password",
         POSTGRES_DB: "prism-db",
@@ -186,12 +189,12 @@ describe("server setup config", () => {
   });
 
   it("throws sanitized setup-required errors without echoing missing secret values", () => {
-    expect(() => getSlackOAuthConfig({ SLACK_CLIENT_ID: "replace-with-client", SLACK_CLIENT_SECRET: "super-secret-canary" })).toThrow(
+    expect(() => getSlackOAuthConfig({ NODE_ENV: "test", SLACK_CLIENT_ID: "replace-with-client", SLACK_CLIENT_SECRET: "super-secret-canary" })).toThrow(
       "setup-required:SLACK_OAUTH_CREDENTIAL_PAIR"
     );
 
     try {
-      getCredentialEncryptionConfig({ PRISM_CREDENTIAL_ENCRYPTION_KEY: "replace-with-key", PRISM_CREDENTIAL_ENCRYPTION_KEY_ID: "local" });
+      getCredentialEncryptionConfig({ NODE_ENV: "test", PRISM_CREDENTIAL_ENCRYPTION_KEY: "replace-with-key", PRISM_CREDENTIAL_ENCRYPTION_KEY_ID: "local" });
     } catch (error) {
       expect(isSetupRequiredError(error)).toBe(true);
       expect(String(error)).not.toContain("super-secret-canary");
@@ -200,13 +203,13 @@ describe("server setup config", () => {
   });
 
   it("loads developer token verifier config without echoing pepper values", () => {
-    expect(getDeveloperTokenConfig({ PRISM_DEVELOPER_TOKEN_PEPPER: "pepper-secret-canary" })).toEqual({
+    expect(getDeveloperTokenConfig({ NODE_ENV: "test", PRISM_DEVELOPER_TOKEN_PEPPER: "pepper-secret-canary" })).toEqual({
       pepper: "pepper-secret-canary",
       pepperId: "local-dev-pepper-v1"
     });
 
     try {
-      getDeveloperTokenConfig({ PRISM_DEVELOPER_TOKEN_PEPPER: "replace-with-pepper-secret-canary" });
+      getDeveloperTokenConfig({ NODE_ENV: "test", PRISM_DEVELOPER_TOKEN_PEPPER: "replace-with-pepper-secret-canary" });
     } catch (error) {
       expect(isSetupRequiredError(error)).toBe(true);
       expect(String(error)).toBe("Error: setup-required:PRISM_DEVELOPER_TOKEN_PEPPER");
@@ -215,7 +218,7 @@ describe("server setup config", () => {
   });
 
   it("defaults Slack Web API forwarding to real mode and requires explicit non-production mock mode", () => {
-    expect(getSlackWebApiConfig({})).toEqual({ mockWebApi: false });
+    expect(getSlackWebApiConfig({ NODE_ENV: "test" })).toEqual({ mockWebApi: false });
     expect(getSlackWebApiConfig({ PRISM_SLACK_WEB_API_MOCK: "1", NODE_ENV: "development" })).toEqual({ mockWebApi: true });
     expect(getSlackWebApiConfig({ PRISM_SLACK_WEB_API_MOCK: "1", NODE_ENV: "production" })).toEqual({ mockWebApi: false });
   });
@@ -231,7 +234,7 @@ describe("server setup config", () => {
   });
 
   it("defaults an omitted Slack scope selection to every reviewed Prism-supported scope", () => {
-    const base = {
+    const base: NodeJS.ProcessEnv = {
       NODE_ENV: "development",
       SLACK_CLIENT_ID: "client-id",
       SLACK_CLIENT_SECRET: "secret-canary",
@@ -262,7 +265,7 @@ describe("server setup config", () => {
   });
 
   it("parses the legacy environment credentials as one authoritative bundle", () => {
-    const deployment = {
+    const deployment: NodeJS.ProcessEnv = {
       NODE_ENV: "development",
       PRISM_PUBLIC_BASE_URL: "http://localhost:3732",
       PRISM_OIDC_ALLOW_INSECURE_HTTP: "1"
@@ -415,7 +418,7 @@ describe("server setup config", () => {
   });
 
   it("loads bounded OIDC abuse-control overrides and fails closed on contradictory limits", () => {
-    const base = {
+    const base: NodeJS.ProcessEnv = {
       NODE_ENV: "development",
       PRISM_PUBLIC_BASE_URL: "http://localhost:3732",
       PRISM_OIDC_ALLOW_INSECURE_HTTP: "1",
@@ -474,7 +477,7 @@ describe("server setup config", () => {
   });
 
   it("canonicalizes and validates Slack public and callback URLs using the same HTTP policy", () => {
-    const base = {
+    const base: NodeJS.ProcessEnv = {
       NODE_ENV: "development",
       SLACK_CLIENT_ID: "client-id",
       SLACK_CLIENT_SECRET: "secret-canary",
@@ -510,7 +513,7 @@ describe("server setup config", () => {
   });
 
   it("accepts loopback and RFC1918 HTTP hosts only with the documented flag", () => {
-    const base = {
+    const base: NodeJS.ProcessEnv = {
       NODE_ENV: "development",
       PRISM_OIDC_ALLOW_INSECURE_HTTP: "1",
       PRISM_OIDC_PLAYTEST_CLIENT_ID: "shg-playtest",
