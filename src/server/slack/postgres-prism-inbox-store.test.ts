@@ -1,14 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { Database } from "../db";
+import { createTestDatabase } from "../../../test/database";
 import { createPostgresPrismInboxStore } from "./postgres-prism-inbox-store";
 
 const now = new Date("2026-09-02T00:00:00.000Z");
 
 describe("Postgres Prism Inbox authorization", () => {
   it("rechecks the current workspace grant while matching a Route", async () => {
-    const query = vi.fn(async () => ({ rows: [], rowCount: 0 }));
-    const database = { query, transaction: async (work: (tx: Database) => Promise<unknown>) => work({ query, transaction: vi.fn() } as unknown as Database) } as unknown as Database;
+    const query = vi.fn(async (_sql: string, _params?: unknown[]) => ({ rows: [], rowCount: 0 }));
+    const database = createTestDatabase(query);
     const store = createPostgresPrismInboxStore(database);
 
     await store.deliverBlockAction({
@@ -35,8 +35,8 @@ describe("Postgres Prism Inbox authorization", () => {
   });
 
   it("rechecks capability, connection, Route, and workspace grant before leasing a Delivery", async () => {
-    const query = vi.fn(async () => ({ rows: [], rowCount: 0 }));
-    const database = { query, transaction: vi.fn() } as unknown as Database;
+    const query = vi.fn(async (_sql: string, _params?: unknown[]) => ({ rows: [], rowCount: 0 }));
+    const database = createTestDatabase(query);
     const store = createPostgresPrismInboxStore(database);
 
     await store.leaseDeliveries({
@@ -52,7 +52,7 @@ describe("Postgres Prism Inbox authorization", () => {
     expect(leaseSql).toContain("c.status = 'healthy'");
     expect(leaseSql).not.toContain("r.status = 'active'");
     expect(leaseSql).toContain("slack_connection_workspace_grants g");
-    expect(routeCleanupSql).toContain("candidate.closed_at < $1 - interval '1 day'");
+    expect(routeCleanupSql).toContain("candidate.closed_at < $1::timestamptz - interval '1 day'");
     expect(routeCleanupSql).toContain("not exists");
   });
 });

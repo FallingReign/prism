@@ -222,7 +222,7 @@ async function cleanup(database: Database, now: Date): Promise<void> {
     `delete from prism_slack_inbound_deliveries
      where id in (
        select id from prism_slack_inbound_deliveries
-       where expires_at <= $1 or (acknowledged_at is not null and acknowledged_at < $1 - interval '1 day')
+       where expires_at <= $1 or (acknowledged_at is not null and acknowledged_at < $1::timestamptz - interval '1 day')
        order by coalesce(acknowledged_at, expires_at) limit $2
      )`,
     [now, CLEANUP_BATCH_SIZE]
@@ -232,7 +232,7 @@ async function cleanup(database: Database, now: Date): Promise<void> {
      where r.id in (
        select candidate.id from prism_slack_inbound_routes candidate
        where candidate.status = 'closed'
-         and candidate.closed_at < $1 - interval '1 day'
+         and candidate.closed_at < $1::timestamptz - interval '1 day'
          and not exists (
            select 1 from prism_slack_inbound_deliveries d where d.route_id = candidate.id
          )
