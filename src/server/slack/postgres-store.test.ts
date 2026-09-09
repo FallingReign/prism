@@ -241,6 +241,29 @@ describe("Postgres Slack OAuth identity continuity", () => {
     expect(query).toHaveBeenCalledTimes(1);
   });
 
+  it("anchors a new organization subject to the enterprise and never to the authorizing workspace", async () => {
+    const query = vi.fn(async (sql: string, params?: unknown[]) => {
+      if (sql.includes("from prism_users") && sql.includes("for update")) {
+        return { rows: [], rowCount: 0 };
+      }
+      if (sql.includes("insert into prism_users")) {
+        expect(params?.[1]).toBe("organization");
+        expect(params?.[2]).toBe("E123");
+        expect(params?.[3]).toBeNull();
+        return { rows: [{ id: "organization_subject" }], rowCount: 1 };
+      }
+      throw new Error(`unexpected-sql:${sql.slice(0, 80)}`);
+    });
+    const store = createPostgresOAuthFlowStore(fakeDatabase(query));
+
+    await expect(store.upsertPrismUser({
+      identityScope: "organization",
+      slackTeamId: "T123",
+      slackUserId: "U123",
+      slackEnterpriseId: "E123"
+    })).resolves.toEqual({ id: "organization_subject" });
+  });
+
   it("fails closed when a historical organization duplicate would make subject reconciliation ambiguous", async () => {
     const query = vi.fn(async (sql: string) => {
       if (sql.includes("from prism_users") && sql.includes("for update")) {

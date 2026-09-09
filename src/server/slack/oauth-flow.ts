@@ -382,7 +382,15 @@ export async function completeSlackOAuthCallback({
         expiresAt: new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000)
       });
     });
-  } catch {
+  } catch (error) {
+    console.error("Slack connection persistence failed:", {
+      name: error instanceof Error ? error.name : "unknown_error",
+      message: error instanceof Error ? error.message : undefined,
+      code: (error as { code?: string })?.code,
+      constraint: (error as { constraint?: string })?.constraint,
+      table: (error as { table?: string })?.table,
+      detail: (error as { detail?: string })?.detail
+    });
     return {
       kind: "slack_error",
       redirectUrl: statusRedirect(deployment, "error", setupBinding, undefined, "persistence_failed"),

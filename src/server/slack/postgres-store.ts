@@ -142,7 +142,10 @@ export function createPostgresOAuthFlowStore(
           randomUUID(),
           input.identityScope,
           organization ? input.slackEnterpriseId : input.slackTeamId,
-          input.slackTeamId,
+          // An organization subject is identified by its enterprise. The
+          // authorizing workspace belongs on the connection, not the identity,
+          // so the same person cannot gain a second subject per workspace.
+          organization ? null : input.slackTeamId,
           input.slackUserId,
           input.slackEnterpriseId
         ]
