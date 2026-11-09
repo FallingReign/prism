@@ -3,6 +3,7 @@ import { LogLevel, SocketModeClient } from "@slack/socket-mode";
 
 import { getDatabaseUrl } from "../src/server/config";
 import { closeDatabasePool, database } from "../src/server/db";
+import { describeErrorForLog } from "../src/server/observability/error-details";
 import { createPostgresPrismInboxStore } from "../src/server/slack/postgres-prism-inbox-store";
 import { loadSlackSocketConfiguration } from "../src/server/slack/socket-configuration";
 import { handleSlackSocketEvent, updateSocketWorkerHealth, type SlackSocketEvent } from "../src/server/slack/socket-worker";
@@ -119,7 +120,7 @@ function delay(milliseconds: number): Promise<void> {
 
 main()
   .catch(async (error) => {
-    console.error("Slack Socket worker failed.", { errorName: error instanceof Error ? error.name : typeof error });
+    console.error("Slack Socket worker failed.", describeErrorForLog(error));
     try {
       await updateSocketWorkerHealth(database, { workerKey: WORKER_KEY, status: "error", lastErrorClass: error instanceof Error ? error.name : "unknown_error" });
     } catch {}
